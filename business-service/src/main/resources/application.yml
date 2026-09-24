@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: business-service
+  main:
+    banner-mode: "off"
+server:
+  address: ${BUSINESS_HOST:127.0.0.1}
+  port: ${BUSINESS_PORT:8080}
+  error:
+    include-message: never
+    include-stacktrace: never

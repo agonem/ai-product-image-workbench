@@ -1,0 +1,148 @@
+:root {
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  color: #303a34;
+  background: #faf8f4;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  line-height: 1.65;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+.shell {
+  max-width: 920px;
+  padding: 40px 24px;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  border-bottom: 1px solid #dddcd3;
+  padding-bottom: 20px;
+}
+
+.eyebrow {
+  font-weight: 700;
+  margin: 0;
+}
+
+.badge {
+  font-size: 0.8rem;
+  color: #405e4b;
+  background: #e7eee6;
+  padding: 4px 12px;
+  border-radius: 6px;
+}
+
+.intro {
+  margin: 48px 0 32px;
+}
+
+h1 {
+  font-size: clamp(1.8rem, 5vw, 2.5rem);
+  line-height: 1.35;
+  margin: 0 0 16px;
+}
+
+h2 {
+  font-size: 1.1rem;
+  margin: 0 0 8px;
+}
+
+p {
+  color: #59645d;
+  margin: 0 0 8px;
+}
+
+.panel {
+  padding: 28px;
+  border: 1px solid #dedfd6;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.connection {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 28px 0 20px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #7c806a;
+  flex-shrink: 0;
+}
+
+[data-state='ready'] .status-dot {
+  background: #3d7350;
+}
+
+[data-state='error'] .status-dot {
+  background: #a5462e;
+}
+
+button {
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: #355e46;
+  border: 1px solid #355e46;
+  border-radius: 6px;
+  min-height: 44px;
+  padding: 8px 20px;
+  cursor: pointer;
+}
+
+button:hover:enabled {
+  background: #284c36;
+}
+
+button:focus-visible {
+  outline: 3px solid #a66735;
+  outline-offset: 3px;
+}
+
+button:disabled {
+  cursor: wait;
+  background: #687b6e;
+}
+
+.scope {
+  margin: 28px 0;
+  padding: 0 4px;
+}
+
+footer {
+  color: #62695d;
+  font-size: 0.8rem;
+  border-top: 1px solid #dddcd3;
+  padding-top: 20px;
+}
+
+@media (max-width: 480px) {
+  .shell {
+    padding: 24px 16px;
+  }
+
+  .panel {
+    padding: 20px;
+  }
+
+  button {
+    width: 100%;
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/image-task-request-v1.schema.json",
+  "title": "ImageTaskRequestedV1 (draft)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "attempt_id", "feature_type", "product_asset", "output_object_prefix", "correlation_id"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "attempt_id": {"type": "string", "minLength": 1},
+    "feature_type": {"enum": ["GIFT", "SCENE", "SELLING_POINT"]},
+    "product_asset": {"$ref": "#/$defs/asset"},
+    "gift_asset": {"$ref": "#/$defs/asset"},
+    "product_alpha_asset": {"$ref": "#/$defs/asset"},
+    "output_object_prefix": {"type": "string", "minLength": 1},
+    "template_snapshot": {"type": "object"},
+    "layout": {"type": "object"},
+    "manual_text": {"type": "string"},
+    "selling_points": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
+    "scene_template_prompt": {"type": "string", "minLength": 1},
+    "scene_custom_prompt": {"type": "string", "minLength": 1},
+    "style_custom_prompt": {"type": "string"},
+    "correlation_id": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {"if": {"properties": {"feature_type": {"const": "GIFT"}}, "required": ["feature_type"]}, "then": {"required": ["gift_asset"]}},
+    {"if": {"properties": {"feature_type": {"const": "SCENE"}}, "required": ["feature_type"]}, "then": {"anyOf": [{"required": ["scene_template_prompt"]}, {"required": ["scene_custom_prompt"]}]}},
+    {"if": {"properties": {"feature_type": {"const": "SELLING_POINT"}}, "required": ["feature_type"]}, "then": {"required": ["selling_points"]}}
+  ],
+  "$defs": {
+    "asset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["asset_id", "object_key", "sha256"],
+      "properties": {
+        "asset_id": {"type": "string", "minLength": 1},
+        "object_key": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+      }
+    }
+  }
+}
