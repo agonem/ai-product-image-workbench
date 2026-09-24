@@ -1,0 +1,15 @@
+spring:
+  autoconfigure:
+    exclude: []
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 5
+      connection-timeout: 5000
+  flyway:
+    enabled: true
+    clean-disabled: true
+    baseline-on-migrate: false
+    validate-on-migrate: true

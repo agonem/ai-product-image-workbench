@@ -1,0 +1,2043 @@
+[
+  {
+    "name": "api-GIFT",
+    "contract": "task-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "GIFT",
+      "gift_asset_id": "gift_fixture",
+      "template_version_id": "version_fixture",
+      "manual_text": "人工输入：赠清洁刷",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      }
+    }
+  },
+  {
+    "name": "worker-GIFT",
+    "contract": "task-request",
+    "valid": true,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "api-SCENE",
+    "contract": "task-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "SCENE",
+      "scene_custom_prompt": "合成测试描述，不调用供应商",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        }
+      }
+    }
+  },
+  {
+    "name": "worker-SCENE",
+    "contract": "task-request",
+    "valid": true,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "SCENE",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        }
+      },
+      "scene_custom_prompt": "合成测试描述，不调用供应商"
+    }
+  },
+  {
+    "name": "api-SELLING_POINT",
+    "contract": "task-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "SELLING_POINT",
+      "layout_template_version_id": "version_fixture",
+      "selling_points": [
+        "人工输入 150 mL",
+        "原文不改写"
+      ],
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        }
+      }
+    }
+  },
+  {
+    "name": "worker-SELLING_POINT",
+    "contract": "task-request",
+    "valid": true,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "SELLING_POINT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        }
+      },
+      "selling_points": [
+        "人工输入 150 mL",
+        "原文不改写"
+      ]
+    }
+  },
+  {
+    "name": "idempotency-valid",
+    "contract": "idempotency-key",
+    "valid": true,
+    "payload": "fixture:attempt-1"
+  },
+  {
+    "name": "idempotency-space",
+    "contract": "idempotency-key",
+    "valid": false,
+    "payload": "bad key"
+  },
+  {
+    "name": "idempotency-too-long",
+    "contract": "idempotency-key",
+    "valid": false,
+    "payload": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+    "name": "completed-deterministic",
+    "contract": "task-completed",
+    "valid": true,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.completed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "artifacts": [
+        {
+          "ordinal": 0,
+          "kind": "COMPOSITE",
+          "object_key": "results/task_fixture/attempt_fixture/0.png",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "width": 64,
+          "height": 64
+        }
+      ],
+      "duration_ms": 10,
+      "background_generation": null
+    }
+  },
+  {
+    "name": "completed-background-metadata",
+    "contract": "task-completed",
+    "valid": true,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.completed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "artifacts": [
+        {
+          "ordinal": 0,
+          "kind": "COMPOSITE",
+          "object_key": "results/task_fixture/attempt_fixture/0.png",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "width": 64,
+          "height": 64
+        }
+      ],
+      "duration_ms": 10,
+      "background_generation": {
+        "provider": "fixture-provider-not-configured",
+        "model": "fixture-model",
+        "prompt": "fixture-background-only",
+        "parameters": {
+          "seed": 1
+        },
+        "request_id": "provider_fixture",
+        "output_object_key": "fixtures/background.png"
+      }
+    }
+  },
+  {
+    "name": "failed",
+    "contract": "task-failed",
+    "valid": true,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.failed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "error": {
+        "code": "GENERATION_FAILED",
+        "safe_message": "合成测试错误",
+        "retryable": true
+      },
+      "duration_ms": 10
+    }
+  },
+  {
+    "name": "response-QUEUED",
+    "contract": "task-response",
+    "valid": true,
+    "payload": {
+      "id": "task_fixture",
+      "feature_type": "GIFT",
+      "status": "QUEUED",
+      "attempt": 1,
+      "created_at": "2026-09-24T09:00:00Z",
+      "artifacts": [],
+      "error": null
+    }
+  },
+  {
+    "name": "response-RUNNING",
+    "contract": "task-response",
+    "valid": true,
+    "payload": {
+      "id": "task_fixture",
+      "feature_type": "GIFT",
+      "status": "RUNNING",
+      "attempt": 1,
+      "created_at": "2026-09-24T09:00:00Z",
+      "artifacts": [],
+      "error": null
+    }
+  },
+  {
+    "name": "response-SUCCEEDED",
+    "contract": "task-response",
+    "valid": true,
+    "payload": {
+      "id": "task_fixture",
+      "feature_type": "GIFT",
+      "status": "SUCCEEDED",
+      "attempt": 1,
+      "created_at": "2026-09-24T09:00:00Z",
+      "artifacts": [
+        {
+          "id": "artifact_fixture",
+          "kind": "COMPOSITE",
+          "width": 64,
+          "height": 64
+        }
+      ],
+      "error": null
+    }
+  },
+  {
+    "name": "response-FAILED",
+    "contract": "task-response",
+    "valid": true,
+    "payload": {
+      "id": "task_fixture",
+      "feature_type": "GIFT",
+      "status": "FAILED",
+      "attempt": 1,
+      "created_at": "2026-09-24T09:00:00Z",
+      "artifacts": [],
+      "error": {
+        "code": "GENERATION_FAILED",
+        "message": "合成测试错误",
+        "correlation_id": "correlation_fixture"
+      }
+    }
+  },
+  {
+    "name": "scene-preset",
+    "contract": "task-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "SCENE",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        }
+      },
+      "scene_template_version_id": "version_fixture"
+    }
+  },
+  {
+    "name": "custom-scene-no-template-versions",
+    "contract": "task-request",
+    "valid": true,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "SCENE",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        }
+      },
+      "scene_custom_prompt": "合成测试描述，不调用供应商"
+    }
+  },
+  {
+    "name": "gift-missing-gift",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "GIFT",
+      "template_version_id": "version_fixture",
+      "manual_text": "人工输入：赠清洁刷",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      }
+    }
+  },
+  {
+    "name": "gift-has-scene-field",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "GIFT",
+      "gift_asset_id": "gift_fixture",
+      "template_version_id": "version_fixture",
+      "manual_text": "人工输入：赠清洁刷",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "scene_custom_prompt": "not allowed"
+    }
+  },
+  {
+    "name": "selling-has-gift-field",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "SELLING_POINT",
+      "layout_template_version_id": "version_fixture",
+      "selling_points": [
+        "人工输入 150 mL",
+        "原文不改写"
+      ],
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        }
+      },
+      "gift_asset_id": "gift_fixture"
+    }
+  },
+  {
+    "name": "scene-no-description",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "SCENE",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        }
+      }
+    }
+  },
+  {
+    "name": "scene-blank-description",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "SCENE",
+      "scene_custom_prompt": " \t\n",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        }
+      }
+    }
+  },
+  {
+    "name": "selling-empty-points",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "SELLING_POINT",
+      "layout_template_version_id": "version_fixture",
+      "selling_points": [],
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        }
+      }
+    }
+  },
+  {
+    "name": "selling-empty-point",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "SELLING_POINT",
+      "layout_template_version_id": "version_fixture",
+      "selling_points": [
+        " "
+      ],
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        }
+      }
+    }
+  },
+  {
+    "name": "unknown-feature",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "OTHER",
+      "gift_asset_id": "gift_fixture",
+      "template_version_id": "version_fixture",
+      "manual_text": "人工输入：赠清洁刷",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      }
+    }
+  },
+  {
+    "name": "unknown-field",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "GIFT",
+      "gift_asset_id": "gift_fixture",
+      "template_version_id": "version_fixture",
+      "manual_text": "人工输入：赠清洁刷",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "api_key": "not-a-real-key"
+    }
+  },
+  {
+    "name": "coordinate-string",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "GIFT",
+      "gift_asset_id": "gift_fixture",
+      "template_version_id": "version_fixture",
+      "manual_text": "人工输入：赠清洁刷",
+      "layout": {
+        "product": {
+          "x": "0.1",
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      }
+    }
+  },
+  {
+    "name": "coordinate-boolean",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "GIFT",
+      "gift_asset_id": "gift_fixture",
+      "template_version_id": "version_fixture",
+      "manual_text": "人工输入：赠清洁刷",
+      "layout": {
+        "product": {
+          "x": true,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      }
+    }
+  },
+  {
+    "name": "coordinate-outside-range",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "GIFT",
+      "gift_asset_id": "gift_fixture",
+      "template_version_id": "version_fixture",
+      "manual_text": "人工输入：赠清洁刷",
+      "layout": {
+        "product": {
+          "x": 1.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      }
+    }
+  },
+  {
+    "name": "zero-width",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "GIFT",
+      "gift_asset_id": "gift_fixture",
+      "template_version_id": "version_fixture",
+      "manual_text": "人工输入：赠清洁刷",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      }
+    }
+  },
+  {
+    "name": "unexpected-rotation",
+    "contract": "task-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "product_asset_id": "product_fixture",
+      "output_preset_id": "preview_fixture",
+      "feature_type": "GIFT",
+      "gift_asset_id": "gift_fixture",
+      "template_version_id": "version_fixture",
+      "manual_text": "人工输入：赠清洁刷",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7,
+          "rotation": 45
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      }
+    }
+  },
+  {
+    "name": "worker-version-string",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": "1",
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "worker-version-boolean",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": true,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "worker-version-unsupported",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 2,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "worker-missing-alpha",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "worker-missing-snapshot",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "worker-missing-event",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "worker-public-url",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "https://example.invalid/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "worker-traversal",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "assets/../product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "worker-binary-field",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "base64": "AAAA"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "worker-invalid-hash",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "abc"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "worker-uppercase-hash",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "template-missing-publisher",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_at": "2026-09-24T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "template-date-missing-zone",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-09-24T09:00:00",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "template-invalid-date",
+    "contract": "task-request",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.requested.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "feature_type": "GIFT",
+      "product_asset": {
+        "asset_id": "product_fixture",
+        "object_key": "fixtures/product.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "product_alpha_asset": {
+        "asset_id": "alpha_fixture",
+        "object_key": "fixtures/alpha.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "output_object_prefix": "results/task_fixture/attempt_fixture/",
+      "template_snapshot": {
+        "versions": [
+          {
+            "id": "version_fixture",
+            "template_id": "template_fixture",
+            "version": 1,
+            "published_by": "user_fixture",
+            "published_at": "2026-02-30T09:00:00Z",
+            "config": {
+              "purpose": "synthetic-contract-fixture"
+            }
+          }
+        ],
+        "output_preset": {
+          "id": "preview_fixture",
+          "config": {
+            "purpose": "no-platform-size-selected"
+          }
+        }
+      },
+      "layout": {
+        "product": {
+          "x": 0.1,
+          "y": 0.1,
+          "width": 0.7,
+          "height": 0.7
+        },
+        "gift": {
+          "x": 0.7,
+          "y": 0.7,
+          "width": 0.2,
+          "height": 0.2
+        }
+      },
+      "gift_asset": {
+        "asset_id": "gift_fixture",
+        "object_key": "fixtures/gift.png",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "manual_text": "人工输入：赠清洁刷"
+    }
+  },
+  {
+    "name": "completed-no-artifacts",
+    "contract": "task-completed",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.completed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "artifacts": [],
+      "duration_ms": 10,
+      "background_generation": null
+    }
+  },
+  {
+    "name": "completed-no-attempt",
+    "contract": "task-completed",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.completed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "correlation_id": "correlation_fixture",
+      "artifacts": [
+        {
+          "ordinal": 0,
+          "kind": "COMPOSITE",
+          "object_key": "results/task_fixture/attempt_fixture/0.png",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "width": 64,
+          "height": 64
+        }
+      ],
+      "duration_ms": 10,
+      "background_generation": null
+    }
+  },
+  {
+    "name": "completed-negative-duration",
+    "contract": "task-completed",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.completed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "artifacts": [
+        {
+          "ordinal": 0,
+          "kind": "COMPOSITE",
+          "object_key": "results/task_fixture/attempt_fixture/0.png",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "width": 64,
+          "height": 64
+        }
+      ],
+      "duration_ms": -1,
+      "background_generation": null
+    }
+  },
+  {
+    "name": "completed-invalid-width",
+    "contract": "task-completed",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.completed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "artifacts": [
+        {
+          "ordinal": 0,
+          "kind": "COMPOSITE",
+          "object_key": "results/task_fixture/attempt_fixture/0.png",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "width": 0,
+          "height": 64
+        }
+      ],
+      "duration_ms": 10,
+      "background_generation": null
+    }
+  },
+  {
+    "name": "completed-fractional-width",
+    "contract": "task-completed",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.completed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "artifacts": [
+        {
+          "ordinal": 0,
+          "kind": "COMPOSITE",
+          "object_key": "results/task_fixture/attempt_fixture/0.png",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "width": 1.5,
+          "height": 64
+        }
+      ],
+      "duration_ms": 10,
+      "background_generation": null
+    }
+  },
+  {
+    "name": "completed-boolean-duration",
+    "contract": "task-completed",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.completed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "artifacts": [
+        {
+          "ordinal": 0,
+          "kind": "COMPOSITE",
+          "object_key": "results/task_fixture/attempt_fixture/0.png",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "width": 64,
+          "height": 64
+        }
+      ],
+      "duration_ms": true,
+      "background_generation": null
+    }
+  },
+  {
+    "name": "background-incomplete-provenance",
+    "contract": "task-completed",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.completed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "artifacts": [
+        {
+          "ordinal": 0,
+          "kind": "COMPOSITE",
+          "object_key": "results/task_fixture/attempt_fixture/0.png",
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "width": 64,
+          "height": 64
+        }
+      ],
+      "duration_ms": 10,
+      "background_generation": {
+        "provider": "fixture-provider-not-configured",
+        "prompt": "fixture-background-only",
+        "parameters": {
+          "seed": 1
+        },
+        "request_id": "provider_fixture",
+        "output_object_key": "fixtures/background.png"
+      }
+    }
+  },
+  {
+    "name": "failed-retryable-string",
+    "contract": "task-failed",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.failed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "error": {
+        "code": "GENERATION_FAILED",
+        "safe_message": "合成测试错误",
+        "retryable": "true"
+      },
+      "duration_ms": 10
+    }
+  },
+  {
+    "name": "failed-unknown-code",
+    "contract": "task-failed",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.failed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "error": {
+        "code": "RAW_PROVIDER_TRACE",
+        "safe_message": "合成测试错误",
+        "retryable": true
+      },
+      "duration_ms": 10
+    }
+  },
+  {
+    "name": "failed-wrong-event",
+    "contract": "task-failed",
+    "valid": false,
+    "payload": {
+      "schema_version": 1,
+      "event_type": "image.task.completed.v1",
+      "event_id": "event_fixture",
+      "task_id": "task_fixture",
+      "attempt_id": "attempt_fixture",
+      "correlation_id": "correlation_fixture",
+      "error": {
+        "code": "GENERATION_FAILED",
+        "safe_message": "合成测试错误",
+        "retryable": true
+      },
+      "duration_ms": 10
+    }
+  },
+  {
+    "name": "response-no-zone",
+    "contract": "task-response",
+    "valid": false,
+    "payload": {
+      "id": "task_fixture",
+      "feature_type": "GIFT",
+      "status": "QUEUED",
+      "attempt": 1,
+      "created_at": "2026-09-24T09:00:00",
+      "artifacts": [],
+      "error": null
+    }
+  },
+  {
+    "name": "response-invalid-date",
+    "contract": "task-response",
+    "valid": false,
+    "payload": {
+      "id": "task_fixture",
+      "feature_type": "GIFT",
+      "status": "QUEUED",
+      "attempt": 1,
+      "created_at": "2026-02-30T09:00:00Z",
+      "artifacts": [],
+      "error": null
+    }
+  },
+  {
+    "name": "queued-has-artifact",
+    "contract": "task-response",
+    "valid": false,
+    "payload": {
+      "id": "task_fixture",
+      "feature_type": "GIFT",
+      "status": "QUEUED",
+      "attempt": 1,
+      "created_at": "2026-09-24T09:00:00Z",
+      "artifacts": [
+        {
+          "id": "artifact_fixture",
+          "kind": "COMPOSITE",
+          "width": 64,
+          "height": 64
+        }
+      ],
+      "error": null
+    }
+  },
+  {
+    "name": "success-without-artifacts",
+    "contract": "task-response",
+    "valid": false,
+    "payload": {
+      "id": "task_fixture",
+      "feature_type": "GIFT",
+      "status": "SUCCEEDED",
+      "attempt": 1,
+      "created_at": "2026-09-24T09:00:00Z",
+      "artifacts": [],
+      "error": null
+    }
+  },
+  {
+    "name": "failed-without-error",
+    "contract": "task-response",
+    "valid": false,
+    "payload": {
+      "id": "task_fixture",
+      "feature_type": "GIFT",
+      "status": "FAILED",
+      "attempt": 1,
+      "created_at": "2026-09-24T09:00:00Z",
+      "artifacts": [],
+      "error": null
+    }
+  },
+  {
+    "name": "response-zero-attempt",
+    "contract": "task-response",
+    "valid": false,
+    "payload": {
+      "id": "task_fixture",
+      "feature_type": "GIFT",
+      "status": "QUEUED",
+      "attempt": 0,
+      "created_at": "2026-09-24T09:00:00Z",
+      "artifacts": [],
+      "error": null
+    }
+  }
+]

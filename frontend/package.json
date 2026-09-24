@@ -16,10 +16,12 @@
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test src/api/health.test.ts",
+    "test": "node --test src/api/health.test.ts src/contracts/validate.test.ts",
     "check": "npm run format:check && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
     "vue": "3.5.43"
   },
   "devDependencies": {

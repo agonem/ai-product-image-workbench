@@ -1,0 +1,6 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.product-image-workbench.invalid/v1/idempotency-key.json",
+  "title": "IdempotencyKeyV1",
+  "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/idempotency_key"
+}

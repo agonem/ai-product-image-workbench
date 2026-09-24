@@ -56,7 +56,8 @@ def main() -> None:
     for command, cwd in checks:
         print(f"\nCHECK ({cwd.name}): {' '.join(command)}", flush=True)
         subprocess.run(command, cwd=cwd, env=env, check=True)
-    print("\nAll T01 checks passed. Run python scripts/smoke.py for live HTTP checks.")
+    print("\nCode and contract checks passed. HTTP: python scripts/smoke.py.")
+    print("Database checks NOT included: run python scripts/check_db.py separately.")
 
 
 if __name__ == "__main__":
