@@ -17,7 +17,11 @@ def tool(name: str) -> str:
 
 
 def environment() -> dict[str, str]:
-    env = os.environ.copy()
+    # Spring relaxed binding can treat inherited SERVER__PORT as server.port.
+    # Isolate this foreign namespace without changing the parent process environment.
+    env = {
+        key: value for key, value in os.environ.items() if not key.upper().startswith("SERVER__")
+    }
     env.setdefault("UV_LINK_MODE", "copy")
     if os.name == "nt" and "jdk.net.unixdomain.tmpdir" not in env.get("JAVA_TOOL_OPTIONS", ""):
         # Some Windows temp directories reject JDK selector Unix-domain sockets.

@@ -1,6 +1,7 @@
 """Run the same non-mutating checks locally and in CI. Install dependencies first."""
 
 import subprocess
+import sys
 
 from common import ROOT, environment, maven, tool
 
@@ -8,6 +9,7 @@ from common import ROOT, environment, maven, tool
 def main() -> None:
     env = environment()
     checks = [
+        ([sys.executable, "-m", "unittest", "discover", "-s", "scripts", "-p", "test_*.py"], ROOT),
         ([tool("npm"), "run", "check"], ROOT / "frontend"),
         ([*maven(), "verify"], ROOT / "business-service"),
         ([tool("uv"), "lock", "--check", "--project", "image-service"], ROOT),
