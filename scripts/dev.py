@@ -8,13 +8,17 @@ from common import ROOT, environment, process_options, stop, tool
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("service", choices=["frontend", "business", "image"])
+    parser.add_argument("service", choices=["frontend", "business", "image", "worker"])
     args = parser.parse_args()
     commands = {
         "frontend": (["npm", "run", "dev"], ROOT / "frontend"),
         "business": (
             ["java", "-jar", "target/business-service.jar"],
             ROOT / "business-service",
+        ),
+        "worker": (
+            ["uv", "run", "--frozen", "python", "-m", "image_service.worker"],
+            ROOT / "image-service",
         ),
         "image": (
             ["uv", "run", "--frozen", "python", "-m", "image_service"],

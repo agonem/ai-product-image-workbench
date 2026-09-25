@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(1, flyway.migrate().migrationsExecuted);
+    assertEquals(2, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -117,6 +117,32 @@ class DatabaseMigrationIT {
             "worker_receipts",
             "audit_events")) {
       assertEquals(List.of("users", "projects", "assets").contains(table) ? 2 : 0, count(table));
+    }
+  }
+
+  @Test
+  void upgradesV1WithoutLosingExistingRows() throws SQLException {
+    String upgradeSchema = "upgrade_" + UUID.randomUUID().toString().replace("-", "");
+    var baseline =
+        Flyway.configure()
+            .dataSource(url, user, password)
+            .schemas(upgradeSchema)
+            .target("1")
+            .load();
+    assertEquals(1, baseline.migrate().migrationsExecuted);
+    try (var connection = DriverManager.getConnection(url, user, password);
+        var query = connection.createStatement()) {
+      connection.setSchema(upgradeSchema);
+      query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
+      var upgrade =
+          Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
+      assertEquals(1, upgrade.migrate().migrationsExecuted);
+      assertEquals(0, upgrade.migrate().migrationsExecuted);
+      try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
+        assertTrue(rows.next());
+        assertEquals("ACTIVE", rows.getString(1));
+      }
+      assertTrue(upgrade.validateWithResult().validationSuccessful);
     }
   }
 

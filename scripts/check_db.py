@@ -137,15 +137,19 @@ def main() -> None:
                 "-v",
                 "ON_ERROR_STOP=1",
                 "-c",
-                "SELECT count(*) FROM public.flyway_schema_history WHERE version='1' AND success",
+                "SELECT count(*) FROM public.flyway_schema_history "
+                "WHERE version IN ('1','2') AND success",
             ],
             env=probe_env,
             capture_output=True,
             text=True,
             check=True,
         )
-        if migration.stdout.strip() != "1":
-            raise RuntimeError("Database profile did not apply V1")
+        if migration.stdout.strip() != "2":
+            raise RuntimeError("Database profile did not apply V1/V2")
+        from check_t05 import run_runtime
+
+        run_runtime(env, work / "t05")
         for key in ("DB_URL", "DB_USER", "DB_PASSWORD"):
             env.pop(key, None)
         with (work / "missing-config.log").open("w", encoding="utf-8") as log:

@@ -80,9 +80,22 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+      - name: Install Worker and PostgreSQL client
+        run: |
+          uv sync --frozen --project image-service
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
       - name: Verify PostgreSQL migrations and constraints
         working-directory: business-service
         run: bash mvnw -B -ntp -Pdatabase-tests verify
+      - name: Verify Java and independent Worker recovery
+        run: python scripts/check_t05.py
       - name: Save database test diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
