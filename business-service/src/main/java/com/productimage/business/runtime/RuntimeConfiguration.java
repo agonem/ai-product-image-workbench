@@ -19,8 +19,45 @@ public class RuntimeConfiguration {
   }
 
   @Bean
+  ProjectAccess projectAccess(JdbcTemplate jdbc) {
+    return new ProjectAccess(jdbc);
+  }
+
+  @Bean
+  @Profile("!dev-local")
+  UserAuthenticator staticUserAuthenticator(RuntimeSettings settings, ProjectAccess access) {
+    return header -> {
+      settings.authorize(header, false);
+      access.active(settings.userId());
+      return settings.userId();
+    };
+  }
+
+  @Bean
+  @Profile("dev-local")
+  LocalAccounts localAccounts(
+      Environment env,
+      RuntimeSettings settings,
+      JdbcTemplate jdbc,
+      PlatformTransactionManager manager,
+      ProjectAccess access) {
+    return new LocalAccounts(
+        env, jdbc, new TransactionTemplate(manager), access, java.time.Clock.systemUTC());
+  }
+
+  @Bean
   LocalObjectStore localObjectStore(RuntimeSettings settings) {
     return new LocalObjectStore(settings.root(), settings.maxBytes(), settings.maxPixels());
+  }
+
+  @Bean
+  ProjectAssets projectAssets(
+      JdbcTemplate jdbc,
+      PlatformTransactionManager manager,
+      ProjectAccess access,
+      LocalObjectStore store,
+      RuntimeSettings settings) {
+    return new ProjectAssets(jdbc, new TransactionTemplate(manager), access, store, settings);
   }
 
   @Bean

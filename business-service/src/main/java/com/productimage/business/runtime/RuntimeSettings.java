@@ -21,13 +21,23 @@ public record RuntimeSettings(
     if (!host.equals("127.0.0.1") && !host.equals("::1")) {
       throw new IllegalStateException("runtime profile requires loopback binding");
     }
-    String api = env.getRequiredProperty("RUNTIME_API_TOKEN");
+    boolean local = java.util.Arrays.asList(env.getActiveProfiles()).contains("dev-local");
+    if (local
+        && (!"development".equals(env.getProperty("APP_ENV"))
+            || java.util.Arrays.stream(env.getActiveProfiles())
+                .anyMatch(
+                    profile ->
+                        !java.util.Set.of("dev-local", "runtime", "database").contains(profile)))) {
+      throw new IllegalStateException("Local accounts require the isolated development profile");
+    }
+    String api = local ? null : env.getRequiredProperty("RUNTIME_API_TOKEN");
     String worker = env.getRequiredProperty("RUNTIME_WORKER_TOKEN");
-    String user = env.getRequiredProperty("RUNTIME_USER_ID");
-    if (api.length() < 32
-        || worker.length() < 32
-        || api.equals(worker)
-        || !user.matches("[A-Za-z0-9][A-Za-z0-9_-]*")) {
+    String user = local ? null : env.getRequiredProperty("RUNTIME_USER_ID");
+    if (worker.length() < 32
+        || (!local
+            && (api.length() < 32
+                || api.equals(worker)
+                || !user.matches("[A-Za-z0-9][A-Za-z0-9_-]*")))) {
       throw new IllegalStateException("Invalid runtime credential configuration");
     }
     return new RuntimeSettings(
@@ -51,7 +61,9 @@ public record RuntimeSettings(
   }
 
   public void authorize(String header, boolean worker) {
-    String expected = "Bearer " + (worker ? workerToken : apiToken);
+    String credential = worker ? workerToken : apiToken;
+    if (credential == null) throw new Problem(401, "UNAUTHORIZED");
+    String expected = "Bearer " + credential;
     if (header == null
         || !MessageDigest.isEqual(
             expected.getBytes(StandardCharsets.UTF_8), header.getBytes(StandardCharsets.UTF_8)))

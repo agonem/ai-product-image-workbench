@@ -16,8 +16,14 @@ public class RuntimeApi {
   private final TaskService tasks;
   private final DeliveryService deliveries;
   private final RuntimeSettings settings;
+  private final UserAuthenticator users;
 
-  public RuntimeApi(TaskService tasks, DeliveryService deliveries, RuntimeSettings settings) {
+  public RuntimeApi(
+      TaskService tasks,
+      DeliveryService deliveries,
+      RuntimeSettings settings,
+      UserAuthenticator users) {
+    this.users = users;
     this.tasks = tasks;
     this.deliveries = deliveries;
     this.settings = settings;
@@ -50,20 +56,20 @@ public class RuntimeApi {
 
   @PostMapping("/api/v1/tasks")
   public ResponseEntity<JsonNode> create(HttpServletRequest request) {
-    auth(request, false);
+    String actor = users.authenticate(request.getHeader("Authorization"));
     return ResponseEntity.accepted()
-        .body(tasks.create(request.getHeader("Idempotency-Key"), json(request)));
+        .body(tasks.create(actor, request.getHeader("Idempotency-Key"), json(request)));
   }
 
   @GetMapping("/api/v1/tasks/{id}")
   public JsonNode get(@PathVariable String id, HttpServletRequest request) {
-    auth(request, false);
-    return tasks.get(id);
+    String actor = users.authenticate(request.getHeader("Authorization"));
+    return tasks.get(actor, id);
   }
 
   @PostMapping("/api/v1/tasks/{id}/retry")
   public ResponseEntity<JsonNode> retry(@PathVariable String id, HttpServletRequest request) {
-    auth(request, false);
+    String actor = users.authenticate(request.getHeader("Authorization"));
     var body = Json.parse(json(request));
     if (!body.isObject()
         || body.size() != 1
@@ -72,13 +78,13 @@ public class RuntimeApi {
         || body.path("attempt").intValue() < 1) {
       throw new Problem(400, "INVALID_CONTRACT");
     }
-    return ResponseEntity.accepted().body(tasks.retry(id, body.path("attempt").intValue()));
+    return ResponseEntity.accepted().body(tasks.retry(actor, id, body.path("attempt").intValue()));
   }
 
   @GetMapping("/api/v1/artifacts/{id}/content")
   public ResponseEntity<byte[]> content(@PathVariable String id, HttpServletRequest request) {
-    auth(request, false);
-    return file(tasks.content(id));
+    String actor = users.authenticate(request.getHeader("Authorization"));
+    return file(tasks.content(actor, id));
   }
 
   @PostMapping("/internal/v1/work/claim")

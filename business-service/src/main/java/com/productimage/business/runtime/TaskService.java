@@ -28,30 +28,30 @@ public final class TaskService {
     this.settings = settings;
   }
 
-  private void authorizeProject(String project) {
+  private void authorizeProject(String actor, String project) {
     if (jdbc.queryForObject(
             "SELECT count(*) FROM projects p JOIN users u ON u.id=p.owner_id WHERE p.id=? AND u.id=? AND u.status='ACTIVE'",
             Long.class,
             project,
-            settings.userId())
+            actor)
         != 1) throw new Problem(404, "NOT_FOUND");
   }
 
-  public JsonNode create(String key, String raw) {
+  public JsonNode create(String actor, String key, String raw) {
     JsonNode request = Json.parse(raw);
     Json.validate("task-create", request);
     Json.validate("idempotency-key", Json.MAPPER.getNodeFactory().textNode(key == null ? "" : key));
     String hash = RequestFingerprint.sha256(raw);
     return tx.execute(
         status -> {
-          authorizeProject(request.path("project_id").asText());
+          authorizeProject(actor, request.path("project_id").asText());
           var existing =
               jdbc.queryForList(
                   "SELECT id,request_sha256 FROM generation_tasks WHERE created_by=? AND feature_type=? AND idempotency_key=?",
-                  settings.userId(),
+                  actor,
                   request.path("feature_type").asText(),
                   key);
-          if (!existing.isEmpty()) return existing(existing.getFirst(), hash);
+          if (!existing.isEmpty()) return existing(actor, existing.getFirst(), hash);
           ObjectNode worker = snapshots.build(request);
           String id = Json.id();
           int inserted =
@@ -62,7 +62,7 @@ public final class TaskService {
                   request.path("product_asset_id").asText(),
                   request.has("gift_asset_id") ? request.get("gift_asset_id").asText() : null,
                   request.path("feature_type").asText(),
-                  settings.userId(),
+                  actor,
                   key,
                   hash,
                   request.toString(),
@@ -70,20 +70,21 @@ public final class TaskService {
                   worker.toString());
           if (inserted == 0)
             return existing(
+                actor,
                 jdbc.queryForMap(
                     "SELECT id,request_sha256 FROM generation_tasks WHERE created_by=? AND feature_type=? AND idempotency_key=?",
-                    settings.userId(),
+                    actor,
                     request.path("feature_type").asText(),
                     key),
                 hash);
           enqueue(id, 1, worker);
-          return get(id);
+          return get(actor, id);
         });
   }
 
-  private JsonNode existing(Map<String, Object> row, String hash) {
+  private JsonNode existing(String actor, Map<String, Object> row, String hash) {
     if (!hash.equals(row.get("request_sha256"))) throw new Problem(409, "TASK_CONFLICT");
-    return get(row.get("id").toString());
+    return get(actor, row.get("id").toString());
   }
 
   private void enqueue(String task, int number, JsonNode snapshot) {
@@ -112,13 +113,13 @@ public final class TaskService {
         task);
   }
 
-  private Map<String, Object> owned(String id, boolean lock) {
+  private Map<String, Object> owned(String actor, String id, boolean lock) {
     if (lock) {
       var locked =
           jdbc.queryForList(
               "SELECT t.id FROM generation_tasks t JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id WHERE t.id=? AND p.owner_id=? AND u.status='ACTIVE' FOR UPDATE OF t",
               id,
-              settings.userId());
+              actor);
       if (locked.isEmpty()) throw new Problem(404, "NOT_FOUND");
     }
     // A fresh READ COMMITTED statement sees the attempt installed by the previous lock holder.
@@ -126,13 +127,13 @@ public final class TaskService {
         jdbc.queryForList(
             "SELECT t.*,a.attempt_no,a.error_code,a.retryable FROM generation_tasks t JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id JOIN task_attempts a ON a.id=t.current_attempt_id WHERE t.id=? AND p.owner_id=? AND u.status='ACTIVE'",
             id,
-            settings.userId());
+            actor);
     if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
     return rows.getFirst();
   }
 
-  public JsonNode get(String id) {
-    var row = owned(id, false);
+  public JsonNode get(String actor, String id) {
+    var row = owned(actor, id, false);
     var result =
         Json.object()
             .put("id", id)
@@ -167,12 +168,12 @@ public final class TaskService {
     return result;
   }
 
-  public JsonNode retry(String id, int expected) {
+  public JsonNode retry(String actor, String id, int expected) {
     return tx.execute(
         status -> {
-          var row = owned(id, true);
+          var row = owned(actor, id, true);
           int current = ((Number) row.get("attempt_no")).intValue();
-          if (current == expected + 1) return get(id);
+          if (current == expected + 1) return get(actor, id);
           if (current != expected
               || !row.get("status").equals("FAILED")
               || !Boolean.TRUE.equals(row.get("retryable"))
@@ -181,16 +182,16 @@ public final class TaskService {
           }
           if (row.get("worker_snapshot_json") == null) throw new Problem(409, "INVALID_CONTRACT");
           enqueue(id, current + 1, Json.parse(row.get("worker_snapshot_json").toString()));
-          return get(id);
+          return get(actor, id);
         });
   }
 
-  public byte[] content(String id) {
+  public byte[] content(String actor, String id) {
     var rows =
         jdbc.queryForList(
             "SELECT a.object_key,a.sha256 FROM artifacts a JOIN generation_tasks t ON t.id=a.task_id JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND p.owner_id=? AND u.status='ACTIVE'",
             id,
-            settings.userId());
+            actor);
     if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
     byte[] bytes = store.read(rows.getFirst().get("object_key").toString());
     if (!Json.hash(bytes).equals(rows.getFirst().get("sha256")))

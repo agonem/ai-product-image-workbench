@@ -95,7 +95,9 @@ jobs:
         working-directory: business-service
         run: bash mvnw -B -ntp -Pdatabase-tests verify
       - name: Verify Java and independent Worker recovery
-        run: python scripts/check_t05.py
+        run: |
+          python scripts/check_t05.py
+          python scripts/check_t04.py
       - name: Save database test diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

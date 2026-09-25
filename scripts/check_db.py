@@ -150,6 +150,9 @@ def main() -> None:
         from check_t05 import run_runtime
 
         run_runtime(env, work / "t05")
+        from check_t04 import run_local
+
+        run_local(env, work / "t04")
         for key in ("DB_URL", "DB_USER", "DB_PASSWORD"):
             env.pop(key, None)
         with (work / "missing-config.log").open("w", encoding="utf-8") as log:
