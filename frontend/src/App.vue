@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive } from 'vue'
 import BoxFields from './workbench/BoxFields.vue'
+import AccountPanel from './workbench/AccountPanel.vue'
 import { features, statusLabels } from './workbench/model'
 import { useWorkbench } from './workbench/useWorkbench'
 
@@ -27,7 +28,9 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
     <header class="page-header">
       <div>
         <strong class="brand">商品图工作台</strong
-        ><span class="badge">dev-local · 开发环境</span>
+        ><span class="badge">{{
+          w.production ? '生产本地账号' : 'dev-local · 开发环境'
+        }}</span>
       </div>
       <button
         v-if="w.token"
@@ -42,7 +45,11 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
       <strong>真实图片生成尚未开放</strong>
       <span
         >T07 / T08 / T09
-        未完成；当前可验证提交、状态和历史。测试产物不代表商品成品。本地账号不用于生产认证。</span
+        未完成；当前可验证提交、状态和历史。测试产物不代表商品成品。{{
+          w.production
+            ? '生产本地认证已接入；制图能力仍待验收。'
+            : '开发本地账号不用于生产认证。'
+        }}</span
       >
     </aside>
     <p v-if="w.error" class="message error" role="alert">{{ w.error }}</p>
@@ -61,8 +68,11 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
         </ul>
       </section>
       <form class="panel login" @submit.prevent="w.login">
-        <h2>开发账号登录</h2>
-        <p>
+        <h2>{{ w.production ? '生产账号登录' : '开发账号登录' }}</h2>
+        <p v-if="w.production">
+          使用管理员分配的本地账号。账号无默认密码；忘记密码请联系管理员。
+        </p>
+        <p v-else>
           仅连接以 dev-local 启动的 Java
           服务。账号由开发者在本机创建，无默认密码。
         </p>
@@ -84,16 +94,21 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
             :disabled="w.busy"
         /></label>
         <button :disabled="w.busy">
-          {{ w.busy ? '连接中…' : '登录开发环境' }}
+          {{
+            w.busy ? '连接中…' : w.production ? '登录生产账号' : '登录开发环境'
+          }}
         </button>
-        <small
-          >会话只保存在当前页面内存中，刷新后需重新登录。D-05
-          生产认证待确认。</small
-        >
+        <small>会话只保存在当前页面内存中，刷新后需重新登录。</small>
       </form>
     </main>
 
     <main v-else>
+      <AccountPanel
+        v-if="w.production && w.identity"
+        :role="w.identity.role"
+        :api="w.api"
+        @changed="w.expire"
+      />
       <section class="project-bar" aria-label="项目">
         <label
           >当前项目（最近100个）<select

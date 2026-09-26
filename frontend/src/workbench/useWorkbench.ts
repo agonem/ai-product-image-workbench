@@ -12,6 +12,20 @@ import type {
 } from './model'
 
 export function useWorkbench() {
+  const mode =
+    import.meta.env.VITE_AUTH_MODE ??
+    (import.meta.env.PROD ? 'production-local' : 'development-only')
+  if (!['production-local', 'development-only'].includes(mode))
+    throw new Error('Invalid authentication mode')
+  const production = mode === 'production-local'
+  const authPath = production ? '/local-auth' : '/auth'
+  const identity = ref<{
+    id: string
+    username: string
+    role: 'ADMIN' | 'USER'
+  } | null>(null)
+  let sessionTimer: ReturnType<typeof setTimeout> | undefined
+  let expiresAt = 0
   const token = ref(''),
     username = ref(''),
     password = ref(''),
@@ -56,6 +70,9 @@ export function useWorkbench() {
     clearTimeout(timer)
   }
   function reset() {
+    clearTimeout(sessionTimer)
+    identity.value = null
+    expiresAt = 0
     epoch++
     projectEpoch++
     refreshSequence++
@@ -118,27 +135,66 @@ export function useWorkbench() {
   }
   async function login() {
     await action(async () => {
-      const result = await api<{ access_token: string; mode: string }>(
-        '/auth/login',
+      const result = await api<{
+        access_token: string
+        mode: string
+        expires_at?: string
+        user?: { id: string; username: string; role: 'ADMIN' | 'USER' }
+      }>(
+        authPath + '/login',
         json({ username: username.value, password: password.value }),
       )
       password.value = ''
-      if (result.mode !== 'development-only')
-        throw new Error('当前页面仅支持 dev-local 开发认证。')
+      if (result.mode !== mode)
+        throw new Error('页面与服务认证模式不匹配，请联系管理员。')
+      if (production) {
+        expiresAt = Date.parse(result.expires_at ?? '')
+        if (
+          !result.user ||
+          !['ADMIN', 'USER'].includes(result.user.role) ||
+          !Number.isFinite(expiresAt) ||
+          expiresAt <= Date.now()
+        )
+          throw new Error('生产认证响应无效。')
+        identity.value = result.user
+      }
       token.value = result.access_token
+      if (production) scheduleSession()
       await loadProjects()
     })
     password.value = ''
+  }
+  function expire() {
+    reset()
+    error.value = '会话已失效，请重新登录。'
+  }
+  function scheduleSession() {
+    clearTimeout(sessionTimer)
+    sessionTimer = setTimeout(
+      () => void checkSession(),
+      Math.max(0, Math.min(5000, expiresAt - Date.now())),
+    )
+  }
+  async function checkSession() {
+    if (!production || !token.value) return
+    if (Date.now() >= expiresAt) {
+      expire()
+      return
+    }
+    try {
+      await api(authPath + '/me')
+    } catch (cause) {
+      report(cause)
+    } finally {
+      if (token.value) scheduleSession()
+    }
   }
   async function loadProjects() {
     const [list, config] = await Promise.all([
       api<Project[]>('/projects'),
       api<Options>('/workbench/options'),
     ])
-    if (
-      config.mode !== 'development-only' ||
-      config.generation_available !== false
-    )
+    if (config.mode !== mode || config.generation_available !== false)
       throw new Error('能力配置不符合当前开发工作台版本。')
     projects.value = list
     options.value = config
@@ -149,7 +205,7 @@ export function useWorkbench() {
   async function logout() {
     await action(async () => {
       try {
-        await api('/auth/logout', { method: 'POST' })
+        await api(authPath + '/logout', { method: 'POST' })
       } finally {
         reset()
       }
@@ -399,6 +455,10 @@ export function useWorkbench() {
   )
   onUnmounted(reset)
   return {
+    production,
+    identity,
+    api,
+    expire,
     token,
     username,
     password,

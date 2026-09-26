@@ -83,6 +83,11 @@ def main() -> None:
                 "DB_TEST_PASSWORD": password,
             }
         )
+        if "--t06-prod-only" in sys.argv:
+            from check_t06_prod import run_production_pages
+
+            run_production_pages(env, work / "t06-prod")
+            return
         if "--t04-prod-only" in sys.argv:
             from check_t04_prod import run_production
 

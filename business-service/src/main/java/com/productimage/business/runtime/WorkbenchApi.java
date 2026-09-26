@@ -7,9 +7,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
 
-/** Development read models; does not define production authentication or permissions. */
+/** Owner-scoped read models; authentication mode never broadens project permissions. */
 @RestController
-@Profile("dev-local")
+@Profile({"dev-local", "prod-local"})
 public class WorkbenchApi {
   private final JdbcTemplate jdbc;
   private final UserAuthenticator users;
@@ -54,7 +54,12 @@ public class WorkbenchApi {
   public ResponseEntity<JsonNode> options(HttpServletRequest request) {
     access.active(actor(request));
     if (!request.getParameterMap().isEmpty()) throw new Problem(400, "INVALID_CONTRACT");
-    var result = Json.object().put("mode", "development-only").put("generation_available", false);
+    var result =
+        Json.object()
+            .put(
+                "mode",
+                users instanceof ProductionAccounts ? "production-local" : "development-only")
+            .put("generation_available", false);
     var templates = result.putArray("templates");
     for (var row :
         jdbc.queryForList(

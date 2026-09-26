@@ -2,7 +2,7 @@
 
 T01 开发骨架 + T03 契约数据库 + T05 任务运行 + T04 开发账号与上传 + T06 开发工作台 · 2026-09-26
 
-当前已有 Vue 3 + TypeScript 前端、Java Spring Boot 业务服务、Python FastAPI 图像服务及独立 Worker。Java 管理任务/attempt/outbox、状态、幂等重试和私有文件存储；Worker 通过内部 HTTP 领取租约并持久化回执。T04 提供开发账号/上传，以及独立 prod-local 生产本地账号 API（账号管理、持久化会话、TLS、权限；待独立验收）。生产浏览器页面、完整生产部署与图像生成算法尚未完成，普通 Worker 会明确返回失败。合成图片运输验收使用显式 fixture 模式。
+当前已有 Vue 3 + TypeScript 前端、Java Spring Boot 业务服务、Python FastAPI 图像服务及独立 Worker。Java 管理任务/attempt/outbox、状态、幂等重试和私有文件存储；Worker 通过内部 HTTP 领取租约并持久化回执。T04 提供开发账号/上传，以及独立 prod-local 生产本地账号 API（`9a1f685` 已通过独立验收）。T06-PROD 补充生产登录、会话处理、本人改密和账号管理页面，待独立验收。完整生产部署与图像生成算法尚未完成，普通 Worker 会明确返回失败。合成图片运输验收使用显式 fixture 模式。
 
 需求 PRD-G02/G03/G06/G08、PRD-S01/S02/S03；任务 T01/T03/T05/T04/T06；验收 ACC-T01/ACC-T03/ACC-T05/ACC-T04-DEV/ACC-T04-PROD/ACC-T06。商品保真、三个独立入口、仅生成不发布等边界继续有效。OpenRouter 真实接入和拼多多规则尚未核实。T02 真实商品/赠品及样本说明未到位，授权已确认。
 
@@ -46,6 +46,8 @@ python scripts/check_db.py --t06-only
 
 ## 目录
 
+生产认证页面构建默认使用 `production-local`，开发服务器默认 `development-only`；仅显式 `VITE_AUTH_MODE` 可覆盖，不自动回退。生产部署须以 HTTPS 提供静态页面，同源 `/api` 代理到受信 Java HTTPS，保持证书校验。页面令牌仅内存保存，刷新重新登录。隔离验证、独立 JAR/端口命令及能力边界见 [T06 生产认证接入](docs/18-T06-生产认证接入.md)，统一 smoke 支持 `BUSINESS_TEST_JAR` 和 `SMOKE_BUSINESS_PORT/SMOKE_IMAGE_PORT/SMOKE_FRONTEND_PORT`。
+
 ```text
 frontend/          Vue 三入口工作台、Java API 客户端、契约与页面测试
 business-service/  Java API、契约/指纹校验、Flyway SQL、数据库集成测试
@@ -77,6 +79,7 @@ scripts/           启动、聚合检查、HTTP 冒烟、隔离数据库验证
 - [15 T06 工作台交付](docs/15-T06-工作台交付.md)：三入口、dev-local 页面复现、ACC 编号与能力边界。
 - [16 用户决定同步](docs/16-T00-用户决定同步.md)：T00-D 文档交付、兼容策略与独立验收关口。
 - [17 T04 生产本地账号](docs/17-T04-生产本地账号.md)：样本缺口、生产账号 API、配置及验证证据。
+- [18 T06 生产认证接入](docs/18-T06-生产认证接入.md)：生产账号页面、历史契约对比、隔离浏览器与 smoke 验证。
 - [Worker 请求 Schema](contracts/task.schema.json)：已固化的任务请求 v1。
 
 新增任务引用需求和任务 ID，遵守“契约/验收 → 实现 → 检查 → 记录”。P0 未定时只推进不受影响的部分。

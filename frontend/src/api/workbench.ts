@@ -9,6 +9,9 @@ export class ApiError extends Error {
   }
 }
 const messages: Record<string, string> = {
+  FORBIDDEN: '当前账号没有账号管理权限。',
+  ACCOUNT_CONFLICT: '账号名称已存在，请使用其他名称。',
+  LAST_ADMIN_REQUIRED: '必须保留至少一个启用的管理员账号。',
   UPLOAD_CONTENT_REJECTED:
     '图片内容或尺寸不符合要求，或包含未支持的附加元数据。请使用有效 PNG/JPEG。',
   CUTOUT_REVIEW_REQUIRED:
@@ -46,7 +49,7 @@ export async function request<T>(
     const code = value.code ?? value.error?.code
     const message =
       response.status === 401
-        ? '账号或密码不正确，或开发会话已过期，请重新登录。'
+        ? '账号或密码不正确，或会话已过期，请重新登录。'
         : response.status === 404
           ? '资源不存在或当前账号无权访问。'
           : response.status === 413

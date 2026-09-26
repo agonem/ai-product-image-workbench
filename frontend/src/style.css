@@ -513,3 +513,37 @@ footer {
     scroll-behavior: auto !important;
   }
 }
+/* Account controls share the workbench's forms and feedback styling. */
+.account-section {
+  margin: 1rem 0;
+}
+.account-nav,
+.account-create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 1rem;
+}
+.account-panel {
+  margin-top: 1rem;
+}
+.account-panel .fields {
+  max-width: 42rem;
+}
+.account-list {
+  padding: 0;
+  list-style: none;
+}
+.account-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid #deded3;
+}
+.account-list li div {
+  display: flex;
+  gap: 0.5rem;
+}

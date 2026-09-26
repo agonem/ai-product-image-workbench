@@ -20,6 +20,8 @@
     "src/**/*.ts",
     "src/**/*.vue",
     "tests/**/*.ts",
+    "tests-production/**/*.ts",
+    "playwright.production.config.ts",
     "vite.config.ts",
     "playwright.config.ts"
   ]

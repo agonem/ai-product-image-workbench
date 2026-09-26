@@ -5,12 +5,13 @@ import os
 import socket
 import subprocess
 import time
+import uuid
 from contextlib import ExitStack
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, build_opener
 
-from common import ROOT, environment, process_options, stop, tool
+from common import ROOT, business_jar, environment, process_options, stop, tool
 
 HTTP = build_opener(ProxyHandler({}))
 
@@ -52,9 +53,11 @@ def main() -> None:
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", port))
 
-    jar = ROOT / "business-service/target/business-service.jar"
+    jar = business_jar()
     if not jar.is_file():
-        raise RuntimeError("Build first: python scripts/check.py")
+        raise RuntimeError(
+            "Build BUSINESS_TEST_JAR first with -Dworkbench.final-name=<isolated-name>"
+        )
     base = f"http://127.0.0.1:{business_port}"
     internal = f"http://127.0.0.1:{image_port}"
     frontend = f"http://127.0.0.1:{frontend_port}"
@@ -68,6 +71,9 @@ def main() -> None:
             "DEV_HOST": "127.0.0.1",
             "DEV_PORT": str(frontend_port),
             "DEV_API_TARGET": base,
+            "SPRING_PROFILES_ACTIVE": "default",
+            "SERVER_SSL_ENABLED": "false",
+            "APP_ENV": "development",
         }
     )
     services = [
@@ -80,7 +86,7 @@ def main() -> None:
         ),
         ("frontend", [tool("npm"), "run", "dev"], ROOT / "frontend", frontend),
     ]
-    log_dir = ROOT / ".artifacts/smoke"
+    log_dir = ROOT / ".artifacts/smoke" / uuid.uuid4().hex
     log_dir.mkdir(parents=True, exist_ok=True)
     with ExitStack() as stack:
         for name, command, cwd, url in services:

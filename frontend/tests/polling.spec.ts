@@ -46,7 +46,7 @@ test('ACC-T06 A2/A5: explicit UI fault injection checks RUNNING, polling recover
   )
   await page.getByRole('button', { name: '刷新状态', exact: true }).click()
   await expect(page.getByRole('button', { name: '登录开发环境' })).toBeVisible()
-  await expect(page.getByRole('alert')).toContainText('开发会话已过期')
+  await expect(page.getByRole('alert')).toContainText('会话已过期')
   await expect(page.locator('.history-item')).toHaveCount(0)
   await page.getByLabel('密码', { exact: true }).fill(process.env.T06_PASSWORD!)
   await page.getByLabel('密码', { exact: true }).press('Enter')

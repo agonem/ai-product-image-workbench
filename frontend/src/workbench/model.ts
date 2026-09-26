@@ -119,7 +119,7 @@ export interface Page<T> {
   next_offset: number | null
 }
 export interface Options {
-  mode: 'development-only'
+  mode: 'development-only' | 'production-local'
   generation_available: false
   templates: { id: string; name: string; type: string; version: number }[]
   output_presets: { id: string; test_fixture: boolean }[]
