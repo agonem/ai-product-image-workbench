@@ -9,7 +9,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from common import ROOT, environment, maven, process_options, stop, tool
+from common import ROOT, business_jar, environment, maven, process_options, stop, tool
 
 
 def free_port() -> int:
@@ -83,6 +83,11 @@ def main() -> None:
                 "DB_TEST_PASSWORD": password,
             }
         )
+        if "--t04-prod-only" in sys.argv:
+            from check_t04_prod import run_production
+
+            run_production(env, work / "t04-prod")
+            return
         if "--t06-only" in sys.argv:
             from check_t06 import run_workbench
 
@@ -90,7 +95,12 @@ def main() -> None:
             return
         print("DATABASE: isolated PostgreSQL; diagnostics:", work, flush=True)
         subprocess.run(
-            [*maven(), "-Pdatabase-tests", "verify"],
+            [
+                *maven(),
+                f"-Dworkbench.final-name={business_jar().stem}",
+                "-Pdatabase-tests",
+                "verify",
+            ],
             cwd=ROOT / "business-service",
             env=env,
             check=True,
@@ -105,7 +115,7 @@ def main() -> None:
                 "BUSINESS_PORT": str(free_port()),
             }
         )
-        java = [tool("java"), "-jar", str(ROOT / "business-service/target/business-service.jar")]
+        java = [tool("java"), "-jar", str(business_jar())]
         with (work / "business.log").open("w", encoding="utf-8") as log:
             process = subprocess.Popen(
                 java, env=env, stdout=log, stderr=subprocess.STDOUT, **process_options()
@@ -144,21 +154,24 @@ def main() -> None:
                 "ON_ERROR_STOP=1",
                 "-c",
                 "SELECT count(*) FROM public.flyway_schema_history "
-                "WHERE version IN ('1','2') AND success",
+                "WHERE version IN ('1','2','3') AND success",
             ],
             env=probe_env,
             capture_output=True,
             text=True,
             check=True,
         )
-        if migration.stdout.strip() != "2":
-            raise RuntimeError("Database profile did not apply V1/V2")
+        if migration.stdout.strip() != "3":
+            raise RuntimeError("Database profile did not apply V1/V2/V3")
         from check_t05 import run_runtime
 
         run_runtime(env, work / "t05")
         from check_t04 import run_local
 
         run_local(env, work / "t04")
+        from check_t04_prod import run_production
+
+        run_production(env, work / "t04-prod")
         for key in ("DB_URL", "DB_USER", "DB_PASSWORD"):
             env.pop(key, None)
         with (work / "missing-config.log").open("w", encoding="utf-8") as log:

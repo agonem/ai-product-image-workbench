@@ -2,7 +2,7 @@ package com.productimage.business.runtime;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** Current owner-only development policy, not a production role/member specification. */
+/** Owner-only project access; account administrators receive no implicit cross-project access. */
 public final class ProjectAccess {
   private final JdbcTemplate jdbc;
 

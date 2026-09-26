@@ -39,6 +39,13 @@ def maven() -> list[str]:
     return [*command, "-B", "-ntp"]
 
 
+def business_jar() -> Path:
+    """Allow isolated test artifacts without replacing a running development JAR."""
+    return Path(
+        os.environ.get("BUSINESS_TEST_JAR", ROOT / "business-service/target/business-service.jar")
+    )
+
+
 def process_options() -> dict:
     if os.name == "nt":
         return {"creationflags": subprocess.CREATE_NO_WINDOW}

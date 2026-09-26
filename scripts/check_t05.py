@@ -21,7 +21,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, Request, build_opener
 
-from common import ROOT, environment, process_options, stop, tool
+from common import ROOT, business_jar, environment, process_options, stop, tool
 
 HTTP = build_opener(ProxyHandler({}))
 
@@ -119,7 +119,7 @@ class RuntimeCheck:
         self.starts += 1
         self.log = (self.work / f"java-{self.starts}.log").open("w", encoding="utf-8")
         self.process = subprocess.Popen(
-            [tool("java"), "-jar", str(ROOT / "business-service/target/business-service.jar")],
+            [tool("java"), "-jar", str(business_jar())],
             env=self.env,
             stdout=self.log,
             stderr=subprocess.STDOUT,

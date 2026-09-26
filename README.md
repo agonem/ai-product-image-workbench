@@ -2,9 +2,9 @@
 
 T01 开发骨架 + T03 契约数据库 + T05 任务运行 + T04 开发账号与上传 + T06 开发工作台 · 2026-09-26
 
-当前已有 Vue 3 + TypeScript 前端、Java Spring Boot 业务服务、Python FastAPI 图像服务及独立 Worker。Java 管理任务/attempt/outbox、状态、幂等重试和私有文件存储；Worker 通过内部 HTTP 领取租约并持久化回执。T04 可先行部分提供仅本机开发可用的本地账号、项目访问检查和原图上传校验；正式认证与图像生成算法尚未实现，普通 Worker 会明确返回失败。合成图片运输验收使用显式 fixture 模式。
+当前已有 Vue 3 + TypeScript 前端、Java Spring Boot 业务服务、Python FastAPI 图像服务及独立 Worker。Java 管理任务/attempt/outbox、状态、幂等重试和私有文件存储；Worker 通过内部 HTTP 领取租约并持久化回执。T04 提供开发账号/上传，以及独立 prod-local 生产本地账号 API（账号管理、持久化会话、TLS、权限；待独立验收）。生产浏览器页面、完整生产部署与图像生成算法尚未完成，普通 Worker 会明确返回失败。合成图片运输验收使用显式 fixture 模式。
 
-需求 PRD-G02/G03/G06、PRD-S01/S02/S03；任务 T01/T03/T05/T04（开发可先行部分）/T06；验收 ACC-T01/ACC-T03/ACC-T05/ACC-T04-DEV/ACC-T06。商品保真、三个独立入口、仅生成不发布等边界继续有效。2026-09-26 用户已选定 OpenRouter 和生产本地账号，但真实 AI 接入和生产认证尚未实现；拼多多规则仍未核实。
+需求 PRD-G02/G03/G06/G08、PRD-S01/S02/S03；任务 T01/T03/T05/T04/T06；验收 ACC-T01/ACC-T03/ACC-T05/ACC-T04-DEV/ACC-T04-PROD/ACC-T06。商品保真、三个独立入口、仅生成不发布等边界继续有效。OpenRouter 真实接入和拼多多规则尚未核实。T02 真实商品/赠品及样本说明未到位，授权已确认。
 
 ## 快速运行
 
@@ -55,7 +55,7 @@ scripts/           启动、聚合检查、HTTP 冒烟、隔离数据库验证
 .github/workflows/ Windows / Ubuntu 代码检查、PostgreSQL 集成测试
 ```
 
-前端只访问 Java；Python 不连接业务数据库。健康接口只说明进程可响应，不代表业务或依赖就绪。T05 任务路由仅在显式 runtime profile 开放，要求本机监听和独立用户/Worker 凭据，不可直接作为生产部署。
+前端只访问 Java；Python 不连接业务数据库。健康接口只说明进程可响应，不代表业务或依赖就绪。旧 runtime/dev-local 仍有本机开发限制；prod-local 账号 API 使用独立的数据库认证和 TLS，不能直接把开发配置用于生产。生产初始化、配置模板与验证见 [T04 生产账号说明](docs/17-T04-生产本地账号.md)。
 
 ## 文档导航
 
@@ -76,6 +76,7 @@ scripts/           启动、聚合检查、HTTP 冒烟、隔离数据库验证
 - [14 T04 可先行交付记录](docs/14-T04可先行交付记录.md)：A1–A8 验收证据、文件和阻塞项。
 - [15 T06 工作台交付](docs/15-T06-工作台交付.md)：三入口、dev-local 页面复现、ACC 编号与能力边界。
 - [16 用户决定同步](docs/16-T00-用户决定同步.md)：T00-D 文档交付、兼容策略与独立验收关口。
+- [17 T04 生产本地账号](docs/17-T04-生产本地账号.md)：样本缺口、生产账号 API、配置及验证证据。
 - [Worker 请求 Schema](contracts/task.schema.json)：已固化的任务请求 v1。
 
 新增任务引用需求和任务 ID，遵守“契约/验收 → 实现 → 检查 → 记录”。P0 未定时只推进不受影响的部分。

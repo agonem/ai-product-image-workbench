@@ -17,8 +17,19 @@ public record RuntimeSettings(
     int maxBytes,
     long maxPixels) {
   public static RuntimeSettings from(Environment env) {
+    var profiles = java.util.Arrays.asList(env.getActiveProfiles());
+    boolean production = profiles.contains("prod-local");
+    if (production
+        && (!"production".equals(env.getProperty("APP_ENV"))
+            || !env.getProperty("server.ssl.enabled", Boolean.class, false)
+            || profiles.stream()
+                .anyMatch(
+                    p -> !java.util.Set.of("prod-local", "runtime", "database").contains(p)))) {
+      throw new IllegalStateException(
+          "Production local accounts require isolated production and TLS");
+    }
     String host = env.getProperty("server.address", "127.0.0.1");
-    if (!host.equals("127.0.0.1") && !host.equals("::1")) {
+    if (!production && !host.equals("127.0.0.1") && !host.equals("::1")) {
       throw new IllegalStateException("runtime profile requires loopback binding");
     }
     boolean local = java.util.Arrays.asList(env.getActiveProfiles()).contains("dev-local");
@@ -30,11 +41,12 @@ public record RuntimeSettings(
                         !java.util.Set.of("dev-local", "runtime", "database").contains(profile)))) {
       throw new IllegalStateException("Local accounts require the isolated development profile");
     }
-    String api = local ? null : env.getRequiredProperty("RUNTIME_API_TOKEN");
+    boolean accounts = local || production;
+    String api = accounts ? null : env.getRequiredProperty("RUNTIME_API_TOKEN");
     String worker = env.getRequiredProperty("RUNTIME_WORKER_TOKEN");
-    String user = local ? null : env.getRequiredProperty("RUNTIME_USER_ID");
+    String user = accounts ? null : env.getRequiredProperty("RUNTIME_USER_ID");
     if (worker.length() < 32
-        || (!local
+        || (!accounts
             && (api.length() < 32
                 || api.equals(worker)
                 || !user.matches("[A-Za-z0-9][A-Za-z0-9_-]*")))) {

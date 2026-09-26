@@ -98,6 +98,7 @@ jobs:
         run: |
           python scripts/check_t05.py
           python scripts/check_t04.py
+          python scripts/check_t04_prod.py
       - uses: actions/setup-node@v4
         with:
           node-version-file: .node-version

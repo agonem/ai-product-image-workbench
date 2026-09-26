@@ -24,7 +24,7 @@ public class RuntimeConfiguration {
   }
 
   @Bean
-  @Profile("!dev-local")
+  @Profile("!dev-local & !prod-local")
   UserAuthenticator staticUserAuthenticator(RuntimeSettings settings, ProjectAccess access) {
     return header -> {
       settings.authorize(header, false);
@@ -43,6 +43,16 @@ public class RuntimeConfiguration {
       ProjectAccess access) {
     return new LocalAccounts(
         env, jdbc, new TransactionTemplate(manager), access, java.time.Clock.systemUTC());
+  }
+
+  @Bean
+  @Profile("prod-local")
+  ProductionAccounts productionAccounts(
+      Environment env,
+      RuntimeSettings settings,
+      JdbcTemplate jdbc,
+      PlatformTransactionManager manager) {
+    return new ProductionAccounts(env, jdbc, new TransactionTemplate(manager));
   }
 
   @Bean

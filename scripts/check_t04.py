@@ -17,7 +17,7 @@ from urllib.error import HTTPError
 from urllib.request import Request
 
 from check_t05 import HTTP, RuntimeCheck, png
-from common import ROOT, environment, process_options, stop, tool
+from common import ROOT, business_jar, environment, process_options, stop, tool
 
 
 def account(username, user_id, password):
@@ -333,7 +333,7 @@ def run_local(env, work):
     ):
         with (work / f"rejected-start-{index}.log").open("w", encoding="utf-8") as log:
             process = subprocess.Popen(
-                [tool("java"), "-jar", str(ROOT / "business-service/target/business-service.jar")],
+                [tool("java"), "-jar", str(business_jar())],
                 env={**run.env, **override},
                 stdout=log,
                 stderr=subprocess.STDOUT,

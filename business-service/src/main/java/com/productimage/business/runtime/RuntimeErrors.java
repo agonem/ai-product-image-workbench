@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
     assignableTypes = {
       RuntimeApi.class,
       LocalAuthApi.class,
+      ProductionAuthApi.class,
       ProjectAssetApi.class,
       WorkbenchApi.class
     })

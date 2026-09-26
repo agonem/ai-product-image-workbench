@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(2, flyway.migrate().migrationsExecuted);
+    assertEquals(3, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -115,7 +115,10 @@ class DatabaseMigrationIT {
             "artifacts",
             "outbox_events",
             "worker_receipts",
-            "audit_events")) {
+            "audit_events",
+            "local_credentials",
+            "local_sessions",
+            "local_auth_throttle")) {
       assertEquals(List.of("users", "projects", "assets").contains(table) ? 2 : 0, count(table));
     }
   }
@@ -136,13 +139,61 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(1, upgrade.migrate().migrationsExecuted);
+      assertEquals(2, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
         assertEquals("ACTIVE", rows.getString(1));
       }
       assertTrue(upgrade.validateWithResult().validationSuccessful);
+    }
+  }
+
+  @Test
+  void productionCredentialConstraintsAndV2Upgrade() throws SQLException {
+    sql(
+        "INSERT INTO local_credentials(user_id,username,salt,password_hash,role) VALUES ('u','alice','"
+            + "a".repeat(32)
+            + "','"
+            + "b".repeat(64)
+            + "','ADMIN')");
+    rejects(
+        "23505",
+        "INSERT INTO local_credentials(user_id,username,salt,password_hash,role) VALUES ('v','alice','"
+            + "a".repeat(32)
+            + "','"
+            + "b".repeat(64)
+            + "','USER')");
+    rejects("23514", "UPDATE local_credentials SET role='ROOT' WHERE user_id='u'");
+    rejects("23514", "UPDATE local_credentials SET password_hash='cleartext' WHERE user_id='u'");
+    rejects(
+        "23503",
+        "INSERT INTO local_sessions(token_hash,user_id,expires_at) VALUES ('"
+            + "c".repeat(64)
+            + "','v',now())");
+    String upgradeSchema = "v2_" + UUID.randomUUID().toString().replace("-", "");
+    var old =
+        Flyway.configure()
+            .dataSource(url, user, password)
+            .schemas(upgradeSchema)
+            .target("2")
+            .load();
+    assertEquals(2, old.migrate().migrationsExecuted);
+    try (var connection = DriverManager.getConnection(url, user, password);
+        var query = connection.createStatement()) {
+      connection.setSchema(upgradeSchema);
+      query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
+      var current =
+          Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
+      assertEquals(1, current.migrate().migrationsExecuted);
+      assertEquals(0, current.migrate().migrationsExecuted);
+      try (var rows =
+          query.executeQuery(
+              "SELECT status,(SELECT count(*) FROM local_credentials) FROM users WHERE id='legacy'")) {
+        assertTrue(rows.next());
+        assertEquals("DISABLED", rows.getString(1));
+        assertEquals(0, rows.getLong(2));
+      }
     }
   }
 
