@@ -4,6 +4,7 @@ import os
 import secrets
 import socket
 import subprocess
+import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -82,6 +83,11 @@ def main() -> None:
                 "DB_TEST_PASSWORD": password,
             }
         )
+        if "--t06-only" in sys.argv:
+            from check_t06 import run_workbench
+
+            run_workbench(env, work / "t06")
+            return
         print("DATABASE: isolated PostgreSQL; diagnostics:", work, flush=True)
         subprocess.run(
             [*maven(), "-Pdatabase-tests", "verify"],

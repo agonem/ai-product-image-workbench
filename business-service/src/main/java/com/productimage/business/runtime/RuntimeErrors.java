@@ -9,7 +9,12 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice(
-    assignableTypes = {RuntimeApi.class, LocalAuthApi.class, ProjectAssetApi.class})
+    assignableTypes = {
+      RuntimeApi.class,
+      LocalAuthApi.class,
+      ProjectAssetApi.class,
+      WorkbenchApi.class
+    })
 @Profile("runtime")
 public class RuntimeErrors {
   private static final Logger LOG = LoggerFactory.getLogger(RuntimeErrors.class);

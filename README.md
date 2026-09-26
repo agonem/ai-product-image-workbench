@@ -1,10 +1,10 @@
 # 母婴商品图工作台
 
-T01 开发骨架 + T03 契约数据库 + T05 任务运行 + T04 开发账号与上传 · 2026-09-25
+T01 开发骨架 + T03 契约数据库 + T05 任务运行 + T04 开发账号与上传 + T06 开发工作台 · 2026-09-26
 
 当前已有 Vue 3 + TypeScript 前端、Java Spring Boot 业务服务、Python FastAPI 图像服务及独立 Worker。Java 管理任务/attempt/outbox、状态、幂等重试和私有文件存储；Worker 通过内部 HTTP 领取租约并持久化回执。T04 可先行部分提供仅本机开发可用的本地账号、项目访问检查和原图上传校验；正式认证与图像生成算法尚未实现，普通 Worker 会明确返回失败。合成图片运输验收使用显式 fixture 模式。
 
-需求 PRD-G02/G03/G06、PRD-S01/S02/S03；任务 T01/T03/T05/T04（开发可先行部分）；验收 ACC-T01/ACC-T03/ACC-T05/ACC-T04-DEV。商品保真、三个独立入口、仅生成不发布等边界继续有效，未确定平台规则或 AI 供应商。
+需求 PRD-G02/G03/G06、PRD-S01/S02/S03；任务 T01/T03/T05/T04（开发可先行部分）/T06；验收 ACC-T01/ACC-T03/ACC-T05/ACC-T04-DEV/ACC-T06。商品保真、三个独立入口、仅生成不发布等边界继续有效，未确定平台规则或 AI 供应商。
 
 ## 快速运行
 
@@ -33,12 +33,21 @@ python scripts/dev.py image
 python scripts/dev.py frontend
 ```
 
-打开 [本地工作台](http://127.0.0.1:5173)，应显示“业务服务已连接”。Ctrl+C 停止服务。默认只监听本机，无密钥、无数据库也能启动。配置覆盖、原生命令、格式修复及 Windows JDK 说明见 [T01 开发指南](docs/07-开发环境与版本选择.md)。数据库仅在显式 database profile 启用。
+打开 [本地工作台](http://127.0.0.1:5173)，显示明确的开发环境登录页。默认 Java 健康模式无登录/业务能力；实际使用须先按 [T04 指南](docs/13-T04开发账号与上传.md) 配置私有本地账号、数据库及 `dev-local`，再启动 business/frontend（任务执行另启 worker）。Ctrl+C 停止服务。配置覆盖、原生命令及 Windows JDK 说明见 [T01 开发指南](docs/07-开发环境与版本选择.md)。
+
+T06 提供三独立入口、原图上传/查看、任务提交、状态/重试、项目历史；真实生成尚未接入，普通上传仍受 alpha 审核阻塞。完整页面验收使用隔离数据库和随机开发账号：
+
+```text
+npm --prefix frontend exec -- playwright install chromium
+python scripts/check_db.py --t06-only
+```
+
+先运行 `python scripts/check.py` 构建 Java。上述命令会启动 dev-local Java、Vite、普通 Worker，并运行真实 Chromium 页面检查；不会向已有数据库写测试数据。配置、合成夹具与限制见 [T06 交付说明](docs/15-T06-工作台交付.md)。
 
 ## 目录
 
 ```text
-frontend/          Vue 页面、Java 健康客户端、任务契约校验
+frontend/          Vue 三入口工作台、Java API 客户端、契约与页面测试
 business-service/  Java API、契约/指纹校验、Flyway SQL、数据库集成测试
 image-service/     Python 内部 HTTP 服务、离线任务契约校验
 contracts/         Draft 2020-12 Schema、三端共用正反例
@@ -65,6 +74,7 @@ scripts/           启动、聚合检查、HTTP 冒烟、隔离数据库验证
 - [12 T05 交付记录](docs/12-T05交付记录.md)：文件、实际检查和未完成项。
 - [13 T04 开发账号与上传](docs/13-T04开发账号与上传.md)：本地账号、项目 API、上传限制和 D-05 边界。
 - [14 T04 可先行交付记录](docs/14-T04可先行交付记录.md)：A1–A8 验收证据、文件和阻塞项。
+- [15 T06 工作台交付](docs/15-T06-工作台交付.md)：三入口、dev-local 页面复现、ACC 编号与能力边界。
 - [Worker 请求 Schema](contracts/task.schema.json)：已固化的任务请求 v1。
 
 新增任务引用需求和任务 ID，遵守“契约/验收 → 实现 → 检查 → 记录”。P0 未定时只推进不受影响的部分。

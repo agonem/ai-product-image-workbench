@@ -16,7 +16,8 @@
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test src/api/health.test.ts src/contracts/validate.test.ts",
+    "test:page": "playwright test",
+    "test": "node --test src/api/*.test.ts src/contracts/*.test.ts src/workbench/*.test.ts",
     "check": "npm run format:check && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "@eslint/js": "9.39.4",
+    "@playwright/test": "1.63.0",
     "@types/node": "24.13.6",
     "@vitejs/plugin-vue": "6.0.9",
     "@vue/eslint-config-typescript": "14.9.0",
