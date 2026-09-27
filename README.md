@@ -46,6 +46,8 @@ python scripts/check_db.py --t06-only
 
 ## 目录
 
+T02-SYN 提供离线合成素材分割/alpha/变换与合成实验，可在 `image-service/` 运行 `uv run --frozen python -m image_service.poc_demo --output ../.artifacts/t02-my-review`。目录必须尚不存在。对照与参数标记为合成测试、待人工确认，不接 Worker，不代表真实商品生成。依赖与结果见 [T02 合成预研](docs/20-T02-合成素材预研.md)。
+
 生产认证页面构建默认使用 `production-local`，开发服务器默认 `development-only`；仅显式 `VITE_AUTH_MODE` 可覆盖，不自动回退。生产部署须以 HTTPS 提供静态页面，同源 `/api` 代理到受信 Java HTTPS，保持证书校验。页面令牌仅内存保存，刷新重新登录。隔离验证、独立 JAR/端口命令及能力边界见 [T06 生产认证接入](docs/18-T06-生产认证接入.md)，统一 smoke 支持 `BUSINESS_TEST_JAR` 和 `SMOKE_BUSINESS_PORT/SMOKE_IMAGE_PORT/SMOKE_FRONTEND_PORT`。
 
 ```text

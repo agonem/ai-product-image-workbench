@@ -14,5 +14,5 @@ class HealthResponse(BaseModel):
 
 @app.get("/internal/v1/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    """Process health only; image processing and providers are not implemented."""
+    """Process health only; offline research is not an online generation capability."""
     return HealthResponse()
