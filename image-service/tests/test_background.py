@@ -1,0 +1,221 @@
+import base64
+import io
+import json
+
+import httpx
+import pytest
+from PIL import Image
+
+from image_service.background import BackgroundError, BackgroundRequest
+from image_service.background_config import load_config
+from image_service.openrouter import OpenRouterAdapter
+
+
+def config(**overrides):
+    return load_config(
+        {
+            "OPENROUTER_API_KEY": "test-secret-not-real",
+            "OPENROUTER_MODEL": "test/image",
+            "OPENROUTER_PROVIDER_TAG": "test-provider",
+            **overrides,
+        }
+    )
+
+
+def request(**overrides):
+    return BackgroundRequest(
+        **{
+            "prompt": "An empty studio background",
+            "template_version": "test-v1",
+            "correlation_id": "test-1",
+            "aspect_ratio": "4:3",
+            "resolution": "1K",
+            "output_format": "png",
+            **overrides,
+        }
+    )
+
+
+def fixture_response(fmt="PNG", size=(40, 30)):
+    stream = io.BytesIO()
+    Image.new("RGB", size, "white").save(stream, format=fmt)
+    return {
+        "data": [
+            {
+                "b64_json": base64.b64encode(stream.getvalue()).decode(),
+                "media_type": "image/" + fmt.lower(),
+            }
+        ]
+    }
+
+
+class Provider:
+    def __init__(self):
+        self.calls = []
+        self.parameters = {
+            key: {"type": "enum", "values": values}
+            for key, values in {
+                "aspect_ratio": ["4:3"],
+                "resolution": ["1K"],
+                "output_format": ["png", "jpeg"],
+            }.items()
+        }
+        self.architecture = {"input_modalities": ["text"], "output_modalities": ["image"]}
+        self.result = fixture_response()
+        self.status = 200
+        self.timeout = False
+
+    def __call__(self, req):
+        self.calls.append(req)
+        if req.url.path.endswith("/images/models"):
+            return httpx.Response(
+                200, json={"data": [{"id": "test/image", "architecture": self.architecture}]}
+            )
+        if req.url.path.endswith("/endpoints"):
+            return httpx.Response(
+                200,
+                json={
+                    "id": "test/image",
+                    "endpoints": [
+                        {"provider_tag": "test-provider", "supported_parameters": self.parameters}
+                    ],
+                },
+            )
+        if self.timeout:
+            raise httpx.ReadTimeout("secret-provider-diagnostic", request=req)
+        return httpx.Response(self.status, json=self.result)
+
+
+def generate(provider, value=None):
+    with OpenRouterAdapter(config(), transport=httpx.MockTransport(provider)) as adapter:
+        return adapter.generate(value or request())
+
+
+@pytest.mark.parametrize("fmt", ["png", "jpeg"])
+def test_text_only_generation_and_provenance(fmt):
+    provider = Provider()
+    provider.result = fixture_response(fmt.upper())
+    result = generate(provider, request(output_format=fmt))
+    body = json.loads(provider.calls[-1].content)
+    assert set(body) == {
+        "model",
+        "prompt",
+        "aspect_ratio",
+        "resolution",
+        "output_format",
+        "provider",
+    }
+    assert body["provider"] == {"only": ["test-provider"], "allow_fallbacks": False}
+    assert result.provenance["review_status"] == "PENDING"
+    assert result.provenance["model"] == "test/image"
+    assert result.provenance["correlation_id"] == "test-1"
+    assert result.width == 40 and result.height == 30
+    assert "test-secret" not in repr(result)
+
+
+@pytest.mark.parametrize("key", ["aspect_ratio", "resolution", "output_format"])
+def test_missing_endpoint_capability_prevents_post(key):
+    provider = Provider()
+    del provider.parameters[key]
+    with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
+        generate(provider)
+    assert all(call.method == "GET" for call in provider.calls)
+
+
+def test_non_image_model_prevents_generation():
+    provider = Provider()
+    provider.architecture["output_modalities"] = ["text"]
+    with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
+        generate(provider)
+
+
+@pytest.mark.parametrize(
+    "status,retryable",
+    [(401, False), (402, False), (400, False), (429, True), (500, True), (502, True)],
+)
+def test_safe_http_errors_without_automatic_retry(status, retryable):
+    provider = Provider()
+    provider.status = status
+    provider.result = {"error": "test-secret-not-real and private prompt"}
+    with pytest.raises(BackgroundError) as caught:
+        generate(provider)
+    assert caught.value.retryable is retryable
+    assert "secret" not in str(caught.value)
+    assert sum(call.method == "POST" for call in provider.calls) == 1
+
+
+def test_timeout_is_ambiguous_and_safe():
+    provider = Provider()
+    provider.timeout = True
+    with pytest.raises(BackgroundError) as caught:
+        generate(provider)
+    assert caught.value.ambiguous is True
+    assert "secret" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {},
+        {"data": []},
+        {"data": [{"url": "http://localhost"}]},
+        {"data": [{"b64_json": "invalid"}]},
+        fixture_response(size=(30, 40)),
+        fixture_response("JPEG"),
+    ],
+)
+def test_invalid_output_never_succeeds(result):
+    provider = Provider()
+    provider.result = result
+    with pytest.raises(BackgroundError, match="INVALID_OUTPUT"):
+        generate(provider)
+
+
+def test_private_config_missing_ambiguous_and_file_loading(tmp_path):
+    with pytest.raises(BackgroundError, match="CONFIGURATION"):
+        load_config({})
+    secret = tmp_path / "private.key"
+    secret.write_text("test-file-secret", encoding="utf-8")
+    loaded = config(OPENROUTER_API_KEY="", OPENROUTER_API_KEY_FILE=str(secret))
+    assert "test-file-secret" not in repr(loaded)
+    with pytest.raises(BackgroundError, match="CONFIGURATION"):
+        config(OPENROUTER_API_KEY_FILE=str(secret))
+
+
+@pytest.mark.parametrize(
+    "value", ["https://example.com/product.png", "data:image/png;base64,abc", ""]
+)
+def test_image_references_and_empty_prompts_rejected(value):
+    with pytest.raises(BackgroundError):
+        request(prompt=value)
+
+
+def test_extra_asset_fields_rejected():
+    with pytest.raises(TypeError):
+        request(product_asset={"key": "private"})
+
+
+def test_string_capability_list_is_not_an_allowlist():
+    provider = Provider()
+    provider.parameters["aspect_ratio"]["values"] = "4:3"
+    with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
+        generate(provider)
+
+
+def test_encoded_output_budget_before_decode(monkeypatch):
+    monkeypatch.setattr("image_service.openrouter.MAX_IMAGE", 1)
+    with pytest.raises(BackgroundError, match="INVALID_OUTPUT"):
+        generate(Provider())
+
+
+def test_response_budget(monkeypatch):
+    monkeypatch.setattr("image_service.openrouter.MAX_RESPONSE", 10)
+    with pytest.raises(BackgroundError, match="RESPONSE_BUDGET"):
+        generate(Provider())
+
+
+def test_oversized_key_file_is_rejected(tmp_path):
+    secret = tmp_path / "private.key"
+    secret.write_bytes(b"x" * 4097)
+    with pytest.raises(BackgroundError, match="CONFIGURATION"):
+        config(OPENROUTER_API_KEY="", OPENROUTER_API_KEY_FILE=str(secret))
