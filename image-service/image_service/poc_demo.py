@@ -61,6 +61,7 @@ def generate(output):
         # Existing source alpha is retained; the candidate contributes no additional masking.
         gift_subject = extract_subject(image, Image.new("L", image.size, 255))
     gift_subject.getchannel("A").save(output / "gift-alpha.png")
+    gift_subject.save(output / "gift-subject-from-original.png")
     transformed_gift = transform(gift_subject, scale=0.8, angle=-12)
     transformed_gift.save(output / "transformed-gift.png")
     background = Image.new("RGBA", (640, 480), "#eee7d8")
@@ -93,7 +94,8 @@ def generate(output):
         sheet.paste(thumbnail, (x + (320 - thumbnail.width) // 2, y + 38), thumbnail)
     sheet.save(output / "comparison.png")
     report = {
-        "poc_version": "t02-synthetic-v1",
+        "poc_version": "t02-synthetic-v2",
+        "hash_encoding": "sha256 of encoded file bytes; not raw pixel bytes",
         "synthetic": True,
         "review_status": "PENDING",
         "sources": sources,
@@ -118,12 +120,20 @@ def generate(output):
         "layers": [
             {
                 "source": "original-product.png",
+                "original_file": "original-product.png",
+                "original_sha256": digest(output / "original-product.png"),
+                "subject_layer_file": "subject-from-original.png",
+                "subject_layer_sha256": digest(output / "subject-from-original.png"),
                 **parameters,
                 "position": [130, 100],
                 "actual_size": list(transformed.size),
             },
             {
                 "source": "original-gift.png",
+                "original_file": "original-gift.png",
+                "original_sha256": digest(output / "original-gift.png"),
+                "subject_layer_file": "gift-subject-from-original.png",
+                "subject_layer_sha256": digest(output / "gift-subject-from-original.png"),
                 "crop": [0, 0, 160, 160],
                 "scale": 0.8,
                 "angle": -12,

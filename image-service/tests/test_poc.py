@@ -86,6 +86,22 @@ def test_review_bundle_keeps_originals_and_exports_real_formats(tmp_path):
     assert report["synthetic"] is True and report["review_status"] == "PENDING"
     for item in report["sources"] + report["exports"]:
         assert hashlib.sha256((output / item["file"]).read_bytes()).hexdigest() == item["sha256"]
+    assert report["poc_version"] == "t02-synthetic-v2"
+    for layer, source in zip(report["layers"], report["sources"], strict=True):
+        assert layer["source"] == layer["original_file"] == source["file"]
+        assert layer["original_sha256"] == source["sha256"]
+        subject_file = output / layer["subject_layer_file"]
+        assert (
+            hashlib.sha256(subject_file.read_bytes()).hexdigest() == layer["subject_layer_sha256"]
+        )
+        with Image.open(subject_file) as image:
+            assert image.mode == "RGBA"
+    for kind in ("product", "gift"):
+        assert (
+            report["alpha"][kind + "_sha256"]
+            == hashlib.sha256((output / (kind + "-alpha.png")).read_bytes()).hexdigest()
+        )
+    assert report["layers"][0]["original_sha256"] != report["layers"][0]["subject_layer_sha256"]
     for name, kind in (("composite.png", "PNG"), ("composite.jpg", "JPEG")):
         with Image.open(output / name) as image:
             assert image.format == kind and image.size == (640, 480)
