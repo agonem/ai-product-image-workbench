@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
-import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 const password = process.env.T06_PASSWORD!
 async function login(page: Page, username: string, secret = password) {
@@ -25,20 +27,14 @@ async function apiStatus(page: Page, token: string, path: string) {
   )
 }
 
-function sql(statement: string) {
-  const command = JSON.parse(process.env.T06_PSQL!) as string[]
-  execFileSync(
-    command[0]!,
-    [
-      ...command.slice(1),
-      '-c',
-      `SET search_path TO ${process.env.T06_SCHEMA}; ${statement}`,
-    ],
-    {
-      env: { ...process.env, PGPASSWORD: process.env.DB_TEST_PASSWORD },
-      stdio: 'pipe',
-    },
-  )
+async function synchronize(phase: 'expire' | 'seed', payload: object) {
+  const directory = process.env.T06_SYNC_DIR!
+  const temporary = join(directory, `${phase}.request.tmp`)
+  writeFileSync(temporary, JSON.stringify(payload), { flag: 'wx' })
+  renameSync(temporary, join(directory, `${phase}.request.json`))
+  const done = join(directory, `${phase}.done.json`)
+  await expect.poll(() => existsSync(done), { timeout: 20000 }).toBe(true)
+  return JSON.parse(readFileSync(done, 'utf8'))
 }
 
 test('B1–B5 production authentication, revocation and permission boundaries', async ({
@@ -129,8 +125,18 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
     .click()
   await expect(admin.getByRole('alert')).toContainText('管理员')
 
-  await login(page, 'alice')
-  sql("UPDATE local_sessions SET expires_at=now()-interval '1 second'")
+  const expiryToken = await login(page, 'alice')
+  expect(await apiStatus(page, expiryToken, '/local-auth/me')).toBe(200)
+  expect(await apiStatus(admin, adminToken, '/local-auth/me')).toBe(200)
+  const hashes = [expiryToken, adminToken].map((token) =>
+    createHash('sha256').update(token).digest('hex'),
+  )
+  expect(await synchronize('expire', { hashes })).toEqual({
+    verified_hashes: hashes,
+    expired_count: 2,
+  })
+  expect(await apiStatus(page, expiryToken, '/local-auth/me')).toBe(401)
+  expect(await apiStatus(admin, adminToken, '/local-auth/me')).toBe(401)
   await expect(page.getByRole('heading', { name: '生产账号登录' })).toBeVisible(
     { timeout: 15000 },
   )
@@ -149,9 +155,7 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
     fullPage: true,
   })
   // Synthetic identities in the disposable schema exercise the second account page.
-  sql(
-    "INSERT INTO users(id,status) SELECT 'zz_page_'||n,'ACTIVE' FROM generate_series(1,101) n; INSERT INTO local_credentials(user_id,username,salt,password_hash,role) SELECT 'zz_page_'||n,'page_'||n,c.salt,c.password_hash,'USER' FROM generate_series(1,101) n CROSS JOIN local_credentials c WHERE c.username='alice'",
-  )
+  expect(await synchronize('seed', {})).toEqual({ account_count: 104 })
   await admin.getByRole('button', { name: '账号管理', exact: true }).click()
   await expect(admin.getByTestId('account-row')).toHaveCount(100)
   await admin.getByRole('button', { name: '加载更多账号' }).click()

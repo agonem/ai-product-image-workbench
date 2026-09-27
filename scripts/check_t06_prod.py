@@ -1,6 +1,5 @@
 """Production authentication browser checks; isolated DB, JAR, ports and test trust."""
 
-import json
 import socket
 import ssl
 import subprocess
@@ -9,6 +8,7 @@ from urllib.request import HTTPSHandler, ProxyHandler, build_opener
 
 from check_t04_prod import ProductionCheck
 from check_t05 import png
+from check_t06_sync import coordinate
 from common import ROOT, process_options, stop, tool
 from smoke import wait_ready
 
@@ -67,6 +67,8 @@ def run_production_pages(env, work):
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
+        sync_directory = work / "browser-sync"
+        sync_directory.mkdir()
         page_env = {
             **run.env,
             "VITE_AUTH_MODE": "production-local",
@@ -77,16 +79,23 @@ def run_production_pages(env, work):
             "T06_BASE_URL": f"http://127.0.0.1:{port}",
             "T06_PASSWORD": run.password,
             "T06_ARTIFACTS": str(work / "browser"),
-            "T06_PSQL": json.dumps(run.pg_command),
-            "T06_SCHEMA": run.schema,
+            "T06_SYNC_DIR": str(sync_directory),
             "T06_PROJECT": project,
             "T06_ASSET": asset["id"],
         }
         output = work / "frontend-dist"
+        # Browser tests never need DB credentials or a psql executable.
+        browser_env = {
+            key: value
+            for key, value in page_env.items()
+            if not key.startswith(
+                ("DB_", "PGPASSWORD", "RUNTIME_", "PROD_BOOTSTRAP", "SERVER_SSL_KEY")
+            )
+        }
         subprocess.run(
             [tool("npm"), "run", "build", "--", "--outDir", str(output)],
             cwd=ROOT / "frontend",
-            env=page_env,
+            env=browser_env,
             check=True,
         )
         log_path = work / "vite.log"
@@ -114,7 +123,7 @@ def run_production_pages(env, work):
         )
         stack.callback(stop, process)
         wait_ready(page_env["T06_BASE_URL"], process, log_path)
-        subprocess.run(
+        browser = subprocess.Popen(
             [
                 tool("npm"),
                 "exec",
@@ -124,9 +133,11 @@ def run_production_pages(env, work):
                 "--config=playwright.production.config.ts",
             ],
             cwd=ROOT / "frontend",
-            env=page_env,
-            check=True,
+            env=browser_env,
+            **process_options(),
         )
+        stack.callback(stop, browser)
+        coordinate(run, sync_directory, browser)
     print(
         "PASS ACC-T06-PROD: real browser to production Java; isolated processes stopped", flush=True
     )
