@@ -27,6 +27,12 @@ export function newDraft() {
     style: '',
     selling: '',
     manual: '',
+    sceneOutput: {
+      aspect_ratio: '1:1',
+      resolution: '1K',
+      format: 'png',
+      count: 3,
+    },
     productBox: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
     giftBox: { x: 0.7, y: 0.7, width: 0.2, height: 0.2 },
   }
@@ -36,6 +42,7 @@ export function buildRequest(
   feature: Feature,
   project: string,
   draft: Draft,
+  realScene = false,
 ): Record<string, unknown> {
   for (const box of feature === 'GIFT'
     ? [draft.productBox, draft.giftBox]
@@ -62,6 +69,10 @@ export function buildRequest(
       layout: { product: { ...draft.productBox }, gift: { ...draft.giftBox } },
     })
   else if (feature === 'SCENE') {
+    if (realScene) {
+      delete value.output_preset_id
+      value.output = { ...draft.sceneOutput }
+    }
     if (draft.sceneTemplate)
       value.scene_template_version_id = draft.sceneTemplate
     else value.scene_custom_prompt = draft.scene
@@ -71,7 +82,12 @@ export function buildRequest(
       layout_template_version_id: draft.template,
       selling_points: draft.selling.split('\n').filter((line) => line.trim()),
     })
-  if (validateContract('task-create', value).length)
+  if (
+    validateContract(
+      realScene && feature === 'SCENE' ? 'scene-create' : 'task-create',
+      value,
+    ).length
+  )
     throw new Error('请补全本入口的素材、配置和文字。')
   return value
 }
@@ -113,6 +129,7 @@ export interface Task {
 export interface HistoryItem {
   task: Task
   test_fixture: boolean
+  real_scene?: boolean
 }
 export interface Page<T> {
   items: T[]
@@ -121,6 +138,13 @@ export interface Page<T> {
 export interface Options {
   mode: 'development-only' | 'production-local'
   generation_available: false
+  scene?: {
+    enabled: boolean
+    max_count: number
+    aspect_ratios: string[]
+    resolutions: string[]
+    formats: string[]
+  }
   templates: { id: string; name: string; type: string; version: number }[]
   output_presets: { id: string; test_fixture: boolean }[]
 }

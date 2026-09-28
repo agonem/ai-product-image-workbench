@@ -10,10 +10,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 final class SnapshotBuilder {
   private final JdbcTemplate jdbc;
   private final LocalObjectStore store;
+  private final ScenePolicy scenes;
 
-  SnapshotBuilder(JdbcTemplate jdbc, LocalObjectStore store) {
+  SnapshotBuilder(JdbcTemplate jdbc, LocalObjectStore store, ScenePolicy scenes) {
     this.jdbc = jdbc;
     this.store = store;
+    this.scenes = scenes;
   }
 
   ObjectNode build(JsonNode request) {
@@ -54,14 +56,24 @@ final class SnapshotBuilder {
         if (request.has(key)) worker.set(key, request.get(key));
       }
     }
-    var presets =
-        jdbc.queryForList(
-            "SELECT config_json FROM output_presets WHERE id=?",
-            request.path("output_preset_id").asText());
-    if (presets.isEmpty()) throw new Problem(422, "INVALID_LAYOUT");
-    var preset = snapshot.putObject("output_preset");
-    preset.set("id", request.get("output_preset_id"));
-    preset.set("config", Json.parse(presets.getFirst().get("config_json").toString()));
+    if (request.has("output")) {
+      scenes.validate(request.get("output"));
+      worker.put("schema_version", 2);
+      worker.set("output", request.get("output"));
+      snapshot
+          .putObject("output_preset")
+          .put("id", "scene_v2")
+          .set("config", request.get("output"));
+    } else {
+      var presets =
+          jdbc.queryForList(
+              "SELECT config_json FROM output_presets WHERE id=?",
+              request.path("output_preset_id").asText());
+      if (presets.isEmpty()) throw new Problem(422, "INVALID_LAYOUT");
+      var preset = snapshot.putObject("output_preset");
+      preset.set("id", request.get("output_preset_id"));
+      preset.set("config", Json.parse(presets.getFirst().get("config_json").toString()));
+    }
     worker.set("template_snapshot", snapshot);
     return worker;
   }

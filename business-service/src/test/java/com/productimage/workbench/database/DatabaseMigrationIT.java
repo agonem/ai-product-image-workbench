@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(3, flyway.migrate().migrationsExecuted);
+    assertEquals(4, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -139,7 +139,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(2, upgrade.migrate().migrationsExecuted);
+      assertEquals(3, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -185,7 +185,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(1, current.migrate().migrationsExecuted);
+      assertEquals(2, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(

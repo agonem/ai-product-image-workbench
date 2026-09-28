@@ -2,9 +2,9 @@
 
 T01 开发骨架 + T03 契约数据库 + T05 任务运行 + T04 开发账号与上传 + T06 开发工作台 · 2026-09-26
 
-当前已有 Vue 3 + TypeScript 前端、Java Spring Boot 业务服务、Python FastAPI 图像服务及独立 Worker。Java 管理任务/attempt/outbox、状态、幂等重试和私有文件存储；Worker 通过内部 HTTP 领取租约并持久化回执。T04 提供开发账号/上传，以及独立 prod-local 生产本地账号 API（`9a1f685` 已通过独立验收）。T06-PROD 补充生产登录、会话处理、本人改密和账号管理页面，阶段验收通过；B2 到期分支保留独立补测，证据归属见 docs/19。完整生产部署与图像生成算法尚未完成，普通 Worker 会明确返回失败。合成图片运输验收使用显式 fixture 模式。
+当前已有 Vue 3 + TypeScript 前端、Java Spring Boot 业务服务、Python FastAPI 图像服务及独立 Worker。Java 管理任务/attempt/outbox、状态、幂等重试和私有文件存储；Worker 通过内部 HTTP 领取租约并持久化回执。T04 提供开发账号/上传，以及独立 prod-local 生产本地账号 API（`9a1f685` 已通过独立验收）。T06-PROD 补充生产登录、会话处理、本人改密和账号管理页面，阶段验收通过；B2 到期分支保留独立补测，证据归属见 docs/19。完整生产部署尚未完成；Worker v2 已实现原图主体与独立 AI 背景合成，但当前配置模型的严格参数能力尚不满足，真实生成仍阻塞（docs/26）。旧 v1 普通 Worker 继续明确返回失败。合成图片运输验收使用显式 fixture 模式。
 
-需求 PRD-G02/G03/G06/G08、PRD-S01/S02/S03；任务 T01/T03/T05/T04/T06；验收 ACC-T01/ACC-T03/ACC-T05/ACC-T04-DEV/ACC-T04-PROD/ACC-T06。商品保真、三个独立入口、仅生成不发布等边界继续有效。OpenRouter 真实接入和拼多多规则尚未核实。T02 已收到 SAMPLE-001 真实商品/赠品及版式参考，三图均为 338×338，授权已确认；已输出抠图与合成审查材料，视觉状态 PENDING，见 docs/25。高清及其他代表性样本仍待补。
+需求 PRD-G02/G03/G06/G08、PRD-S01/S02/S03；任务 T01/T03/T05/T04/T06；验收 ACC-T01/ACC-T03/ACC-T05/ACC-T04-DEV/ACC-T04-PROD/ACC-T06。商品保真、三个独立入口、仅生成不发布等边界继续有效。OpenRouter 真实接入和拼多多规则尚未核实。T02 已收到 SAMPLE-001 真实商品/赠品及版式参考，三图均为 338×338，授权已确认；run-002 抠图与合成审查材料已由项目负责人确认，追加哈希绑定记录见 docs/25；新场景仍为 PENDING。高清及其他代表性样本仍待补。
 
 ## 快速运行
 
@@ -46,7 +46,7 @@ python scripts/check_db.py --t06-only
 
 ## 目录
 
-T09 已提供独立纯背景 OpenRouter 适配器、服务端私有配置和模拟测试；配置说明及离线验收范围见 [T09 离线交付](docs/24-T09-纯背景适配器离线交付.md)。当前真实调用仍受凭据/具体模型配置阻塞，Worker 不因此开放真实生成。
+T09 已提供 v2 场景批次契约、严格 OpenRouter 适配器、原图 RGB/已审 alpha 合成、独立阴影、生产 Worker TLS、Java 原子回执及网页入口。默认关闭；私有配置已到位，但所选模型未声明 resolution/output_format，真实调用未完成。隔离启动、模拟链路证据与具体阻塞见 [T09 场景交付](docs/26-T09场景链路与能力阻塞.md)，不得将模拟供应商检查计为真实模型成功。
 
 T02-SYN 提供离线合成素材分割/alpha/变换与合成实验，可在 `image-service/` 运行 `uv run --frozen python -m image_service.poc_demo --output ../.artifacts/t02-my-review`。目录必须尚不存在。对照与参数标记为合成测试、待人工确认，不接 Worker，不代表真实商品生成。依赖与结果见 [T02 合成预研](docs/20-T02-合成素材预研.md)。
 

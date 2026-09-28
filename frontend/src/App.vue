@@ -16,7 +16,7 @@ const blocked = computed(() =>
       ? '先上传或选择商品白底原图。'
       : !w.selectedProduct?.cutout_ready
         ? '商品边缘待审核。T02 审核能力尚未接入，普通上传暂不能生成。'
-        : !w.draft.preset
+        : !w.realSceneEnabled && !w.draft.preset
           ? '请选择已配置的输出预设。'
           : '',
 )
@@ -42,8 +42,16 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
       </button>
     </header>
     <aside class="development-note" aria-label="能力边界">
-      <strong>真实图片生成尚未开放</strong>
-      <span
+      <strong v-if="w.mockProvider">模拟供应商验收模式 · 非真实生成</strong>
+      <strong>{{
+        w.options?.scene?.enabled
+          ? '场景背景生成已接入 · 商品像素来自原图'
+          : '真实图片生成尚未开放'
+      }}</strong>
+      <span v-if="w.options?.scene?.enabled"
+        >场景结果需人工审核；赠品与卖点入口的真实生成尚未开放。三分钟为待压测目标，不保证完成时间。</span
+      >
+      <span v-else
         >T07 / T08 / T09
         未完成；当前可验证提交、状态和历史。测试产物不代表商品成品。{{
           w.production
@@ -289,7 +297,7 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
                   </option>
                 </select></label
               >
-              <label
+              <label v-if="!w.realSceneEnabled"
                 >输出预设<select v-model="w.draft.preset" required>
                   <option value="">选择已配置预设</option>
                   <option
@@ -305,6 +313,50 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
                   </option>
                 </select></label
               >
+              <template v-if="w.realSceneEnabled">
+                <label
+                  >画布比例<select v-model="w.draft.sceneOutput.aspect_ratio">
+                    <option
+                      v-for="ratio in w.options?.scene?.aspect_ratios"
+                      :key="ratio"
+                    >
+                      {{ ratio }}
+                    </option>
+                  </select></label
+                >
+                <label
+                  >分辨率档位<select v-model="w.draft.sceneOutput.resolution">
+                    <option
+                      v-for="resolution in w.options?.scene?.resolutions"
+                      :key="resolution"
+                    >
+                      {{ resolution }}
+                    </option>
+                  </select></label
+                >
+                <label
+                  >导出格式<select v-model="w.draft.sceneOutput.format">
+                    <option
+                      v-for="format in w.options?.scene?.formats"
+                      :key="format"
+                    >
+                      {{ format }}
+                    </option>
+                  </select></label
+                >
+                <label
+                  >生成数量<input
+                    v-model.number="w.draft.sceneOutput.count"
+                    type="number"
+                    min="1"
+                    :max="w.options?.scene?.max_count"
+                    step="1"
+                    required
+                /></label>
+                <small
+                  >每张独立生成，全部成功才展示；失败重试会重新生成整批，可能再次产生费用。实际像素尺寸以结果为准。拼多多专用规则待核实。</small
+                >
+              </template>
               <small
                 >配置列表最多200项。未配置时保持空白，不假定拼多多尺寸或规则。</small
               >
@@ -354,7 +406,13 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
               :disabled="w.busy || w.loading || !!blocked"
               aria-describedby="submit-reason"
             >
-              {{ w.busy ? '处理中…' : '提交开发任务' }}
+              {{
+                w.busy
+                  ? '处理中…'
+                  : w.realSceneEnabled
+                    ? '生成场景图'
+                    : '提交开发任务'
+              }}
             </button>
           </form>
         </section>
@@ -385,7 +443,11 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
             </div>
             <template v-if="w.selected"
               ><strong class="task-status" :data-status="w.selected.status">{{
-                statusLabels[w.selected.status]
+                w.selectedRealScene && w.selected.status === 'SUCCEEDED'
+                  ? w.mockProvider
+                    ? '模拟链路完成 · 非真实生成'
+                    : '场景合成完成 · 待人工审核'
+                  : statusLabels[w.selected.status]
               }}</strong>
               <dl>
                 <dt>任务编号</dt>
@@ -428,22 +490,26 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
                 class="artifact"
               >
                 <p>
-                  开发/测试产物 · {{ artifact.width }}×{{ artifact.height }} ·
-                  非真实商品成品
+                  {{
+                    w.selectedRealScene
+                      ? w.sceneLabel
+                      : '开发/测试产物 · 非真实商品成品'
+                  }}
+                  · {{ artifact.width }}×{{ artifact.height }}
                 </p>
                 <button
                   class="secondary"
                   :disabled="w.busy"
                   @click="w.showImage(artifact.id, true)"
                 >
-                  查看测试产物
+                  {{ w.selectedRealScene ? '查看场景图' : '查看测试产物' }}
                 </button>
                 <button
                   class="text-button"
                   :disabled="w.busy"
                   @click="w.showImage(artifact.id, true, true)"
                 >
-                  下载测试产物
+                  {{ w.selectedRealScene ? '下载场景图' : '下载测试产物' }}
                 </button>
               </div>
             </template>
@@ -491,11 +557,18 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
                 }}</strong
                 ><small>{{ item.task.id }}</small></span
               ><span class="history-state"
-                >{{ statusLabels[item.task.status]
+                >{{
+                  item.real_scene && item.task.status === 'SUCCEEDED'
+                    ? w.mockProvider
+                      ? '模拟链路完成 · 非真实生成'
+                      : '场景合成完成 · 待人工审核'
+                    : statusLabels[item.task.status]
                 }}<small>{{
-                  item.test_fixture
-                    ? '合成夹具 / 开发测试'
-                    : '开发任务 / 真实生成未开放'
+                  item.real_scene
+                    ? w.sceneLabel
+                    : item.test_fixture
+                      ? '合成夹具 / 开发测试'
+                      : '开发任务 / 真实生成未开放'
                 }}</small></span
               ><time :datetime="item.task.created_at">{{
                 date(item.task.created_at)

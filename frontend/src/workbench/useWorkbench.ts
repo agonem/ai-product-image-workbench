@@ -18,6 +18,10 @@ export function useWorkbench() {
   if (!['production-local', 'development-only'].includes(mode))
     throw new Error('Invalid authentication mode')
   const production = mode === 'production-local'
+  const mockProvider = import.meta.env.VITE_ACCEPTANCE_MODE === 'mock-provider'
+  const sceneLabel = mockProvider
+    ? '模拟供应商合成 · 非真实生成'
+    : '真实背景合成 · 待人工审核'
   const authPath = production ? '/local-auth' : '/auth'
   const identity = ref<{
     id: string
@@ -52,6 +56,14 @@ export function useWorkbench() {
     SELLING_POINT: newDraft(),
   })
   const draft = computed(() => drafts[feature.value])
+  const realSceneEnabled = computed(
+    () => feature.value === 'SCENE' && options.value?.scene?.enabled === true,
+  )
+  const selectedRealScene = computed(() =>
+    history.value.some(
+      (item) => item.task.id === selected.value?.id && item.real_scene,
+    ),
+  )
   const selectedProduct = computed(() =>
     assets.value.find((a) => a.id === draft.value.product),
   )
@@ -254,6 +266,15 @@ export function useWorkbench() {
           a.items.find((v) => v.kind === 'PRODUCT')?.id ?? ''
         drafts[key].gift = a.items.find((v) => v.kind === 'GIFT')?.id ?? ''
       }
+      const capability = options.value?.scene
+      if (capability?.enabled) {
+        drafts.SCENE.product =
+          a.items.find((v) => v.kind === 'PRODUCT' && v.cutout_ready)?.id ?? ''
+        drafts.SCENE.sceneOutput.aspect_ratio =
+          capability.aspect_ratios[0] ?? '1:1'
+        drafts.SCENE.sceneOutput.resolution = capability.resolutions[0] ?? '1K'
+        drafts.SCENE.sceneOutput.format = capability.formats[0] ?? 'png'
+      }
       if (h.items[0]) selectTask(h.items[0].task)
     } catch (cause) {
       if (current === projectEpoch) report(cause)
@@ -328,14 +349,19 @@ export function useWorkbench() {
       if (download) {
         const link = document.createElement('a')
         link.href = url
-        link.download = `development-test-${id}.image`
+        const signature = new Uint8Array(await blob.slice(0, 2).arrayBuffer())
+        const extension =
+          signature[0] === 137 && signature[1] === 80 ? 'png' : 'jpeg'
+        link.download = `${selectedRealScene.value ? 'scene-pending' : 'development-test'}-${id}.${extension}`
         link.click()
         setTimeout(() => URL.revokeObjectURL(url), 1000)
       } else {
         clearPreview()
         preview.value = url
         previewTitle.value = artifact
-          ? '开发/测试产物 · 非真实商品成品'
+          ? selectedRealScene.value
+            ? sceneLabel
+            : '开发/测试产物 · 非真实商品成品'
           : '上传原图 · 非生成预览'
       }
     })
@@ -350,11 +376,16 @@ export function useWorkbench() {
       const pending =
         submission.pending ??
         submission.prepare(
-          buildRequest(feature.value, project.value, draft.value),
+          buildRequest(
+            feature.value,
+            project.value,
+            draft.value,
+            realSceneEnabled.value,
+          ),
         )
       try {
         const task = checkedTask(
-          await api<Task>('/tasks', {
+          await api<Task>(pending.body.output ? '/v2/scene-tasks' : '/tasks', {
             ...json(pending.body),
             headers: {
               'Content-Type': 'application/json',
@@ -366,7 +397,9 @@ export function useWorkbench() {
         uncertain.value = false
         installTask(task)
         schedule()
-        notice.value = '任务已提交。真实制图未接入，当前仅验证开发任务流程。'
+        notice.value = pending.body.output
+          ? '真实场景任务已提交。全部完成后展示；生成结果待人工审核。'
+          : '任务已提交。真实制图未接入，当前仅验证开发任务流程。'
       } catch (cause) {
         if (
           cause instanceof ApiError &&
@@ -456,6 +489,10 @@ export function useWorkbench() {
   onUnmounted(reset)
   return {
     production,
+    mockProvider,
+    sceneLabel,
+    realSceneEnabled,
+    selectedRealScene,
     identity,
     api,
     expire,

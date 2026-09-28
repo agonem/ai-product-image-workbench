@@ -83,6 +83,16 @@ def main() -> None:
                 "DB_TEST_PASSWORD": password,
             }
         )
+        if "--t09-only" in sys.argv or "--t09-real" in sys.argv:
+            from check_t09 import run_scene_checks
+
+            run_scene_checks(env, work / "t09", real="--t09-real" in sys.argv)
+            return
+        if "--t05-only" in sys.argv:
+            from check_t05 import run_runtime
+
+            run_runtime(env, work / "t05")
+            return
         if "--t06-prod-only" in sys.argv:
             from check_t06_prod import run_production_pages
 
@@ -110,6 +120,8 @@ def main() -> None:
             env=env,
             check=True,
         )
+        if "--migrations-only" in sys.argv:
+            return
         env.update(
             {
                 "SPRING_PROFILES_ACTIVE": "database",
@@ -159,15 +171,15 @@ def main() -> None:
                 "ON_ERROR_STOP=1",
                 "-c",
                 "SELECT count(*) FROM public.flyway_schema_history "
-                "WHERE version IN ('1','2','3') AND success",
+                "WHERE version IN ('1','2','3','4') AND success",
             ],
             env=probe_env,
             capture_output=True,
             text=True,
             check=True,
         )
-        if migration.stdout.strip() != "3":
-            raise RuntimeError("Database profile did not apply V1/V2/V3")
+        if migration.stdout.strip() != "4":
+            raise RuntimeError("Database profile did not apply V1/V2/V3/V4")
         from check_t05 import run_runtime
 
         run_runtime(env, work / "t05")

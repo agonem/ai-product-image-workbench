@@ -38,8 +38,16 @@ public final class TaskService {
   }
 
   public JsonNode create(String actor, String key, String raw) {
+    return create(actor, key, raw, "task-create");
+  }
+
+  public JsonNode createScene(String actor, String key, String raw) {
+    return create(actor, key, raw, "scene-create");
+  }
+
+  private JsonNode create(String actor, String key, String raw, String contract) {
     JsonNode request = Json.parse(raw);
-    Json.validate("task-create", request);
+    Json.validate(contract, request);
     Json.validate("idempotency-key", Json.MAPPER.getNodeFactory().textNode(key == null ? "" : key));
     String hash = RequestFingerprint.sha256(raw);
     return tx.execute(
@@ -92,20 +100,23 @@ public final class TaskService {
     jdbc.update(
         "INSERT INTO task_attempts(id,task_id,attempt_no) VALUES (?,?,?)", attempt, task, number);
     ObjectNode payload = snapshot.deepCopy();
+    int version = snapshot.path("schema_version").asInt(1);
+    String type = "image.task.requested.v" + version;
     payload
-        .put("schema_version", 1)
-        .put("event_type", "image.task.requested.v1")
+        .put("schema_version", version)
+        .put("event_type", type)
         .put("event_id", event)
         .put("task_id", task)
         .put("attempt_id", attempt)
         .put("correlation_id", task)
         .put("output_object_prefix", "outputs/" + task + "/" + attempt + "/");
-    Json.validate("task-request", payload);
+    Json.validate(version == 2 ? "scene-request" : "task-request", payload);
     jdbc.update(
-        "INSERT INTO outbox_events(id,task_id,attempt_id,event_type,payload) VALUES (?,?,?,'image.task.requested.v1',?::jsonb)",
+        "INSERT INTO outbox_events(id,task_id,attempt_id,event_type,payload) VALUES (?,?,?,?,?::jsonb)",
         event,
         task,
         attempt,
+        type,
         payload.toString());
     jdbc.update(
         "UPDATE generation_tasks SET current_attempt_id=?,status='QUEUED' WHERE id=?",
@@ -165,6 +176,16 @@ public final class TaskService {
           .put("correlation_id", id);
     } else result.putNull("error");
     Json.validate("task-response", result);
+    return result;
+  }
+
+  public JsonNode getScene(String actor, String id) {
+    var row = owned(actor, id, false);
+    var snapshot = Json.parse(row.get("worker_snapshot_json").toString());
+    if (snapshot.path("schema_version").asInt() != 2) throw new Problem(404, "NOT_FOUND");
+    ObjectNode result = (ObjectNode) get(actor, id);
+    result.set("output", snapshot.get("output"));
+    result.put("publication_policy", "ALL_OR_NOTHING").put("review_status", "PENDING");
     return result;
   }
 

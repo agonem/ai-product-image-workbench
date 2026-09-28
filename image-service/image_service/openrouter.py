@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import json
+import time
 
 import httpx
 from PIL import Image
@@ -99,6 +100,7 @@ class OpenRouterAdapter:
         }
         self._capabilities(parameters)
         prompt = "Background only. No products, packaging, logos or text. " + request.prompt
+        started = time.monotonic()
         response = self._json(
             "POST",
             "images",
@@ -110,6 +112,9 @@ class OpenRouterAdapter:
             },
         )
         content, width, height = decode_background(response, request)
+        usage = response.get("usage")
+        if not isinstance(usage, dict):
+            usage = {}
         return BackgroundResult(
             content,
             width,
@@ -126,6 +131,13 @@ class OpenRouterAdapter:
                 "output_source": "openrouter-images-api",
                 "sha256": hashlib.sha256(content).hexdigest(),
                 "review_status": "PENDING",
+                "duration_ms": round((time.monotonic() - started) * 1000),
+                "usage": {
+                    key: value
+                    for key, value in usage.items()
+                    if key in ("prompt_tokens", "completion_tokens", "total_tokens", "cost")
+                    and type(value) in (int, float)
+                },
             },
         )
 

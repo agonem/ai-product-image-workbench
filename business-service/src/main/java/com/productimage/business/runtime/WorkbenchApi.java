@@ -16,18 +16,21 @@ public class WorkbenchApi {
   private final ProjectAccess access;
   private final ProjectAssets assets;
   private final TaskService tasks;
+  private final ScenePolicy scenes;
 
   public WorkbenchApi(
       JdbcTemplate jdbc,
       UserAuthenticator users,
       ProjectAccess access,
       ProjectAssets assets,
-      TaskService tasks) {
+      TaskService tasks,
+      ScenePolicy scenes) {
     this.jdbc = jdbc;
     this.users = users;
     this.access = access;
     this.assets = assets;
     this.tasks = tasks;
+    this.scenes = scenes;
   }
 
   private String actor(HttpServletRequest request) {
@@ -60,6 +63,7 @@ public class WorkbenchApi {
                 "mode",
                 users instanceof ProductionAccounts ? "production-local" : "development-only")
             .put("generation_available", false);
+    result.set("scene", scenes.options());
     var templates = result.putArray("templates");
     for (var row :
         jdbc.queryForList(
@@ -118,7 +122,9 @@ public class WorkbenchApi {
     var items = result.putArray("items");
     for (var row : rows.stream().limit(20).toList()) {
       var item =
-          Json.object().put("test_fixture", "t05_transport_fixture".equals(row.get("preset")));
+          Json.object()
+              .put("test_fixture", "t05_transport_fixture".equals(row.get("preset")))
+              .put("real_scene", "scene_v2".equals(row.get("preset")));
       item.set("task", tasks.get(actor, row.get("id").toString()));
       items.add(item);
     }

@@ -16,7 +16,7 @@ class OpenRouterConfig:
 
 
 def load_config(environment=None):
-    env = os.environ if environment is None else environment
+    env = private_environment() if environment is None else environment
     key = env.get("OPENROUTER_API_KEY", "").strip()
     filename = env.get("OPENROUTER_API_KEY_FILE", "").strip()
     model = env.get("OPENROUTER_MODEL", "").strip()
@@ -42,6 +42,39 @@ def load_config(environment=None):
     except (OSError, UnicodeError, ValueError):
         raise BackgroundError("CONFIGURATION") from None
     return OpenRouterConfig(key, model, provider)
+
+
+def private_environment():
+    """Only an explicitly selected server file; never shell-evaluate or interpolate values."""
+    env = dict(os.environ)
+    filename = env.get("OPENROUTER_ENV_FILE")
+    if filename:
+        try:
+            if not Path(filename).is_absolute():
+                raise ValueError()
+            with Path(filename).open("rb") as source:
+                raw = source.read(16385)
+            if len(raw) > 16384:
+                raise ValueError()
+            allowed = {
+                "OPENROUTER_API_KEY",
+                "OPENROUTER_API_KEY_FILE",
+                "OPENROUTER_MODEL",
+                "OPENROUTER_PROVIDER_TAG",
+            }
+            for line in raw.decode("utf-8-sig").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                key, separator, value = line.partition("=")
+                if separator and key.strip() in allowed:
+                    value = value.strip()
+                    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                        value = value[1:-1]
+                    env.setdefault(key.strip(), value)
+        except (OSError, UnicodeError, ValueError):
+            raise BackgroundError("CONFIGURATION") from None
+    return env
 
 
 if __name__ == "__main__":

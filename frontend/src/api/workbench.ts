@@ -28,16 +28,19 @@ export async function request<T>(
 ): Promise<T> {
   let response: Response
   try {
-    response = await fetch('/api/v1' + path, {
-      ...init,
-      cache: 'no-store',
-      credentials: 'omit',
-      headers: {
-        ...(token ? { Authorization: 'Bearer ' + token } : {}),
-        ...init.headers,
+    response = await fetch(
+      (path.startsWith('/v2/') ? '/api' : '/api/v1') + path,
+      {
+        ...init,
+        cache: 'no-store',
+        credentials: 'omit',
+        headers: {
+          ...(token ? { Authorization: 'Bearer ' + token } : {}),
+          ...init.headers,
+        },
+        signal: init.signal ?? AbortSignal.timeout(15000),
       },
-      signal: init.signal ?? AbortSignal.timeout(15000),
-    })
+    )
   } catch {
     throw new ApiError(
       0,

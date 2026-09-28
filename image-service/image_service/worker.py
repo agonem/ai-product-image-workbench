@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import os
+import ssl
 import struct
 import threading
 import time
@@ -12,15 +13,20 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from image_service.background import BackgroundError
 from image_service.contracts import validate_contract
 from image_service.journal import CorruptJournal, Journal
 
 
 class Api:
-    def __init__(self, base: str, token: str):
+    def __init__(self, base: str, token: str, *, environment="development", ca_file=None):
         parts = urlsplit(base)
-        if parts.scheme != "http" or parts.hostname not in {"127.0.0.1", "::1", "localhost"}:
-            raise ValueError("T05 development Worker requires loopback HTTP")
+        if parts.scheme != "https" and not (
+            environment == "development"
+            and parts.scheme == "http"
+            and parts.hostname in {"127.0.0.1", "::1", "localhost"}
+        ):
+            raise ValueError("Worker requires HTTPS outside development loopback")
         if parts.username or parts.password or parts.query or parts.fragment or len(token) < 32:
             raise ValueError("Invalid Worker connection configuration")
         self.client = httpx.Client(
@@ -29,6 +35,7 @@ class Api:
             timeout=httpx.Timeout(10, connect=5),
             trust_env=False,
             follow_redirects=False,
+            verify=ssl.create_default_context(cafile=ca_file),
         )
 
     def call(self, method, path, *, lease=None, body=None, data=None, binary=False):
@@ -60,9 +67,10 @@ def crash(point: str, fixture: bool):
 
 
 def failure(request, code, retryable=True):
+    version = request.get("schema_version", 1)
     return {
-        "schema_version": 1,
-        "event_type": "image.task.failed.v1",
+        "schema_version": version,
+        "event_type": f"image.task.failed.v{version}",
         "event_id": uuid.uuid4().hex,
         "task_id": request["task_id"],
         "attempt_id": request["attempt_id"],
@@ -76,7 +84,16 @@ def failure(request, code, retryable=True):
     }
 
 
-def process(api: Api, request: dict, lease: str, fixture: bool) -> dict:
+def process(api: Api, request: dict, lease: str, fixture: bool, *, cancelled=None) -> dict:
+    if request.get("schema_version") == 2:
+        if fixture:
+            return failure(request, "INVALID_CONTRACT", False)
+        from image_service.background_config import load_config
+        from image_service.openrouter import OpenRouterAdapter
+        from image_service.scene import process_scene
+
+        with OpenRouterAdapter(load_config()) as adapter:
+            return process_scene(api, request, lease, adapter, cancelled=cancelled)
     if not fixture:
         code = "PROVIDER_UNAVAILABLE" if request["feature_type"] == "SCENE" else "GENERATION_FAILED"
         return failure(request, code)
@@ -146,7 +163,9 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
         return False
     request = claim["request"]
     lease = claim["lease_token"]
-    if validate_contract("task-request", request):
+    if validate_contract(
+        "scene-request" if request.get("schema_version") == 2 else "task-request", request
+    ):
         raise ValueError("Invalid claimed task contract")
     crash("after-claim", fixture)
     stopped = threading.Event()
@@ -171,14 +190,33 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
     thread.start()
     try:
         try:
-            receipt = process(api, request, lease, fixture)
+            receipt = process(api, request, lease, fixture, cancelled=lost.is_set)
+        except BackgroundError as error:
+            receipt = failure(
+                request, "PROVIDER_UNAVAILABLE", error.retryable and not error.ambiguous
+            )
+            # Stable allowlisted diagnostics only; never provider bodies, URLs or credentials.
+            safe_codes = {
+                "CONFIGURATION",
+                "UNSUPPORTED_CAPABILITY",
+                "INVALID_INPUT",
+                "INVALID_OUTPUT",
+                "INVALID_RESPONSE",
+                "RESPONSE_BUDGET",
+                "PROVIDER_NETWORK",
+            }
+            safe_codes.update(f"PROVIDER_HTTP_{status}" for status in range(400, 600))
+            if error.code in safe_codes:
+                receipt["error"]["safe_message"] = error.code
+            if error.code in {"INVALID_OUTPUT", "INVALID_RESPONSE", "RESPONSE_BUDGET"}:
+                receipt["error"]["code"] = "OUTPUT_VALIDATION_FAILED"
         except (httpx.HTTPError, ValueError, KeyError):
             receipt = failure(request, "GENERATION_FAILED")
         receipt["duration_ms"] = int((time.monotonic() - started) * 1000)
         if lost.is_set():
             raise RuntimeError("Lease lost; output cannot be confirmed")
-        contract = (
-            "task-completed" if receipt["event_type"].endswith("completed.v1") else "task-failed"
+        contract = ("scene-" if request.get("schema_version") == 2 else "task-") + (
+            "completed" if ".completed." in receipt["event_type"] else "failed"
         )
         if validate_contract(contract, receipt):
             raise ValueError("Invalid generated receipt")
@@ -198,7 +236,12 @@ def main():
         "--fixture", action="store_true", help="Synthetic transport acceptance only"
     )
     args = parser.parse_args()
-    api = Api(os.environ["WORKER_API_URL"], os.environ["RUNTIME_WORKER_TOKEN"])
+    api = Api(
+        os.environ["WORKER_API_URL"],
+        os.environ["RUNTIME_WORKER_TOKEN"],
+        environment=os.getenv("APP_ENV", "development"),
+        ca_file=os.getenv("WORKER_CA_FILE"),
+    )
     try:
         with Journal(Path(os.environ["WORKER_JOURNAL_ROOT"])) as journal:
             delay = 1

@@ -28,7 +28,11 @@ public final class ContractValidator {
             "task",
             "task-completed",
             "task-failed",
-            "task-response")) {
+            "task-response",
+            "scene-create",
+            "scene-request",
+            "scene-completed",
+            "scene-failed")) {
       try (var input =
           ContractValidator.class.getResourceAsStream("/contracts/" + name + ".schema.json")) {
         if (input == null) throw new IllegalStateException("Missing bundled schema");

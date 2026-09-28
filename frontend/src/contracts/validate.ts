@@ -7,6 +7,7 @@ import schema3 from '../../../contracts/task.schema.json' with { type: 'json' }
 import schema4 from '../../../contracts/task-completed.schema.json' with { type: 'json' }
 import schema5 from '../../../contracts/task-failed.schema.json' with { type: 'json' }
 import schema6 from '../../../contracts/task-response.schema.json' with { type: 'json' }
+import schema7 from '../../../contracts/scene-create.schema.json' with { type: 'json' }
 
 const ajv = new Ajv2020({ strict: true, allErrors: true })
 addFormats(ajv, { mode: 'full' })
@@ -18,9 +19,12 @@ for (const schema of [
   schema4,
   schema5,
   schema6,
+  schema7,
 ])
   ajv.addSchema(schema)
 const contracts: Record<string, string> = {
+  'scene-create':
+    'https://schemas.product-image-workbench.invalid/v2/scene-create.json',
   'task-create':
     'https://schemas.product-image-workbench.invalid/v1/task-create.json',
   'idempotency-key':
