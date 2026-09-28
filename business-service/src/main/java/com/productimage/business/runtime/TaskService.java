@@ -45,6 +45,10 @@ public final class TaskService {
     return create(actor, key, raw, "scene-create");
   }
 
+  public JsonNode createSceneV3(String actor, String key, String raw) {
+    return create(actor, key, raw, "scene-v3-create");
+  }
+
   private JsonNode create(String actor, String key, String raw, String contract) {
     JsonNode request = Json.parse(raw);
     Json.validate(contract, request);
@@ -110,7 +114,9 @@ public final class TaskService {
         .put("attempt_id", attempt)
         .put("correlation_id", task)
         .put("output_object_prefix", "outputs/" + task + "/" + attempt + "/");
-    Json.validate(version == 2 ? "scene-request" : "task-request", payload);
+    Json.validate(
+        version == 3 ? "scene-v3-request" : version == 2 ? "scene-request" : "task-request",
+        payload);
     jdbc.update(
         "INSERT INTO outbox_events(id,task_id,attempt_id,event_type,payload) VALUES (?,?,?,?,?::jsonb)",
         event,
@@ -182,7 +188,7 @@ public final class TaskService {
   public JsonNode getScene(String actor, String id) {
     var row = owned(actor, id, false);
     var snapshot = Json.parse(row.get("worker_snapshot_json").toString());
-    if (snapshot.path("schema_version").asInt() != 2) throw new Problem(404, "NOT_FOUND");
+    if (snapshot.path("schema_version").asInt() < 2) throw new Problem(404, "NOT_FOUND");
     ObjectNode result = (ObjectNode) get(actor, id);
     result.set("output", snapshot.get("output"));
     result.put("publication_policy", "ALL_OR_NOTHING").put("review_status", "PENDING");

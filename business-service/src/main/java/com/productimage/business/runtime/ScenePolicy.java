@@ -39,10 +39,20 @@ final class ScenePolicy {
   void validate(JsonNode output) {
     if (!enabled) throw new Problem(422, "PROVIDER_UNAVAILABLE");
     if (!ratios.contains(output.path("aspect_ratio").asText())
-        || !resolutions.contains(output.path("resolution").asText())
+        || (!output.has("width") && !resolutions.contains(output.path("resolution").asText()))
         || !formats.contains(output.path("format").asText())
         || output.path("count").asInt() < 1
         || output.path("count").asInt() > maximum) throw new Problem(422, "INVALID_LAYOUT");
+    if (output.has("width")) {
+      int w = output.path("width").asInt(), h = output.path("height").asInt();
+      String[] ratio = output.path("aspect_ratio").asText().split(":");
+      if (w < 64
+          || h < 64
+          || w > 2048
+          || h > 2048
+          || w * Integer.parseInt(ratio[1]) != h * Integer.parseInt(ratio[0]))
+        throw new Problem(422, "INVALID_LAYOUT");
+    }
   }
 
   JsonNode options() {

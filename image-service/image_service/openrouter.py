@@ -95,9 +95,9 @@ class OpenRouterAdapter:
             raise BackgroundError("INVALID_INPUT")
         parameters = {
             "aspect_ratio": request.aspect_ratio,
-            "resolution": request.resolution,
-            "output_format": request.output_format,
         }
+        if request.resolution is not None:
+            parameters.update(resolution=request.resolution, output_format=request.output_format)
         self._capabilities(parameters)
         prompt = "Background only. No products, packaging, logos or text. " + request.prompt
         started = time.monotonic()
@@ -155,16 +155,17 @@ def decode_background(response, request):
             raise ValueError()
         with Image.open(io.BytesIO(content)) as image:
             width, height = image.size
-            expected = request.output_format.upper()
+            expected = request.output_format.upper() if request.output_format else None
             ratio_width, ratio_height = map(int, request.aspect_ratio.split(":"))
             if (
-                image.format != expected
+                image.format not in ("PNG", "JPEG")
+                or (expected is not None and image.format != expected)
                 or width * height > MAX_PIXELS
                 or max(width, height) > 4096
                 or getattr(image, "n_frames", 1) != 1
-                or width * ratio_height != height * ratio_width
-                or images[0].get("media_type", "image/" + request.output_format)
-                != "image/" + request.output_format
+                or (expected is not None and width * ratio_height != height * ratio_width)
+                or images[0].get("media_type", "image/" + image.format.lower())
+                != "image/" + image.format.lower()
             ):
                 raise ValueError()
             image.verify()

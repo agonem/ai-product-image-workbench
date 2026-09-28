@@ -85,7 +85,7 @@ def failure(request, code, retryable=True):
 
 
 def process(api: Api, request: dict, lease: str, fixture: bool, *, cancelled=None) -> dict:
-    if request.get("schema_version") == 2:
+    if request.get("schema_version") in (2, 3):
         if fixture:
             return failure(request, "INVALID_CONTRACT", False)
         from image_service.background_config import load_config
@@ -164,7 +164,12 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
     request = claim["request"]
     lease = claim["lease_token"]
     if validate_contract(
-        "scene-request" if request.get("schema_version") == 2 else "task-request", request
+        "scene-v3-request"
+        if request.get("schema_version") == 3
+        else "scene-request"
+        if request.get("schema_version") == 2
+        else "task-request",
+        request,
     ):
         raise ValueError("Invalid claimed task contract")
     crash("after-claim", fixture)
@@ -215,9 +220,13 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
         receipt["duration_ms"] = int((time.monotonic() - started) * 1000)
         if lost.is_set():
             raise RuntimeError("Lease lost; output cannot be confirmed")
-        contract = ("scene-" if request.get("schema_version") == 2 else "task-") + (
-            "completed" if ".completed." in receipt["event_type"] else "failed"
-        )
+        contract = (
+            "scene-v3-"
+            if request.get("schema_version") == 3
+            else "scene-"
+            if request.get("schema_version") == 2
+            else "task-"
+        ) + ("completed" if ".completed." in receipt["event_type"] else "failed")
         if validate_contract(contract, receipt):
             raise ValueError("Invalid generated receipt")
         journal.save(request["attempt_id"], lease, receipt)

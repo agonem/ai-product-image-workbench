@@ -19,8 +19,8 @@ class BackgroundRequest:
     template_version: str
     correlation_id: str
     aspect_ratio: str
-    resolution: str
-    output_format: str
+    resolution: str | None
+    output_format: str | None
 
     def __post_init__(self):
         if (
@@ -33,8 +33,9 @@ class BackgroundRequest:
             )
             or not isinstance(self.aspect_ratio, str)
             or not re.fullmatch(r"[1-9][0-9]?:[1-9][0-9]?", self.aspect_ratio)
-            or self.resolution not in ("512", "1K", "2K", "4K")
-            or self.output_format not in ("png", "jpeg")
+            or self.resolution not in (None, "512", "1K", "2K", "4K")
+            or self.output_format not in (None, "png", "jpeg")
+            or (self.resolution is None) != (self.output_format is None)
         ):
             raise BackgroundError("INVALID_INPUT")
 

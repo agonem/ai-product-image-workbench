@@ -3,10 +3,11 @@ import io
 import ssl
 
 import pytest
+from PIL import Image
+
 from image_service.background import BackgroundError, BackgroundResult
 from image_service.scene import process_scene
 from image_service.worker import Api
-from PIL import Image
 
 
 def png(color, mode="RGB"):

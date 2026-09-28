@@ -29,7 +29,7 @@ class TestProvider:
             raise BackgroundError("PROVIDER_HTTP_429", retryable=True)
         data = io.BytesIO()
         Image.new("RGB", (256, 256), (170 + self.count * 10, 185, 200)).save(
-            data, format=request.output_format.upper()
+            data, format=(request.output_format or "png").upper()
         )
         content = data.getvalue()
         return BackgroundResult(
@@ -45,8 +45,11 @@ class TestProvider:
                 "template_version": request.template_version,
                 "parameters": {
                     "aspect_ratio": request.aspect_ratio,
-                    "resolution": request.resolution,
-                    "output_format": request.output_format,
+                    **(
+                        {"resolution": request.resolution, "output_format": request.output_format}
+                        if request.resolution
+                        else {}
+                    ),
                 },
                 "correlation_id": request.correlation_id,
                 "output_source": "mock-not-real-generation",

@@ -222,7 +222,7 @@ def run_scene_checks(env, work, *, real=False):
             time.sleep(0.2)
         task = json.loads((sync / "submitted.json").read_text())["task_id"]
         worker(run, certificate, real)
-        state = run.http("GET", f"/api/v2/scene-tasks/{task}", alice)[1]
+        state = run.http("GET", f"/api/v3/scene-tasks/{task}", alice)[1]
         (work / "task-result.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
         assert state["status"] == "SUCCEEDED", ("scene failed", state.get("error"))
         assert state["output"]["count"] == len(state["artifacts"]) == 3
@@ -265,7 +265,8 @@ def post(run, path, token, body, *, key=None, lease=None):
     except HTTPError as error:
         response = error
     with response:
-        return response.status, json.loads(response.read())
+        raw = response.read()
+        return response.status, json.loads(raw) if raw else None
 
 
 def failure_checks(run, certificate, alice, previous):
@@ -274,12 +275,12 @@ def failure_checks(run, certificate, alice, previous):
     )
     body["output"]["format"] = "jpeg"
     body["output"]["count"] = 4
-    assert post(run, "/api/v2/scene-tasks", alice, body, key=uuid.uuid4().hex)[0] == 422
+    assert post(run, "/api/v3/scene-tasks", alice, body, key=uuid.uuid4().hex)[0] == 422
     body["output"]["count"] = 3
     key = uuid.uuid4().hex
-    status, task = post(run, "/api/v2/scene-tasks", alice, body, key=key)
+    status, task = post(run, "/api/v3/scene-tasks", alice, body, key=key)
     assert status == 202
-    assert post(run, "/api/v2/scene-tasks", alice, body, key=key)[1]["id"] == task["id"]
+    assert post(run, "/api/v3/scene-tasks", alice, body, key=key)[1]["id"] == task["id"]
     identifier = task["id"]
     worker(run, certificate, False, fail=True)
     failed = run.http("GET", f"/api/v1/tasks/{identifier}", alice)[1]
@@ -307,12 +308,31 @@ def failure_checks(run, certificate, alice, previous):
     for artifact in completed["artifacts"]:
         content = run.http("GET", f"/api/v1/artifacts/{artifact['id']}/content", alice)[1]
         assert content.startswith(b"\xff\xd8")
-    status, altered = post(run, "/api/v2/scene-tasks", alice, body, key=uuid.uuid4().hex)
+    status, altered = post(run, "/api/v3/scene-tasks", alice, body, key=uuid.uuid4().hex)
     assert status == 202
     worker(run, certificate, False, tamper=True)
     rejected = run.http("GET", f"/api/v1/tasks/{altered['id']}", alice)[1]
     assert rejected["status"] == "FAILED" and rejected["artifacts"] == []
     assert rejected["error"]["code"] == "OUTPUT_VALIDATION_FAILED"
+    status, fenced = post(run, "/api/v3/scene-tasks", alice, body, key=uuid.uuid4().hex)
+    assert status == 202
+    status, claim = post(run, "/internal/v1/work/claim", run.worker_token, {})
+    assert status == 200 and claim["request"]["task_id"] == fenced["id"]
+    attempt, token = claim["request"]["attempt_id"], claim["lease_token"]
+    path = f"/internal/v1/work/{attempt}/generation-calls/0"
+    assert post(run, path, run.worker_token, {}, lease="wrong-lease")[0] == 410
+    assert post(run, path, run.worker_token, {}, lease=token)[0] == 204
+    assert post(run, path, run.worker_token, {}, lease=token)[0] == 409
+    run.sql(
+        "UPDATE outbox_events SET lease_until=now()-interval '1 second', "
+        f"available_at=now()-interval '1 second' WHERE attempt_id='{attempt}'"
+    )
+    worker(run, certificate, False)
+    recovered = run.http("GET", f"/api/v1/tasks/{fenced['id']}", alice)[1]
+    assert recovered["status"] == "FAILED" and recovered["artifacts"] == []
+    assert (
+        run.sql(f"SELECT count(*) FROM generation_call_fences WHERE attempt_id='{attempt}'") == "1"
+    )
     (run.work / "failure-evidence.json").write_text(
         json.dumps(
             {
@@ -322,6 +342,7 @@ def failure_checks(run, certificate, alice, previous):
                 "old_attempt_ignored": True,
                 "jpeg_retry_count": 3,
                 "incomplete_receipt_rejected": True,
+                "paid_call_fence_survives_reclaim": True,
                 "task_id": identifier,
             },
             indent=2,

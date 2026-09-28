@@ -272,7 +272,6 @@ export function useWorkbench() {
           a.items.find((v) => v.kind === 'PRODUCT' && v.cutout_ready)?.id ?? ''
         drafts.SCENE.sceneOutput.aspect_ratio =
           capability.aspect_ratios[0] ?? '1:1'
-        drafts.SCENE.sceneOutput.resolution = capability.resolutions[0] ?? '1K'
         drafts.SCENE.sceneOutput.format = capability.formats[0] ?? 'png'
       }
       if (h.items[0]) selectTask(h.items[0].task)
@@ -385,7 +384,7 @@ export function useWorkbench() {
         )
       try {
         const task = checkedTask(
-          await api<Task>(pending.body.output ? '/v2/scene-tasks' : '/tasks', {
+          await api<Task>(pending.body.output ? '/v3/scene-tasks' : '/tasks', {
             ...json(pending.body),
             headers: {
               'Content-Type': 'application/json',

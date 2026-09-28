@@ -29,7 +29,7 @@ export async function request<T>(
   let response: Response
   try {
     response = await fetch(
-      (path.startsWith('/v2/') ? '/api' : '/api/v1') + path,
+      (/^\/v[23]\//.test(path) ? '/api' : '/api/v1') + path,
       {
         ...init,
         cache: 'no-store',

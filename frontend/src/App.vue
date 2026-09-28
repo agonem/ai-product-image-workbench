@@ -325,15 +325,21 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
                   </select></label
                 >
                 <label
-                  >分辨率档位<select v-model="w.draft.sceneOutput.resolution">
-                    <option
-                      v-for="resolution in w.options?.scene?.resolutions"
-                      :key="resolution"
-                    >
-                      {{ resolution }}
-                    </option>
-                  </select></label
-                >
+                  >输出宽度（像素）<input
+                    v-model.number="w.draft.sceneOutput.width"
+                    type="number"
+                    min="64"
+                    max="2048"
+                    required
+                /></label>
+                <label
+                  >输出高度（像素）<input
+                    v-model.number="w.draft.sceneOutput.height"
+                    type="number"
+                    min="64"
+                    max="2048"
+                    required
+                /></label>
                 <label
                   >导出格式<select v-model="w.draft.sceneOutput.format">
                     <option
@@ -354,7 +360,7 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
                     required
                 /></label>
                 <small
-                  >每张独立生成，全部成功才展示；失败重试会重新生成整批，可能再次产生费用。实际像素尺寸以结果为准。拼多多专用规则待核实。</small
+                  >每张独立生成，全部成功才展示；失败重试会重新生成整批，可能再次产生费用。本地保证输出尺寸与格式，背景等比缩放并居中裁切。拼多多专用规则待核实。</small
                 >
               </template>
               <small

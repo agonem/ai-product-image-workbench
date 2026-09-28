@@ -29,7 +29,8 @@ export function newDraft() {
     manual: '',
     sceneOutput: {
       aspect_ratio: '1:1',
-      resolution: '1K',
+      width: 1024,
+      height: 1024,
       format: 'png',
       count: 3,
     },
@@ -70,6 +71,9 @@ export function buildRequest(
     })
   else if (feature === 'SCENE') {
     if (realScene) {
+      const [rw, rh] = draft.sceneOutput.aspect_ratio.split(':').map(Number)
+      if (draft.sceneOutput.width * rh! !== draft.sceneOutput.height * rw!)
+        throw new Error('输出宽高必须与画布比例一致。')
       delete value.output_preset_id
       value.output = { ...draft.sceneOutput }
     }
@@ -84,7 +88,7 @@ export function buildRequest(
     })
   if (
     validateContract(
-      realScene && feature === 'SCENE' ? 'scene-create' : 'task-create',
+      realScene && feature === 'SCENE' ? 'scene-v3-create' : 'task-create',
       value,
     ).length
   )

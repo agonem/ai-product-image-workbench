@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.product-image-workbench.invalid/v3/scene-completed.json",
+  "title": "SceneCompletedV3",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 3
+    },
+    "event_type": {
+      "const": "image.task.completed.v3"
+    },
+    "event_id": {
+      "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+    },
+    "task_id": {
+      "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+    },
+    "attempt_id": {
+      "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+    },
+    "correlation_id": {
+      "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/artifact"
+      }
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "background_generations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "background": {
+            "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/artifact"
+          },
+          "shadow": {
+            "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/artifact"
+          },
+          "provenance": {
+            "type": "object",
+            "required": [
+              "provider",
+              "model",
+              "prompt",
+              "parameters",
+              "correlation_id",
+              "product_sha256",
+              "alpha_sha256",
+              "transform",
+              "review_status",
+              "provider_tag",
+              "template_version",
+              "output_source",
+              "sha256",
+              "duration_ms",
+              "usage",
+              "schema_version",
+              "background_transform"
+            ],
+            "properties": {
+              "review_status": {
+                "const": "PENDING"
+              },
+              "provider": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 12000
+              },
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 12000
+              },
+              "provider_tag": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 12000
+              },
+              "prompt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 12000
+              },
+              "template_version": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 12000
+              },
+              "correlation_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 12000
+              },
+              "output_source": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 12000
+              },
+              "product_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "alpha_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "schema_version": {
+                "const": 1
+              },
+              "parameters": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "aspect_ratio"
+                ],
+                "properties": {
+                  "aspect_ratio": {
+                    "type": "string"
+                  }
+                }
+              },
+              "transform": {
+                "type": "object"
+              },
+              "duration_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "usage": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "background_transform": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "strategy",
+                  "source_size",
+                  "resized_size",
+                  "crop",
+                  "target_size"
+                ],
+                "properties": {
+                  "strategy": {
+                    "const": "cover-center-v1"
+                  },
+                  "source_size": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "resized_size": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "crop": {
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "target_size": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "ordinal",
+          "background",
+          "shadow",
+          "provenance"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "event_type",
+    "event_id",
+    "task_id",
+    "attempt_id",
+    "correlation_id",
+    "artifacts",
+    "duration_ms",
+    "background_generations"
+  ]
+}

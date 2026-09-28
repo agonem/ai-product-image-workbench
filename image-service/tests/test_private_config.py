@@ -1,4 +1,5 @@
 import pytest
+
 from image_service.background import BackgroundError
 from image_service.background_config import load_config, private_environment
 

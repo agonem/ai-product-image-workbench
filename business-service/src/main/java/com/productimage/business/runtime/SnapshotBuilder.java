@@ -58,11 +58,12 @@ final class SnapshotBuilder {
     }
     if (request.has("output")) {
       scenes.validate(request.get("output"));
-      worker.put("schema_version", 2);
+      int version = request.path("output").has("width") ? 3 : 2;
+      worker.put("schema_version", version);
       worker.set("output", request.get("output"));
       snapshot
           .putObject("output_preset")
-          .put("id", "scene_v2")
+          .put("id", "scene_v" + version)
           .set("config", request.get("output"));
     } else {
       var presets =

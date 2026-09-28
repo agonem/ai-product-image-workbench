@@ -79,6 +79,26 @@ public class RuntimeApi {
     return tasks.getScene(users.authenticate(request.getHeader("Authorization")), id);
   }
 
+  @PostMapping("/api/v3/scene-tasks")
+  public ResponseEntity<JsonNode> createSceneV3(HttpServletRequest request) {
+    String actor = users.authenticate(request.getHeader("Authorization"));
+    return ResponseEntity.accepted()
+        .body(tasks.createSceneV3(actor, request.getHeader("Idempotency-Key"), json(request)));
+  }
+
+  @GetMapping("/api/v3/scene-tasks/{id}")
+  public JsonNode getSceneV3(@PathVariable String id, HttpServletRequest request) {
+    return tasks.getScene(users.authenticate(request.getHeader("Authorization")), id);
+  }
+
+  @PostMapping("/internal/v1/work/{attempt}/generation-calls/{ordinal}")
+  public ResponseEntity<Void> generationCall(
+      @PathVariable String attempt, @PathVariable int ordinal, HttpServletRequest request) {
+    auth(request, true);
+    deliveries.generationCall(attempt, request.getHeader("X-Lease-Token"), ordinal);
+    return ResponseEntity.noContent().build();
+  }
+
   @PostMapping("/api/v1/tasks/{id}/retry")
   public ResponseEntity<JsonNode> retry(@PathVariable String id, HttpServletRequest request) {
     String actor = users.authenticate(request.getHeader("Authorization"));

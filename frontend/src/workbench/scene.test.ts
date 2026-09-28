@@ -13,7 +13,8 @@ test('real scene is versioned, defaults to three, and rejects fractional count',
   assert.equal(request.output_preset_id, undefined)
   assert.deepEqual(request.output, {
     aspect_ratio: '1:1',
-    resolution: '1K',
+    width: 1024,
+    height: 1024,
     format: 'png',
     count: 3,
   })

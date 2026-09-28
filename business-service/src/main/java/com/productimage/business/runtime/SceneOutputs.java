@@ -10,6 +10,7 @@ final class SceneOutputs {
   static void validate(LocalObjectStore store, String prefix, JsonNode request, JsonNode receipt) {
     int count = request.path("output").path("count").asInt();
     var output = request.path("output");
+    boolean local = request.path("schema_version").asInt() == 3;
     if (receipt.path("artifacts").size() != count
         || receipt.path("background_generations").size() != count) invalid();
     var hashes = new HashSet<String>();
@@ -24,7 +25,7 @@ final class SceneOutputs {
           generation.path("background"),
           count + i,
           "BACKGROUND",
-          output.path("format").asText());
+          local ? null : output.path("format").asText());
       check(store, prefix, generation.path("shadow"), count * 2 + i, "ALPHA", "png");
       int width = artifact.path("width").asInt(), height = artifact.path("height").asInt();
       var provenance = generation.path("provenance");
@@ -42,9 +43,28 @@ final class SceneOutputs {
               .asText()
               .equals(request.path("attempt_id").asText() + "-" + i)
           || !parameters.path("aspect_ratio").equals(output.path("aspect_ratio"))
-          || !parameters.path("resolution").equals(output.path("resolution"))
-          || !parameters.path("output_format").equals(output.path("format"))) invalid();
-      for (String field : new String[] {"background", "shadow"}) {
+          || (!local
+              && (!parameters.path("resolution").equals(output.path("resolution"))
+                  || !parameters.path("output_format").equals(output.path("format"))))) invalid();
+      if (local) {
+        var transform = provenance.path("background_transform");
+        var source = generation.path("background");
+        int sw = source.path("width").asInt(), sh = source.path("height").asInt();
+        double scale = Math.max((double) width / sw, (double) height / sh);
+        int rw = (int) Math.ceil(sw * scale), rh = (int) Math.ceil(sh * scale);
+        int x = (rw - width) / 2, y = (rh - height) / 2;
+        if (width != output.path("width").asInt()
+            || height != output.path("height").asInt()
+            || !transform.path("source_size").equals(Json.parse("[" + sw + "," + sh + "]"))
+            || !transform.path("resized_size").equals(Json.parse("[" + rw + "," + rh + "]"))
+            || !transform.path("target_size").equals(Json.parse("[" + width + "," + height + "]"))
+            || !transform
+                .path("crop")
+                .equals(
+                    Json.parse("[" + x + "," + y + "," + (x + width) + "," + (y + height) + "]")))
+          invalid();
+      }
+      for (String field : local ? new String[] {"shadow"} : new String[] {"background", "shadow"}) {
         if (generation.path(field).path("width").asInt() != width
             || generation.path(field).path("height").asInt() != height) invalid();
       }
@@ -65,7 +85,7 @@ final class SceneOutputs {
     byte[] bytes = store.read(key);
     var info = store.inspect(key, bytes);
     boolean png = bytes.length > 8 && bytes[0] == (byte) 137 && bytes[1] == 80;
-    if (png != format.equals("png")
+    if ((format != null && png != format.equals("png"))
         || !info.sha256().equals(value.path("sha256").asText())
         || info.width() != value.path("width").asInt()
         || info.height() != value.path("height").asInt()) invalid();

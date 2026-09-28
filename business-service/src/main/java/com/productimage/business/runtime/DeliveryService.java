@@ -103,6 +103,24 @@ public final class DeliveryService {
         });
   }
 
+  public void generationCall(String attempt, String token, int ordinal) {
+    tx.executeWithoutResult(
+        status -> {
+          var row = row(attempt);
+          requireLease(row, token);
+          var request = Json.parse(row.get("payload").toString());
+          if (request.path("schema_version").asInt() != 3
+              || ordinal < 0
+              || ordinal >= request.path("output").path("count").asInt())
+            throw new Problem(400, "INVALID_CONTRACT");
+          if (jdbc.update(
+                  "INSERT INTO generation_call_fences(attempt_id,ordinal) VALUES (?,?) ON CONFLICT DO NOTHING",
+                  attempt,
+                  ordinal)
+              != 1) throw new Problem(409, "TASK_CONFLICT");
+        });
+  }
+
   public byte[] asset(String attempt, String token, String assetId) {
     return tx.execute(
         status -> {
@@ -147,12 +165,15 @@ public final class DeliveryService {
   public JsonNode receipt(String attempt, String token, String raw) {
     JsonNode receipt = Json.parse(raw);
     String type = receipt.path("event_type").asText();
-    if (!type.matches("image\\.task\\.(completed|failed)\\.v[12]")) {
+    if (!type.matches("image\\.task\\.(completed|failed)\\.v[123]")) {
       throw new Problem(400, "INVALID_CONTRACT");
     }
     boolean completed = type.contains(".completed.");
-    boolean scene = type.endsWith(".v2");
-    Json.validate((scene ? "scene-" : "task-") + (completed ? "completed" : "failed"), receipt);
+    boolean scene = !type.endsWith(".v1");
+    Json.validate(
+        (type.endsWith(".v3") ? "scene-v3-" : scene ? "scene-" : "task-")
+            + (completed ? "completed" : "failed"),
+        receipt);
     String hash = RequestFingerprint.sha256(raw);
     return tx.execute(
         status -> {

@@ -19,7 +19,7 @@ test('browser submits three scenes through authenticated Java and previews resul
   await expect(page.getByLabel('生成数量')).toHaveValue('3')
   const submission = page.waitForResponse(
     (r) =>
-      r.url().endsWith('/api/v2/scene-tasks') &&
+      r.url().endsWith('/api/v3/scene-tasks') &&
       r.request().method() === 'POST',
   )
   await page.getByRole('button', { name: '生成场景图', exact: true }).click()

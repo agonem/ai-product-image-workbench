@@ -124,7 +124,9 @@ public class WorkbenchApi {
       var item =
           Json.object()
               .put("test_fixture", "t05_transport_fixture".equals(row.get("preset")))
-              .put("real_scene", "scene_v2".equals(row.get("preset")));
+              .put(
+                  "real_scene",
+                  "scene_v2".equals(row.get("preset")) || "scene_v3".equals(row.get("preset")));
       item.set("task", tasks.get(actor, row.get("id").toString()));
       items.add(item);
     }
