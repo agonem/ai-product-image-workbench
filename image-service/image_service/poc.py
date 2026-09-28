@@ -1,4 +1,4 @@
-"""Offline synthetic research only; never marks business assets approved."""
+"""Offline deterministic image research; never marks business assets approved."""
 
 import math
 
