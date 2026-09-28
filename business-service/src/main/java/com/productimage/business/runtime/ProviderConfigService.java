@@ -50,13 +50,21 @@ public final class ProviderConfigService {
             .build();
   }
 
-  /** The version new tasks bind; null keeps the worker's explicit environment configuration. */
-  String activeVersion() {
+  /**
+   * Binding for new scene tasks. No state row keeps the explicit worker environment path; an
+   * existing but disabled state rejects creation instead of silently falling back to environment
+   * credentials, and queued or retrying tasks always keep their frozen binding.
+   */
+  String sceneBinding() {
     var rows =
         jdbc.queryForList(
-            "SELECT active_version_id FROM provider_config_state WHERE provider='openrouter' AND enabled",
-            String.class);
-    return rows.isEmpty() ? null : rows.getFirst();
+            "SELECT active_version_id,enabled FROM provider_config_state WHERE provider='openrouter'");
+    if (rows.isEmpty()) return null;
+    if (!Boolean.TRUE.equals(rows.getFirst().get("enabled")))
+      throw new Problem(503, "PROVIDER_DISABLED");
+    Object version = rows.getFirst().get("active_version_id");
+    if (version == null) throw new Problem(503, "PROVIDER_UNAVAILABLE");
+    return version.toString();
   }
 
   /** Leased workers receive the decrypted binding; failures must not fall back silently. */

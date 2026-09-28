@@ -318,6 +318,14 @@ def provider_config_checks(run, certificate, alice, previous):
         item["provenance"]["model"] == "test/mock-model-a"
         for item in receipt["background_generations"]
     )
+    # A queued task frozen on version A BEFORE rotation must still run on A after the
+    # pointer rotated and the provider was disabled: no silent credential switch.
+    status, frozen = submit(1, "f")
+    assert status == 202
+    assert (
+        run.sql(f"SELECT provider_config_version FROM generation_tasks WHERE id='{frozen['id']}'")
+        == created["id"]
+    )
     # Rotation: a new version takes over new tasks; the earlier binding stays frozen.
     second = {**first, "model": "test/mock-model-b", "provider_tag": "mock-b"}
     rotated = run.http("POST", "/api/v1/admin/provider-configs", admin, second)[1]
@@ -328,6 +336,18 @@ def provider_config_checks(run, certificate, alice, previous):
         == rotated["id"]
     )
     worker(run, certificate, False)
+    state = run.http("GET", f"/api/v1/tasks/{frozen['id']}", alice)[1]
+    assert state["status"] == "SUCCEEDED", state.get("error")
+    receipt = json.loads(
+        run.sql(f"SELECT payload FROM worker_receipts WHERE task_id='{frozen['id']}'")
+    )
+    assert all(
+        item["provenance"]["model"] == "test/mock-model-a"
+        for item in receipt["background_generations"]
+    )
+    worker(run, certificate, False)
+    state = run.http("GET", f"/api/v1/tasks/{switched['id']}", alice)[1]
+    assert state["status"] == "SUCCEEDED", state.get("error")
     receipt = json.loads(
         run.sql(f"SELECT payload FROM worker_receipts WHERE task_id='{switched['id']}'")
     )
@@ -353,14 +373,23 @@ def provider_config_checks(run, certificate, alice, previous):
         )[0]
         == 204
     )
-    status, unbound = submit(1, "c")
+    # An admin who disabled the configuration must not get silent environment fallback.
+    status, rejected = submit(1, "d")
+    assert status == 503 and rejected["code"] == "PROVIDER_DISABLED"
+    assert (
+        run.http(
+            "POST",
+            f"/api/v1/admin/provider-configs/{rotated['id']}/status",
+            admin,
+            {"enabled": True},
+        )[0]
+        == 204
+    )
+    status, rebound = submit(1, "e")
     assert status == 202
     assert (
-        run.sql(
-            f"SELECT count(*) FROM generation_tasks WHERE id='{unbound['id']}' "
-            "AND provider_config_version IS NULL"
-        )
-        == "1"
+        run.sql(f"SELECT provider_config_version FROM generation_tasks WHERE id='{rebound['id']}'")
+        == rotated["id"]
     )
     # C3: the non-paid capability check is a relayed GET summary; the key is forwarded
     # to the image service over the internal token channel but never returned.
@@ -407,7 +436,8 @@ def provider_config_checks(run, certificate, alice, previous):
                 "key_masked_and_absent_from_responses_logs": True,
                 "new_tasks_bind_active_version": True,
                 "rotation_switches_new_tasks_only": True,
-                "disable_releases_new_tasks": True,
+                "frozen_binding_survives_rotation_and_disable": True,
+                "disable_rejects_new_submissions_without_env_fallback": True,
                 "worker_provenance_echoes_bound_model": True,
                 "non_paid_check_relays_get_summary": True,
             },

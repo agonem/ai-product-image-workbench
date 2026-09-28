@@ -68,10 +68,10 @@ public final class TaskService {
                   key);
           if (!existing.isEmpty()) return existing(actor, existing.getFirst(), hash);
           ObjectNode worker = snapshots.build(request);
-          // Real background tasks freeze the active admin configuration; retries reuse this
-          // binding because the column is immutable and the snapshot is never rewritten.
+          // Real background tasks freeze the admin binding (or reject when an admin actively
+          // disabled it); retries reuse the frozen column because snapshots are never rewritten.
           String configVersion =
-              worker.path("schema_version").asInt() >= 2 ? configs.activeVersion() : null;
+              worker.path("schema_version").asInt() >= 2 ? configs.sceneBinding() : null;
           String id = Json.id();
           int inserted =
               jdbc.update(
