@@ -39,11 +39,22 @@ public final class ProviderConfigService {
                 env.getProperty("PROVIDER_MASTER_KEY_FILE", ""));
     this.checkUrl = env.getProperty("IMAGE_CHECK_URL", "").strip();
     this.checkToken = env.getProperty("IMAGE_CHECK_TOKEN", "");
+    boolean production = "production".equals(env.getProperty("APP_ENV"));
     if (checkUrl.isBlank() != checkToken.isBlank()
         || (!checkUrl.isBlank()
             && !checkUrl.matches(
                 "https?://[A-Za-z0-9.:\\[\\]-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]*)*")))
       throw new IllegalStateException("Provider check requires a plain base URL and shared token");
+    if (!checkUrl.isBlank()) {
+      var host = java.net.URI.create(checkUrl).getHost();
+      // Production relays must keep TLS with default certificate and hostname validation;
+      // outside production plain HTTP is only tolerated for loopback relays.
+      boolean loopback =
+          host != null && java.util.Set.of("127.0.0.1", "::1", "localhost").contains(host);
+      if ((production && !checkUrl.startsWith("https://"))
+          || (!production && !checkUrl.startsWith("https://") && !loopback))
+        throw new IllegalStateException("Provider check relay requires HTTPS or loopback HTTP");
+    }
     this.http =
         HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NEVER)
@@ -205,6 +216,9 @@ public final class ProviderConfigService {
     } catch (Exception ex) {
       throw new Problem(503, "PROVIDER_UNAVAILABLE");
     }
+    // Only whitelisted capability fields may reach an administrator; upstream extras
+    // (including any echoed credential) are dropped here, before any response or log.
+    result = ProviderRelaySanitizer.capabilities(result);
     audit(actor, "PROVIDER_CONFIG_CHECK", id);
     return result;
   }
@@ -255,6 +269,8 @@ public final class ProviderConfigService {
     } catch (Exception ex) {
       throw new Problem(503, "PROVIDER_UNAVAILABLE");
     }
+    // Whitelisted test-output fields only; review status is imposed, never trusted.
+    result = ProviderRelaySanitizer.paidTest(result);
     audit(actor, "PROVIDER_CONFIG_PAID_TEST", id);
     return result;
   }

@@ -414,6 +414,9 @@ def provider_config_checks(run, certificate, alice, previous):
                     "provider_tag": "mock-b",
                     "input_modalities": ["text"],
                     "output_modalities": ["image"],
+                    # Malicious upstream fields must be stripped by the Java whitelist.
+                    "api_key": "sk-STOLEN-CREDENTIAL",
+                    "secret_hint": "forward-me-not",
                     "endpoints": [
                         {
                             "provider_tag": "mock-b",
@@ -434,6 +437,7 @@ def provider_config_checks(run, certificate, alice, previous):
                     "duration_ms": 5,
                     "content_base64": base64.b64encode(tiny_png).decode("ascii"),
                     "review_status": "PENDING",
+                    "api_key": "sk-STOLEN-CREDENTIAL",
                 }
             else:
                 self.send_response(404)
@@ -462,6 +466,14 @@ def provider_config_checks(run, certificate, alice, previous):
         )
         assert status == 200 and capabilities["model"] == "test/mock-model-b"
         assert key not in json.dumps(capabilities)
+        assert "STOLEN" not in json.dumps(capabilities)
+        assert set(capabilities) == {
+            "model",
+            "provider_tag",
+            "input_modalities",
+            "output_modalities",
+            "endpoints",
+        }
         assert received["auth"] == "Bearer " + run.env["IMAGE_CHECK_TOKEN"]
         assert key.encode() in received["body"]
         # Paid probe: denied for USER, requires the explicit confirmation phrase, and
@@ -491,6 +503,18 @@ def provider_config_checks(run, certificate, alice, previous):
         )
         assert status == 200 and paid["width"] == 1 and paid["media_type"] == "image/png"
         assert key not in json.dumps(paid)
+        assert "STOLEN" not in json.dumps(paid)
+        assert set(paid) == {
+            "sha256",
+            "width",
+            "height",
+            "media_type",
+            "model",
+            "duration_ms",
+            "content_base64",
+            "review_status",
+        }
+        assert paid["review_status"] == "PENDING"
         assert run.sql("SELECT count(*) FROM generation_tasks") == before
         assert run.sql("SELECT count(*) FROM artifacts") == before_artifacts
         assert (
