@@ -1,10 +1,8 @@
 # 母婴商品图工作台
 
-T01 开发骨架 + T03 契约数据库 + T05 任务运行 + T04 开发账号与上传 + T06 开发工作台 · 2026-09-26
+**当前进度只看 [docs/08 当前状态与剩余任务](docs/08-当前状态与剩余任务.md)。** 2026-09-28 用户决定收缩范围（ADR-20260928）：删除网页付费试生成、供应商检查中继和场景 v2，从 [01 产品设计](docs/01-产品设计与开发方案.md) 的核心要求继续。
 
-当前已有 Vue 3 + TypeScript 前端、Java Spring Boot 业务服务、Python FastAPI 图像服务及独立 Worker。Java 管理任务/attempt/outbox、状态、幂等重试和私有文件存储；Worker 通过内部 HTTP 领取租约并持久化回执。T04 提供开发账号/上传，以及独立 prod-local 生产本地账号 API（`9a1f685` 已通过独立验收）。T06-PROD 补充生产登录、会话处理、本人改密和账号管理页面，阶段验收通过；B2 到期分支保留独立补测，证据归属见 docs/19。完整生产部署尚未完成；Worker v2 已实现原图主体与独立 AI 背景合成，但当前配置模型的严格参数能力尚不满足，真实生成仍阻塞（docs/26）。旧 v1 普通 Worker 继续明确返回失败。合成图片运输验收使用显式 fixture 模式。
-
-需求 PRD-G02/G03/G06/G08、PRD-S01/S02/S03；任务 T01/T03/T05/T04/T06；验收 ACC-T01/ACC-T03/ACC-T05/ACC-T04-DEV/ACC-T04-PROD/ACC-T06。商品保真、三个独立入口、仅生成不发布等边界继续有效。OpenRouter 真实接入和拼多多规则尚未核实。T02 已收到 SAMPLE-001 真实商品/赠品及版式参考，三图均为 338×338，授权已确认；run-002 抠图与合成审查材料已由项目负责人确认，追加哈希绑定记录见 docs/25；新场景仍为 PENDING。高清及其他代表性样本仍待补。
+已有：Vue 3 + TypeScript 前端、Java Spring Boot 业务服务（任务/outbox/幂等重试/私有存储/生产本地账号与项目隔离）、Python 独立 Worker。场景图 v3 可真实生成背景并在本地合成原图商品层（新图待人工审核）。赠品图、卖点图、网页内抠图确认、删除功能尚未完成，按 docs/08 第 5 节顺序推进。商品保真、三个独立入口、仅生成不发布等边界继续有效；拼多多平台规则未核实。
 
 ## 快速运行
 
@@ -42,13 +40,13 @@ npm --prefix frontend exec -- playwright install chromium
 python scripts/check_db.py --t06-only
 ```
 
-先运行 `python scripts/check.py` 构建 Java。上述命令会启动 dev-local Java、Vite、普通 Worker，并运行真实 Chromium 页面检查；不会向已有数据库写测试数据。配置、合成夹具与限制见 [T06 交付说明](docs/15-T06-工作台交付.md)。
+先运行 `python scripts/check.py` 构建 Java。上述命令会启动 dev-local Java、Vite、普通 Worker，并运行真实 Chromium 页面检查；不会向已有数据库写测试数据。配置、合成夹具与限制见 [T06 交付说明](docs/history/15-T06-工作台交付.md)。
 
 ## 目录
 
-T09 已提供 v2 场景批次契约、严格 OpenRouter 适配器、原图 RGB/已审 alpha 合成、独立阴影、生产 Worker TLS、Java 原子回执及网页入口。默认关闭；私有配置已到位，但所选模型未声明 resolution/output_format，真实调用未完成。隔离启动、模拟链路证据与具体阻塞见 [T09 场景交付](docs/26-T09场景链路与能力阻塞.md)，不得将模拟供应商检查计为真实模型成功。
+场景图（v3）：Java 端 `SCENE_ENABLED` 等部署配置、Worker 私有 OpenRouter 配置与真实调用证据见 [history/27](docs/history/27-场景导出与管理设置实施.md) 和 [history/26](docs/history/26-T09场景链路与能力阻塞.md)；模拟供应商链路 `python scripts/check_db.py --t09-only` 不计真实生成。
 
-T02-SYN 提供离线合成素材分割/alpha/变换与合成实验，可在 `image-service/` 运行 `uv run --frozen python -m image_service.poc_demo --output ../.artifacts/t02-my-review`。目录必须尚不存在。对照与参数标记为合成测试、待人工确认，不接 Worker，不代表真实商品生成。依赖与结果见 [T02 合成预研](docs/20-T02-合成素材预研.md)。
+T02-SYN 提供离线合成素材分割/alpha/变换与合成实验，可在 `image-service/` 运行 `uv run --frozen python -m image_service.poc_demo --output ../.artifacts/t02-my-review`。目录必须尚不存在。对照与参数标记为合成测试、待人工确认，不接 Worker，不代表真实商品生成。依赖与结果见 [T02 合成预研](docs/history/20-T02-合成素材预研.md)。
 
 生产认证页面构建默认使用 `production-local`，开发服务器默认 `development-only`；仅显式 `VITE_AUTH_MODE` 可覆盖，不自动回退。生产部署须以 HTTPS 提供静态页面，同源 `/api` 代理到受信 Java HTTPS，保持证书校验。页面令牌仅内存保存，刷新重新登录。隔离验证、独立 JAR/端口命令及能力边界见 [T06 生产认证接入](docs/18-T06-生产认证接入.md)，统一 smoke 支持 `BUSINESS_TEST_JAR` 和 `SMOKE_BUSINESS_PORT/SMOKE_IMAGE_PORT/SMOKE_FRONTEND_PORT`。
 
@@ -66,24 +64,12 @@ scripts/           启动、聚合检查、HTTP 冒烟、隔离数据库验证
 ## 文档导航
 
 - [AGENTS.md](AGENTS.md)：工作边界和完成标准。
-- [01 产品设计与开发方案](docs/01-产品设计与开发方案.md)：需求与架构。
-- [02 接口与数据契约](docs/02-接口与数据契约.md)：健康接口、T03 规范及后续业务接口。
-- [03 验收标准与测试样本](docs/03-验收标准与测试样本.md)：业务验收、ACC-T01/ACC-T03。
-- [04 待决策事项](docs/04-待决策事项.md)：已确认用户决定、未决细节及真实验收阻塞。
-- [05 实施任务清单](docs/05-实施任务清单.md)：依赖与交付状态。
-- [06 交互线框与设计规范](docs/06-交互线框与设计规范.md)：业务页面约束。
-- [07 开发环境与版本选择](docs/07-开发环境与版本选择.md)：T01 环境与兼容性。
-- [08 T01 交付记录](docs/08-T01交付记录.md)：T01 历史证据。
-- [09 T03 契约与数据库开发](docs/09-T03契约与数据库开发.md)：新增版本、使用方式、数据库验证。
-- [10 T03 交付记录](docs/10-T03交付记录.md)：文件、实际命令、结果与未完成项。
-- [11 T05 运行与恢复](docs/11-T05运行与恢复.md)：runtime/Worker 启动、存储和恢复边界。
-- [12 T05 交付记录](docs/12-T05交付记录.md)：文件、实际检查和未完成项。
-- [13 T04 开发账号与上传](docs/13-T04开发账号与上传.md)：本地账号、项目 API、上传限制和 D-05 边界。
-- [14 T04 可先行交付记录](docs/14-T04可先行交付记录.md)：A1–A8 验收证据、文件和阻塞项。
-- [15 T06 工作台交付](docs/15-T06-工作台交付.md)：三入口、dev-local 页面复现、ACC 编号与能力边界。
-- [16 用户决定同步](docs/16-T00-用户决定同步.md)：T00-D 文档交付、兼容策略与独立验收关口。
-- [17 T04 生产本地账号](docs/17-T04-生产本地账号.md)：样本缺口、生产账号 API、配置及验证证据。
-- [18 T06 生产认证接入](docs/18-T06-生产认证接入.md)：生产账号页面、历史契约对比、隔离浏览器与 smoke 验证。
+- [00 验收索引](docs/00-任务交接.md)：待独立验收条目。
+- [01 产品设计与开发方案](docs/01-产品设计与开发方案.md)：需求与架构（核心要求基线）。
+- [02 接口与数据契约](docs/02-接口与数据契约.md)、[03 验收标准](docs/03-验收标准与测试样本.md)、[04 待决策事项](docs/04-待决策事项.md)、[05 实施任务清单](docs/05-实施任务清单.md)、[06 交互线框](docs/06-交互线框与设计规范.md)。
+- [08 当前状态与剩余任务](docs/08-当前状态与剩余任务.md)：**唯一状态入口**。
+- 运行指南：[07 开发环境](docs/07-开发环境与版本选择.md)、[09 数据库](docs/09-T03契约与数据库开发.md)、[11 任务运行与恢复](docs/11-T05运行与恢复.md)、[13 开发账号与上传](docs/13-T04开发账号与上传.md)、[17 生产本地账号](docs/17-T04-生产本地账号.md)、[18 生产页面](docs/18-T06-生产认证接入.md)。
+- [history/](docs/history/)：2026-09-28 前的逐次交付记录，仅作证据追溯。
 - [Worker 请求 Schema](contracts/task.schema.json)：已固化的任务请求 v1。
 
 新增任务引用需求和任务 ID，遵守“契约/验收 → 实现 → 检查 → 记录”。P0 未定时只推进不受影响的部分。
