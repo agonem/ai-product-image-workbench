@@ -1,14 +1,17 @@
 """T09 isolated production TLS chain. Mock default; --t09-real explicitly spends provider calls."""
 
+import base64
 import hashlib
 import json
 import os
 import shutil
 import ssl
 import subprocess
+import threading
 import time
 import uuid
 from contextlib import ExitStack
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.error import HTTPError
 from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 
@@ -81,6 +84,11 @@ def run_scene_checks(env, work, *, real=False):
             "SCENE_ASPECT_RATIOS": "1:1",
             "SCENE_RESOLUTIONS": "1K",
             "SCENE_FORMATS": "png,jpeg",
+            # Acceptance-only values for provider configuration storage and the non-paid
+            # capability check relay; never a real credential or provider key.
+            "PROVIDER_MASTER_KEY": base64.b64encode(b"PROVIDER-MASTER-KEY-0123456789AB").decode(),
+            "IMAGE_CHECK_URL": f"http://127.0.0.1:{free_port()}",
+            "IMAGE_CHECK_TOKEN": "t09-provider-check-token",
         }
     )
     certificate = work / "test-public.pem"
@@ -248,12 +256,167 @@ def run_scene_checks(env, work, *, real=False):
         if not real:
             failure_checks(run, certificate, alice, task)
         assert browser.wait(timeout=60) == 0
+        if not real:
+            provider_config_checks(run, certificate, alice, task)
         print(
             "PASS S1/S2/S3/S4: browser -> Java -> outbox -> HTTPS Worker -> private outputs; "
             + ("REAL provider" if real else "MOCK provider only"),
             flush=True,
         )
         print("Review:", work / "review/review.html", flush=True)
+
+
+def provider_config_checks(run, certificate, alice, previous):
+    """C1-C3 against the running isolated Java with the MOCK worker only; zero paid calls."""
+    admin = run.login("admin")
+    key = "sk-t09c-mock-credential-123456"
+    first = {
+        "provider": "openrouter",
+        "model": "test/mock-model-a",
+        "provider_tag": "mock-a",
+        "api_key": key,
+        "enabled": True,
+    }
+    assert run.http("GET", "/api/v1/admin/provider-configs", alice)[0] == 403
+    assert run.http("POST", "/api/v1/admin/provider-configs", alice, first)[0] == 403
+    status, created, _ = run.http("POST", "/api/v1/admin/provider-configs", admin, first)
+    assert status == 201 and created["api_key_mask"].endswith("3456")
+    assert key not in json.dumps(created)
+    listing = run.http("GET", "/api/v1/admin/provider-configs", admin)[1]
+    assert key not in json.dumps(listing) and listing["enabled"] is True
+    assert (
+        run.sql("SELECT count(*) FROM audit_events WHERE action='PROVIDER_CONFIG_CREATED'") == "1"
+    )
+    # C1: the stored key never appears in Java or Worker logs.
+    for name in ("java-1.log", "java-2.log"):
+        log = run.work / name
+        if log.exists():
+            assert key not in log.read_text(errors="replace")
+
+    # C2: new scene tasks bind the active version; leased workers receive it.
+    def submit(count, suffix):
+        body = json.loads(
+            run.sql(f"SELECT request_snapshot_json FROM generation_tasks WHERE id='{previous}'")
+        )
+        body["output"]["count"] = count
+        body["output"]["format"] = "png"
+        return post(run, "/api/v3/scene-tasks", alice, body, key=uuid.uuid4().hex + suffix)
+
+    status, bound = submit(2, "a")
+    assert status == 202
+    assert (
+        run.sql(f"SELECT provider_config_version FROM generation_tasks WHERE id='{bound['id']}'")
+        == created["id"]
+    )
+    worker(run, certificate, False)
+    state = run.http("GET", f"/api/v1/tasks/{bound['id']}", alice)[1]
+    assert state["status"] == "SUCCEEDED", state.get("error")
+    receipt = json.loads(
+        run.sql(f"SELECT payload FROM worker_receipts WHERE task_id='{bound['id']}'")
+    )
+    assert all(
+        item["provenance"]["model"] == "test/mock-model-a"
+        for item in receipt["background_generations"]
+    )
+    # Rotation: a new version takes over new tasks; the earlier binding stays frozen.
+    second = {**first, "model": "test/mock-model-b", "provider_tag": "mock-b"}
+    rotated = run.http("POST", "/api/v1/admin/provider-configs", admin, second)[1]
+    status, switched = submit(1, "b")
+    assert status == 202
+    assert (
+        run.sql(f"SELECT provider_config_version FROM generation_tasks WHERE id='{switched['id']}'")
+        == rotated["id"]
+    )
+    worker(run, certificate, False)
+    receipt = json.loads(
+        run.sql(f"SELECT payload FROM worker_receipts WHERE task_id='{switched['id']}'")
+    )
+    assert all(
+        item["provenance"]["model"] == "test/mock-model-b"
+        for item in receipt["background_generations"]
+    )
+    assert (
+        run.http(
+            "POST",
+            f"/api/v1/admin/provider-configs/{created['id']}/status",
+            admin,
+            {"enabled": True},
+        )[0]
+        == 400
+    )
+    assert (
+        run.http(
+            "POST",
+            f"/api/v1/admin/provider-configs/{rotated['id']}/status",
+            admin,
+            {"enabled": False},
+        )[0]
+        == 204
+    )
+    status, unbound = submit(1, "c")
+    assert status == 202
+    assert (
+        run.sql(
+            f"SELECT count(*) FROM generation_tasks WHERE id='{unbound['id']}' "
+            "AND provider_config_version IS NULL"
+        )
+        == "1"
+    )
+    # C3: the non-paid capability check is a relayed GET summary; the key is forwarded
+    # to the image service over the internal token channel but never returned.
+    received = {}
+
+    class Stub(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            received["auth"] = self.headers.get("Authorization")
+            received["body"] = self.rfile.read(length)
+            payload = json.dumps({"model": "test/mock-model-b", "endpoints": []}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *_):
+            pass
+
+    server = HTTPServer(("127.0.0.1", int(run.env["IMAGE_CHECK_URL"].rsplit(":", 1)[1])), Stub)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        assert (
+            run.http("POST", f"/api/v1/admin/provider-configs/{rotated['id']}/check", alice, {})[0]
+            == 403
+        )
+        status, capabilities, _ = run.http(
+            "POST", f"/api/v1/admin/provider-configs/{rotated['id']}/check", admin, {}
+        )
+        assert status == 200 and capabilities["model"] == "test/mock-model-b"
+        assert key not in json.dumps(capabilities)
+        assert received["auth"] == "Bearer " + run.env["IMAGE_CHECK_TOKEN"]
+        assert key.encode() in received["body"]
+    finally:
+        server.shutdown()
+        server.server_close()
+    (run.work / "provider-config-evidence.json").write_text(
+        json.dumps(
+            {
+                "mode": "MOCK",
+                "admin_only_endpoints": True,
+                "key_masked_and_absent_from_responses_logs": True,
+                "new_tasks_bind_active_version": True,
+                "rotation_switches_new_tasks_only": True,
+                "disable_releases_new_tasks": True,
+                "worker_provenance_echoes_bound_model": True,
+                "non_paid_check_relays_get_summary": True,
+            },
+            indent=2,
+        )
+    )
+    print(
+        "PASS C1/C2/C3: admin provider configuration binding, rotation, non-paid check", flush=True
+    )
 
 
 def post(run, path, token, body, *, key=None, lease=None):

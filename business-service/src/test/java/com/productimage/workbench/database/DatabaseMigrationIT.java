@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(4, flyway.migrate().migrationsExecuted);
+    assertEquals(6, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -118,7 +118,9 @@ class DatabaseMigrationIT {
             "audit_events",
             "local_credentials",
             "local_sessions",
-            "local_auth_throttle")) {
+            "local_auth_throttle",
+            "provider_config_versions",
+            "provider_config_state")) {
       assertEquals(List.of("users", "projects", "assets").contains(table) ? 2 : 0, count(table));
     }
   }
@@ -139,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(3, upgrade.migrate().migrationsExecuted);
+      assertEquals(5, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -185,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(2, current.migrate().migrationsExecuted);
+      assertEquals(4, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -368,6 +370,31 @@ class DatabaseMigrationIT {
         "INSERT INTO assets(id,project_id,kind,source_asset_id,object_key,sha256,width,height) VALUES ('nested','p','ALPHA','alpha','fixtures/nested','"
             + "e".repeat(64)
             + "',64,64)");
+  }
+
+  @Test
+  void providerConfigVersionsAreImmutableAndTaskBound() throws SQLException {
+    sql(
+        "INSERT INTO provider_config_versions(id,provider,model,provider_tag,api_key_cipher,api_key_mask,created_by) VALUES ('cfg','openrouter','test/model','openai','cipher','****st','u')");
+    rejects("23514", "UPDATE provider_config_versions SET model='other/model' WHERE id='cfg'");
+    rejects("23514", "UPDATE provider_config_versions SET api_key_cipher='plain' WHERE id='cfg'");
+    rejects(
+        "23503",
+        "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','missing',true)");
+    sql(
+        "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
+    sql("UPDATE provider_config_state SET enabled=false WHERE provider='openrouter'");
+    seedTaskAndAttempt();
+    rejects("23514", "UPDATE generation_tasks SET provider_config_version='cfg' WHERE id='t'");
+    rejects(
+        "23503",
+        task("bound", "u", "SCENE", "cfgkey", "a".repeat(64))
+            .replace("request_snapshot_json)", "request_snapshot_json,provider_config_version)")
+            .replace("'{}')", "'{}','missing')"));
+    sql(
+        task("bound", "u", "SCENE", "cfgkey", "a".repeat(64))
+            .replace("request_snapshot_json)", "request_snapshot_json,provider_config_version)")
+            .replace("'{}')", "'{}','cfg')"));
   }
 
   @Test

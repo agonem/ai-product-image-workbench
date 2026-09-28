@@ -90,6 +90,33 @@ class OpenRouterAdapter:
         except (KeyError, TypeError, ValueError, StopIteration):
             raise BackgroundError("UNSUPPORTED_CAPABILITY") from None
 
+    def inspect(self):
+        """Non-paid capability summary for administrators; performs GET requests only."""
+        models = self._json("GET", "images/models")
+        endpoints = self._json("GET", f"images/models/{self.config.model}/endpoints")
+        try:
+            model = next(item for item in models["data"] if item["id"] == self.config.model)
+            architecture = model["architecture"]
+            selected = [
+                {
+                    "provider_tag": item["provider_tag"],
+                    "supported_parameters": item["supported_parameters"],
+                }
+                for item in endpoints["endpoints"]
+                if item["provider_tag"] == self.config.provider_tag
+            ]
+            if endpoints["id"] != self.config.model:
+                raise ValueError()
+        except (KeyError, TypeError, ValueError, StopIteration):
+            raise BackgroundError("UNSUPPORTED_CAPABILITY") from None
+        return {
+            "model": self.config.model,
+            "provider_tag": self.config.provider_tag,
+            "input_modalities": architecture.get("input_modalities", []),
+            "output_modalities": architecture.get("output_modalities", []),
+            "endpoints": selected,
+        }
+
     def generate(self, request: BackgroundRequest) -> BackgroundResult:
         if not isinstance(request, BackgroundRequest):
             raise BackgroundError("INVALID_INPUT")

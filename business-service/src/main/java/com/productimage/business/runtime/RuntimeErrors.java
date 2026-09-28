@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
       RuntimeApi.class,
       LocalAuthApi.class,
       ProductionAuthApi.class,
+      ProviderConfigApi.class,
       ProjectAssetApi.class,
       WorkbenchApi.class
     })

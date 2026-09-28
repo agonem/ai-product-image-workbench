@@ -14,8 +14,12 @@ from image_service.background import BackgroundError, BackgroundResult  # noqa: 
 
 
 class TestProvider:
-    def __init__(self, _):
+    def __init__(self, config=None):
         self.count = 0
+        # Echo the lease-delivered configuration so acceptance can prove the binding
+        # actually reached the adapter; the key itself is never echoed anywhere.
+        self.model = config.model if config is not None else "mock/background"
+        self.tag = config.provider_tag if config is not None else "mock"
 
     def __enter__(self):
         return self
@@ -39,8 +43,8 @@ class TestProvider:
             {
                 "schema_version": 1,
                 "provider": "mock-acceptance-only",
-                "provider_tag": "mock",
-                "model": "mock/background",
+                "provider_tag": self.tag,
+                "model": self.model,
                 "prompt": request.prompt,
                 "template_version": request.template_version,
                 "parameters": {

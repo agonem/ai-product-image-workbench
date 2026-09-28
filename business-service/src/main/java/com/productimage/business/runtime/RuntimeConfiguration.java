@@ -81,13 +81,21 @@ public class RuntimeConfiguration {
   }
 
   @Bean
+  ProviderConfigService providerConfigService(
+      JdbcTemplate jdbc, PlatformTransactionManager manager, Environment env) {
+    return new ProviderConfigService(jdbc, new TransactionTemplate(manager), env);
+  }
+
+  @Bean
   TaskService taskService(
       JdbcTemplate jdbc,
       PlatformTransactionManager manager,
       SnapshotBuilder snapshots,
       LocalObjectStore store,
-      RuntimeSettings settings) {
-    return new TaskService(jdbc, new TransactionTemplate(manager), snapshots, store, settings);
+      RuntimeSettings settings,
+      ProviderConfigService configs) {
+    return new TaskService(
+        jdbc, new TransactionTemplate(manager), snapshots, store, settings, configs);
   }
 
   @Bean
@@ -95,7 +103,8 @@ public class RuntimeConfiguration {
       JdbcTemplate jdbc,
       PlatformTransactionManager manager,
       LocalObjectStore store,
-      RuntimeSettings settings) {
-    return new DeliveryService(jdbc, new TransactionTemplate(manager), store, settings);
+      RuntimeSettings settings,
+      ProviderConfigService configs) {
+    return new DeliveryService(jdbc, new TransactionTemplate(manager), store, settings, configs);
   }
 }

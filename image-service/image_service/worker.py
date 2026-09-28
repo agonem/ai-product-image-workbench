@@ -84,15 +84,21 @@ def failure(request, code, retryable=True):
     }
 
 
-def process(api: Api, request: dict, lease: str, fixture: bool, *, cancelled=None) -> dict:
+def process(
+    api: Api, request: dict, lease: str, fixture: bool, *, cancelled=None, provider_config=None
+) -> dict:
     if request.get("schema_version") in (2, 3):
         if fixture:
             return failure(request, "INVALID_CONTRACT", False)
-        from image_service.background_config import load_config
+        from image_service.background_config import config_from_mapping, load_config
         from image_service.openrouter import OpenRouterAdapter
         from image_service.scene import process_scene
 
-        with OpenRouterAdapter(load_config()) as adapter:
+        # A lease-delivered binding wins; without one the explicit worker env applies.
+        config = (
+            config_from_mapping(provider_config) if provider_config is not None else load_config()
+        )
+        with OpenRouterAdapter(config) as adapter:
             return process_scene(api, request, lease, adapter, cancelled=cancelled)
     if not fixture:
         code = "PROVIDER_UNAVAILABLE" if request["feature_type"] == "SCENE" else "GENERATION_FAILED"
@@ -195,7 +201,14 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
     thread.start()
     try:
         try:
-            receipt = process(api, request, lease, fixture, cancelled=lost.is_set)
+            receipt = process(
+                api,
+                request,
+                lease,
+                fixture,
+                cancelled=lost.is_set,
+                provider_config=claim.get("provider_config"),
+            )
         except BackgroundError as error:
             receipt = failure(
                 request, "PROVIDER_UNAVAILABLE", error.retryable and not error.ambiguous

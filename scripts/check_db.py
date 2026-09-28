@@ -171,15 +171,15 @@ def main() -> None:
                 "ON_ERROR_STOP=1",
                 "-c",
                 "SELECT count(*) FROM public.flyway_schema_history "
-                "WHERE version IN ('1','2','3','4') AND success",
+                "WHERE version IN ('1','2','3','4','5','6') AND success",
             ],
             env=probe_env,
             capture_output=True,
             text=True,
             check=True,
         )
-        if migration.stdout.strip() != "4":
-            raise RuntimeError("Database profile did not apply V1/V2/V3/V4")
+        if migration.stdout.strip() != "6":
+            raise RuntimeError("Database profile did not apply V1/V2/V3/V4/V5/V6")
         from check_t05 import run_runtime
 
         run_runtime(env, work / "t05")

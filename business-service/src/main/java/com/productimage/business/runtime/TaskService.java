@@ -14,18 +14,21 @@ public final class TaskService {
   private final SnapshotBuilder snapshots;
   private final LocalObjectStore store;
   private final RuntimeSettings settings;
+  private final ProviderConfigService configs;
 
   TaskService(
       JdbcTemplate jdbc,
       TransactionTemplate tx,
       SnapshotBuilder snapshots,
       LocalObjectStore store,
-      RuntimeSettings settings) {
+      RuntimeSettings settings,
+      ProviderConfigService configs) {
     this.jdbc = jdbc;
     this.tx = tx;
     this.snapshots = snapshots;
     this.store = store;
     this.settings = settings;
+    this.configs = configs;
   }
 
   private void authorizeProject(String actor, String project) {
@@ -65,10 +68,14 @@ public final class TaskService {
                   key);
           if (!existing.isEmpty()) return existing(actor, existing.getFirst(), hash);
           ObjectNode worker = snapshots.build(request);
+          // Real background tasks freeze the active admin configuration; retries reuse this
+          // binding because the column is immutable and the snapshot is never rewritten.
+          String configVersion =
+              worker.path("schema_version").asInt() >= 2 ? configs.activeVersion() : null;
           String id = Json.id();
           int inserted =
               jdbc.update(
-                  "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,template_snapshot_json,worker_snapshot_json) VALUES (?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb) ON CONFLICT(created_by,feature_type,idempotency_key) DO NOTHING",
+                  "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,template_snapshot_json,worker_snapshot_json,provider_config_version) VALUES (?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?) ON CONFLICT(created_by,feature_type,idempotency_key) DO NOTHING",
                   id,
                   request.path("project_id").asText(),
                   request.path("product_asset_id").asText(),
@@ -79,7 +86,8 @@ public final class TaskService {
                   hash,
                   request.toString(),
                   worker.get("template_snapshot").toString(),
-                  worker.toString());
+                  worker.toString(),
+                  configVersion);
           if (inserted == 0)
             return existing(
                 actor,

@@ -181,7 +181,7 @@ public final class ProductionAccounts implements UserAuthenticator {
         });
   }
 
-  private String manager(String header) {
+  String manager(String header) {
     String actor = authenticate(header);
     var row = account(actor, true);
     // Recheck after obtaining the account lock in case revocation won the race.

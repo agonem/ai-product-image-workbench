@@ -44,6 +44,23 @@ def load_config(environment=None):
     return OpenRouterConfig(key, model, provider)
 
 
+def config_from_mapping(mapping):
+    """Validate a lease-delivered provider configuration; same shapes as load_config."""
+    try:
+        key = str(mapping["api_key"]).strip()
+        model = str(mapping["model"]).strip()
+        provider = str(mapping["provider_tag"]).strip()
+        if (
+            not re.fullmatch(r"[\x21-\x7e]{1,4096}", key)
+            or not re.fullmatch(r"[a-zA-Z0-9_-]+/[a-zA-Z0-9_.:-]+", model)
+            or not re.fullmatch(r"[a-zA-Z0-9_./-]{1,100}", provider)
+        ):
+            raise ValueError()
+    except (KeyError, TypeError, ValueError):
+        raise BackgroundError("CONFIGURATION") from None
+    return OpenRouterConfig(key, model, provider)
+
+
 def private_environment():
     """Only an explicitly selected server file; never shell-evaluate or interpolate values."""
     env = dict(os.environ)
