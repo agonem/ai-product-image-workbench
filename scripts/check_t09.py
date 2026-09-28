@@ -257,7 +257,11 @@ def run_scene_checks(env, work, *, real=False):
             failure_checks(run, certificate, alice, task)
         assert browser.wait(timeout=60) == 0
         if not real:
-            provider_config_checks(run, certificate, alice, task)
+            stub = provider_config_checks(run, certificate, alice, task)
+            admin_page_checks(page_env, work)
+            stub.shutdown()
+            stub.server_close()
+            print("PASS C4: admin page manages provider configuration with mock relays", flush=True)
         print(
             "PASS S1/S2/S3/S4: browser -> Java -> outbox -> HTTPS Worker -> private outputs; "
             + ("REAL provider" if real else "MOCK provider only"),
@@ -391,21 +395,56 @@ def provider_config_checks(run, certificate, alice, previous):
         run.sql(f"SELECT provider_config_version FROM generation_tasks WHERE id='{rebound['id']}'")
         == rotated["id"]
     )
-    # C3: the non-paid capability check is a relayed GET summary; the key is forwarded
-    # to the image service over the internal token channel but never returned.
-    received = {}
+    # C3/C4: relays for the non-paid capability GET and the explicit paid probe. The stub
+    # counts hits so the checks prove that saving config, listing or the page never calls.
+    received = {"hits": {"check": 0, "test": 0}}
+    tiny_png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
 
     class Stub(BaseHTTPRequestHandler):
         def do_POST(self):
             length = int(self.headers.get("Content-Length", "0"))
             received["auth"] = self.headers.get("Authorization")
             received["body"] = self.rfile.read(length)
-            payload = json.dumps({"model": "test/mock-model-b", "endpoints": []}).encode()
+            if self.path.endswith("/provider/check"):
+                received["hits"]["check"] += 1
+                payload = {
+                    "model": "test/mock-model-b",
+                    "provider_tag": "mock-b",
+                    "input_modalities": ["text"],
+                    "output_modalities": ["image"],
+                    "endpoints": [
+                        {
+                            "provider_tag": "mock-b",
+                            "supported_parameters": {
+                                "aspect_ratio": {"type": "enum", "values": ["1:1"]}
+                            },
+                        }
+                    ],
+                }
+            elif self.path.endswith("/provider/test"):
+                received["hits"]["test"] += 1
+                payload = {
+                    "sha256": hashlib.sha256(tiny_png).hexdigest(),
+                    "width": 1,
+                    "height": 1,
+                    "media_type": "image/png",
+                    "model": "test/mock-model-b",
+                    "duration_ms": 5,
+                    "content_base64": base64.b64encode(tiny_png).decode("ascii"),
+                    "review_status": "PENDING",
+                }
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+            data = json.dumps(payload).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Content-Length", str(len(data)))
             self.end_headers()
-            self.wfile.write(payload)
+            self.wfile.write(data)
 
         def log_message(self, *_):
             pass
@@ -425,9 +464,44 @@ def provider_config_checks(run, certificate, alice, previous):
         assert key not in json.dumps(capabilities)
         assert received["auth"] == "Bearer " + run.env["IMAGE_CHECK_TOKEN"]
         assert key.encode() in received["body"]
-    finally:
+        # Paid probe: denied for USER, requires the explicit confirmation phrase, and
+        # creates no tasks or artifacts; the key is forwarded but never echoed.
+        assert (
+            run.http(
+                "POST", f"/api/v1/admin/provider-configs/{rotated['id']}/test-generate", alice, {}
+            )[0]
+            == 403
+        )
+        assert (
+            run.http(
+                "POST",
+                f"/api/v1/admin/provider-configs/{rotated['id']}/test-generate",
+                admin,
+                {"aspect_ratio": "1:1"},
+            )[0]
+            == 400
+        )
+        before = run.sql("SELECT count(*) FROM generation_tasks")
+        before_artifacts = run.sql("SELECT count(*) FROM artifacts")
+        status, paid, _ = run.http(
+            "POST",
+            f"/api/v1/admin/provider-configs/{rotated['id']}/test-generate",
+            admin,
+            {"confirm": "PAID_TEST", "aspect_ratio": "1:1"},
+        )
+        assert status == 200 and paid["width"] == 1 and paid["media_type"] == "image/png"
+        assert key not in json.dumps(paid)
+        assert run.sql("SELECT count(*) FROM generation_tasks") == before
+        assert run.sql("SELECT count(*) FROM artifacts") == before_artifacts
+        assert (
+            run.sql("SELECT count(*) FROM audit_events WHERE action='PROVIDER_CONFIG_PAID_TEST'")
+            == "1"
+        )
+        assert received["hits"] == {"check": 1, "test": 1}
+    except Exception:
         server.shutdown()
         server.server_close()
+        raise
     (run.work / "provider-config-evidence.json").write_text(
         json.dumps(
             {
@@ -440,12 +514,51 @@ def provider_config_checks(run, certificate, alice, previous):
                 "disable_rejects_new_submissions_without_env_fallback": True,
                 "worker_provenance_echoes_bound_model": True,
                 "non_paid_check_relays_get_summary": True,
+                "paid_probe_requires_explicit_confirmation_and_stores_nothing": True,
+                "save_list_check_never_hit_provider": True,
             },
             indent=2,
         )
     )
     print(
         "PASS C1/C2/C3: admin provider configuration binding, rotation, non-paid check", flush=True
+    )
+    return server
+
+
+def admin_page_checks(page_env, work):
+    """Real Chromium pass over the admin provider page using the mock relays."""
+    log = (work / "admin-browser.log").open("w")
+    try:
+        subprocess.run(
+            [
+                tool("npm"),
+                "exec",
+                "--",
+                "playwright",
+                "test",
+                "--config=playwright.admin.config.ts",
+            ],
+            cwd=ROOT / "frontend",
+            env=page_env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            check=True,
+            timeout=300,
+        )
+    finally:
+        log.close()
+    (work / "admin-page-evidence.json").write_text(
+        json.dumps(
+            {
+                "mode": "MOCK",
+                "admin_page_lists_masked_version": True,
+                "non_paid_check_from_page": True,
+                "paid_test_requires_checkbox_and_shows_pending_output": True,
+                "disable_and_enable_from_page": True,
+            },
+            indent=2,
+        )
     )
 
 

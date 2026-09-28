@@ -1,5 +1,7 @@
 """Lease-delivered provider configuration and the non-paid capability check relay."""
 
+import base64
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -225,3 +227,90 @@ def test_check_route_relays_capability_get_only(monkeypatch):
         },
     )
     assert unknown.status_code == 422
+
+
+def test_paid_test_route_requires_token_and_relays_one_generation(monkeypatch):
+    import hashlib
+    import io
+
+    from PIL import Image
+
+    received = {}
+
+    class FakeAdapter:
+        def __init__(self, config):
+            received["config"] = config
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            pass
+
+        def generate(self, request):
+            received["request"] = request
+            stream = io.BytesIO()
+            Image.new("RGB", (8, 8), (1, 2, 3)).save(stream, format="PNG")
+            content = stream.getvalue()
+            return BackgroundResult(
+                content,
+                8,
+                8,
+                {
+                    "provider": "test-only",
+                    "model": received["config"].model,
+                    "prompt": request.prompt,
+                    "parameters": {},
+                    "correlation_id": request.correlation_id,
+                    "review_status": "PENDING",
+                    "duration_ms": 7,
+                },
+            )
+
+    monkeypatch.setenv("PROVIDER_CHECK_TOKEN", "p" * 32)
+    monkeypatch.setattr("image_service.app.OpenRouterAdapter", FakeAdapter)
+    client = TestClient(app_module.app)
+    body = {
+        "provider": "openrouter",
+        "api_key": "sk-relay-1234567890",
+        "model": "vendor/model-1",
+        "provider_tag": "openai",
+        "prompt": "Internal paid connectivity test.",
+        "aspect_ratio": "1:1",
+    }
+    assert (
+        client.post(
+            "/internal/v1/provider/test",
+            headers={"Authorization": "Bearer " + "x" * 32},
+            json=body,
+        ).status_code
+        == 401
+    )
+    monkeypatch.delenv("PROVIDER_CHECK_TOKEN")
+    assert client.post("/internal/v1/provider/test", json=body).status_code == 404
+    monkeypatch.setenv("PROVIDER_CHECK_TOKEN", "p" * 32)
+    ok = client.post(
+        "/internal/v1/provider/test",
+        headers={"Authorization": "Bearer " + "p" * 32},
+        json=body,
+    )
+    assert ok.status_code == 200
+    result = ok.json()
+    content = base64.b64decode(result["content_base64"])
+    assert (
+        result["width"],
+        result["height"],
+        result["media_type"],
+        result["model"],
+        result["duration_ms"],
+        result["review_status"],
+    ) == (8, 8, "image/png", "vendor/model-1", 7, "PENDING")
+    assert result["sha256"] == hashlib.sha256(content).hexdigest()
+    assert received["request"].aspect_ratio == "1:1"
+    assert received["request"].resolution is None and received["request"].output_format is None
+    bad = client.post(
+        "/internal/v1/provider/test",
+        headers={"Authorization": "Bearer " + "p" * 32},
+        json={**body, "aspect_ratio": "bad"},
+    )
+    assert bad.status_code == 502

@@ -2,6 +2,7 @@
 import { computed, provide, reactive } from 'vue'
 import BoxFields from './workbench/BoxFields.vue'
 import AccountPanel from './workbench/AccountPanel.vue'
+import ProviderPanel from './workbench/ProviderPanel.vue'
 import SceneWorkspace from './workbench/SceneWorkspace.vue'
 import { features, statusLabels } from './workbench/model'
 import { useWorkbench, workbenchKey } from './workbench/useWorkbench'
@@ -139,6 +140,10 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
           :role="w.identity.role"
           :api="w.api"
           @changed="w.expire"
+        />
+        <ProviderPanel
+          v-if="w.production && w.identity && w.identity.role === 'ADMIN'"
+          :api="w.api"
         />
       </div>
       <section id="project-tools" class="project-bar" aria-label="项目">

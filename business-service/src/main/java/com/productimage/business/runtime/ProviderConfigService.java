@@ -1,6 +1,7 @@
 package com.productimage.business.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -205,6 +206,56 @@ public final class ProviderConfigService {
       throw new Problem(503, "PROVIDER_UNAVAILABLE");
     }
     audit(actor, "PROVIDER_CONFIG_CHECK", id);
+    return result;
+  }
+
+  /**
+   * Single PAID background probe for administrators. Requires the explicit confirmation phrase;
+   * saving configurations, listing, or the non-paid check never reach it, and the returned test
+   * image is not stored or published.
+   */
+  public JsonNode testGenerate(String actor, String id, JsonNode body) {
+    if (body.size() != 2
+        || !"PAID_TEST".equals(body.path("confirm").asText())
+        || !body.path("aspect_ratio").asText().matches("[1-9][0-9]?:[1-9][0-9]?"))
+      throw new Problem(400, "INVALID_CONTRACT");
+    JsonNode config = claimConfig(id);
+    if (checkUrl.isBlank()) throw new Problem(503, "PROVIDER_UNAVAILABLE");
+    ObjectNode payload = (ObjectNode) config;
+    payload
+        .put(
+            "prompt",
+            "Internal paid connectivity test. Plain soft gradient background only; "
+                + "no objects, products, people, logos or text.")
+        .put("aspect_ratio", body.path("aspect_ratio").asText());
+    HttpRequest request;
+    try {
+      request =
+          HttpRequest.newBuilder(URI.create(checkUrl + "/internal/v1/provider/test"))
+              .timeout(Duration.ofSeconds(240))
+              .header("Authorization", "Bearer " + checkToken)
+              .header("Content-Type", "application/json")
+              .POST(HttpRequest.BodyPublishers.ofString(Json.MAPPER.writeValueAsString(payload)))
+              .build();
+    } catch (Exception ex) {
+      throw new Problem(503, "PROVIDER_UNAVAILABLE");
+    }
+    HttpResponse<byte[]> response;
+    try {
+      response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+    } catch (Exception ex) {
+      audit(actor, "PROVIDER_CONFIG_PAID_TEST_FAILED", id);
+      throw new Problem(503, "PROVIDER_UNAVAILABLE");
+    }
+    if (response.statusCode() != 200 || response.body().length > 33554432)
+      throw new Problem(503, "PROVIDER_UNAVAILABLE");
+    JsonNode result;
+    try {
+      result = Json.parse(new String(response.body(), java.nio.charset.StandardCharsets.UTF_8));
+    } catch (Exception ex) {
+      throw new Problem(503, "PROVIDER_UNAVAILABLE");
+    }
+    audit(actor, "PROVIDER_CONFIG_PAID_TEST", id);
     return result;
   }
 
