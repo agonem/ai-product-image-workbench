@@ -143,6 +143,11 @@ def run_scene_checks(env, work, *, real=False):
             VALUES ('sample_import','TEST_IMPORT_EXISTING_HUMAN_APPROVAL',
             'sample_alpha','sample_import',
             '{{"approval_sha256":"{approval_sha}","sample":"SAMPLE-001/run-002"}}')""")
+        assert run.http("GET", f"/api/v1/assets/{asset['id']}/approved-alpha", admin)[0] == 404
+        assert (
+            run.http("GET", f"/api/v1/assets/{asset['id']}/approved-alpha", alice)[1]
+            == alpha.read_bytes()
+        )
         sync = work / "sync"
         sync.mkdir()
         browser_dir = work / "browser"

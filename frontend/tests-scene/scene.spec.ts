@@ -5,6 +5,7 @@ import { join } from 'node:path'
 test('browser submits three scenes through authenticated Java and previews results', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/')
   await page.getByLabel('本地账号', { exact: true }).fill('alice')
   await page.getByLabel('密码', { exact: true }).fill(process.env.T06_PASSWORD!)
@@ -17,6 +18,32 @@ test('browser submits three scenes through authenticated Java and previews resul
       'A quiet nursery with a pale oak tabletop, soft warm neutral wall, empty spacious stage, photographed at a slight downward angle. No people or objects.',
     )
   await expect(page.getByLabel('生成数量')).toHaveValue('3')
+  const placement = page.getByTestId('subject-placement')
+  await expect(placement).toBeVisible()
+  await page.getByText('位置与尺寸参数', { exact: true }).click()
+  const xField = page.getByLabel('横向位置', { exact: true })
+  const oldX = Number(await xField.inputValue())
+  const box = (await placement.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2 + 15, box.y + box.height / 2)
+  await page.mouse.up()
+  await expect
+    .poll(async () => Number(await xField.inputValue()))
+    .toBeGreaterThan(oldX)
+  await page.getByLabel('等比例缩放', { exact: true }).fill('0.6')
+  await expect(page.getByLabel('宽度', { exact: true })).toHaveValue('0.6')
+  await xField.fill('0.2')
+  await expect(placement).toHaveCSS('left', /.+px/)
+  await page.screenshot({
+    path: join(process.env.T06_ARTIFACTS!, 'scene-editor.png'),
+    fullPage: true,
+  })
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true)
   const submission = page.waitForResponse(
     (r) =>
       r.url().endsWith('/api/v3/scene-tasks') &&
@@ -67,6 +94,11 @@ test('browser submits three scenes through authenticated Java and previews resul
   )
   await page.screenshot({
     path: join(process.env.T06_ARTIFACTS!, 'scene-page.png'),
+    fullPage: true,
+  })
+  await page.getByRole('button', { name: '关闭放大预览', exact: true }).click()
+  await page.screenshot({
+    path: join(process.env.T06_ARTIFACTS!, 'scene-layout.png'),
     fullPage: true,
   })
   if (mock) {

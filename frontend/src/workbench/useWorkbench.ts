@@ -1,4 +1,5 @@
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import type { InjectionKey, UnwrapNestedRefs } from 'vue'
 import { ApiError, checkedTask, json, request } from '../api/workbench'
 import { buildRequest, newDraft, Submission } from './model'
 import type {
@@ -10,6 +11,9 @@ import type {
   Project,
   Task,
 } from './model'
+
+export type WorkbenchStore = UnwrapNestedRefs<ReturnType<typeof useWorkbench>>
+export const workbenchKey: InjectionKey<WorkbenchStore> = Symbol('workbench')
 
 export function useWorkbench() {
   const mode =

@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
+import { computed, provide, reactive } from 'vue'
 import BoxFields from './workbench/BoxFields.vue'
 import AccountPanel from './workbench/AccountPanel.vue'
+import SceneWorkspace from './workbench/SceneWorkspace.vue'
 import { features, statusLabels } from './workbench/model'
-import { useWorkbench } from './workbench/useWorkbench'
+import { useWorkbench, workbenchKey } from './workbench/useWorkbench'
 
 const w = reactive(useWorkbench())
+provide(workbenchKey, w)
 const title = computed(
   () => features.find((item) => item.id === w.feature)!.name,
 )
@@ -24,7 +26,27 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
 </script>
 
 <template>
-  <div class="shell">
+  <div class="shell" :class="{ 'authenticated-shell': w.token }">
+    <aside v-if="w.token" class="side-nav" aria-label="工作台导航">
+      <strong class="side-brand">商品图工作台</strong
+      ><small>AI 背景 · 商品保真</small>
+      <span class="nav-caption">图片生成</span>
+      <button
+        v-for="item in features"
+        :key="item.id"
+        :aria-label="`切换到${item.id === 'GIFT' ? '赠品' : item.id === 'SCENE' ? '场景' : '卖点'}`"
+        :aria-current="w.feature === item.id ? 'page' : undefined"
+        :disabled="w.busy || w.uncertain"
+        @click="w.feature = item.id"
+      >
+        {{ item.name }}
+      </button>
+      <a href="#project-tools">素材与项目</a
+      ><a href="#history-title">任务记录</a
+      ><a v-if="w.production" href="#account-tools">账号与安全</a>
+      <span class="unavailable-nav">模板管理 <small>尚未实现</small></span>
+      <p class="side-footer">原图保留<br />生成结果人工审核</p>
+    </aside>
     <header class="page-header">
       <div>
         <strong class="brand">商品图工作台</strong
@@ -111,13 +133,15 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
     </main>
 
     <main v-else>
-      <AccountPanel
-        v-if="w.production && w.identity"
-        :role="w.identity.role"
-        :api="w.api"
-        @changed="w.expire"
-      />
-      <section class="project-bar" aria-label="项目">
+      <div id="account-tools">
+        <AccountPanel
+          v-if="w.production && w.identity"
+          :role="w.identity.role"
+          :api="w.api"
+          @changed="w.expire"
+        />
+      </div>
+      <section id="project-tools" class="project-bar" aria-label="项目">
         <label
           >当前项目（最近100个）<select
             v-model="w.project"
@@ -151,10 +175,12 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
         </button>
       </section>
 
+      <h2 class="entry-heading">选择功能开始生成</h2>
       <nav class="entry-nav" aria-label="独立制图入口">
         <button
           v-for="item in features"
           :key="item.id"
+          :data-feature="item.id"
           :aria-pressed="w.feature === item.id"
           :disabled="w.busy || w.uncertain"
           @click="w.feature = item.id"
@@ -168,7 +194,12 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
         还没有项目。创建项目后上传素材，开始验证工作流程。
       </p>
 
-      <div v-if="w.project" class="workspace">
+      <SceneWorkspace
+        v-if="w.project && w.realSceneEnabled"
+        :key="w.project"
+        :blocked="blocked"
+      />
+      <div v-if="w.project && !w.realSceneEnabled" class="workspace">
         <section class="panel inputs" aria-labelledby="input-title">
           <h1 id="input-title">{{ title }} · 输入</h1>
           <p>单张商品白底图；原图不会被生成模型重绘。</p>
