@@ -44,10 +44,6 @@ public final class TaskService {
     return create(actor, key, raw, "task-create");
   }
 
-  public JsonNode createScene(String actor, String key, String raw) {
-    return create(actor, key, raw, "scene-create");
-  }
-
   public JsonNode createSceneV3(String actor, String key, String raw) {
     return create(actor, key, raw, "scene-v3-create");
   }

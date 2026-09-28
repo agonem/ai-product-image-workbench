@@ -64,14 +64,14 @@ class Adapter:
 
 def payload(api):
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "task_id": "task",
         "attempt_id": "attempt",
         "correlation_id": "task",
         "feature_type": "SCENE",
         "scene_custom_prompt": "empty table",
         "layout": {"product": {"x": 0.2, "y": 0.2, "width": 0.5, "height": 0.5}},
-        "output": {"aspect_ratio": "1:1", "resolution": "1K", "format": "png", "count": 3},
+        "output": {"aspect_ratio": "1:1", "width": 64, "height": 64, "format": "png", "count": 3},
         **{
             name + "_asset": {
                 "asset_id": key,
@@ -128,3 +128,23 @@ def test_worker_https_keeps_certificate_validation():
 def test_production_worker_rejects_http():
     with pytest.raises(ValueError):
         Api("http://localhost:8080", "x" * 32, environment="production")
+
+
+def test_withdrawn_v2_request_fails_without_provider_call(monkeypatch):
+    from image_service.contracts import validate_contract
+    from image_service.worker import process
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("a withdrawn v2 batch must never reach the provider")
+
+    monkeypatch.setattr("image_service.openrouter.OpenRouterAdapter", forbidden)
+    monkeypatch.setattr("image_service.background_config.load_config", forbidden)
+    api = LocalApi()
+    request = payload(api)
+    request["schema_version"] = 2
+    receipt = process(api, request, "lease", False)
+    assert receipt["event_type"] == "image.task.failed.v2"
+    assert receipt["error"]["code"] == "INVALID_CONTRACT"
+    assert receipt["error"]["retryable"] is False
+    assert api.outputs == []
+    assert not validate_contract("scene-failed", receipt)

@@ -1,13 +1,7 @@
 package com.productimage.business.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.sql.Timestamp;
-import java.time.Duration;
 import java.util.UUID;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -21,9 +15,6 @@ public final class ProviderConfigService {
   private final JdbcTemplate jdbc;
   private final TransactionTemplate tx;
   private final byte[] master;
-  private final String checkUrl;
-  private final String checkToken;
-  private final HttpClient http;
 
   ProviderConfigService(JdbcTemplate jdbc, TransactionTemplate tx, Environment env) {
     this.jdbc = jdbc;
@@ -37,29 +28,6 @@ public final class ProviderConfigService {
             : ProviderCrypto.masterKey(
                 env.getProperty("PROVIDER_MASTER_KEY", ""),
                 env.getProperty("PROVIDER_MASTER_KEY_FILE", ""));
-    this.checkUrl = env.getProperty("IMAGE_CHECK_URL", "").strip();
-    this.checkToken = env.getProperty("IMAGE_CHECK_TOKEN", "");
-    boolean production = "production".equals(env.getProperty("APP_ENV"));
-    if (checkUrl.isBlank() != checkToken.isBlank()
-        || (!checkUrl.isBlank()
-            && !checkUrl.matches(
-                "https?://[A-Za-z0-9.:\\[\\]-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~-]*)*")))
-      throw new IllegalStateException("Provider check requires a plain base URL and shared token");
-    if (!checkUrl.isBlank()) {
-      var host = java.net.URI.create(checkUrl).getHost();
-      // Production relays must keep TLS with default certificate and hostname validation;
-      // outside production plain HTTP is only tolerated for loopback relays.
-      boolean loopback =
-          host != null && java.util.Set.of("127.0.0.1", "::1", "localhost").contains(host);
-      if ((production && !checkUrl.startsWith("https://"))
-          || (!production && !checkUrl.startsWith("https://") && !loopback))
-        throw new IllegalStateException("Provider check relay requires HTTPS or loopback HTTP");
-    }
-    this.http =
-        HttpClient.newBuilder()
-            .followRedirects(HttpClient.Redirect.NEVER)
-            .connectTimeout(Duration.ofSeconds(10))
-            .build();
   }
 
   /**
@@ -183,96 +151,6 @@ public final class ProviderConfigService {
               body.path("enabled").asBoolean());
           audit(actor, "PROVIDER_CONFIG_STATUS", id);
         });
-  }
-
-  /** Non-paid capability GET through the image service; the key is forwarded, never stored. */
-  public JsonNode check(String actor, String id) {
-    JsonNode config = claimConfig(id);
-    if (checkUrl.isBlank()) throw new Problem(503, "PROVIDER_UNAVAILABLE");
-    HttpRequest request;
-    try {
-      request =
-          HttpRequest.newBuilder(URI.create(checkUrl + "/internal/v1/provider/check"))
-              .timeout(Duration.ofSeconds(20))
-              .header("Authorization", "Bearer " + checkToken)
-              .header("Content-Type", "application/json")
-              .POST(HttpRequest.BodyPublishers.ofString(Json.MAPPER.writeValueAsString(config)))
-              .build();
-    } catch (Exception ex) {
-      throw new Problem(503, "PROVIDER_UNAVAILABLE");
-    }
-    HttpResponse<String> response;
-    try {
-      response = http.send(request, HttpResponse.BodyHandlers.ofString());
-    } catch (Exception ex) {
-      audit(actor, "PROVIDER_CONFIG_CHECK_FAILED", id);
-      throw new Problem(503, "PROVIDER_UNAVAILABLE");
-    }
-    if (response.statusCode() != 200 || response.body().length() > 1048576)
-      throw new Problem(503, "PROVIDER_UNAVAILABLE");
-    JsonNode result;
-    try {
-      result = Json.parse(response.body());
-    } catch (Exception ex) {
-      throw new Problem(503, "PROVIDER_UNAVAILABLE");
-    }
-    // Only whitelisted capability fields may reach an administrator; upstream extras
-    // (including any echoed credential) are dropped here, before any response or log.
-    result = ProviderRelaySanitizer.capabilities(result);
-    audit(actor, "PROVIDER_CONFIG_CHECK", id);
-    return result;
-  }
-
-  /**
-   * Single PAID background probe for administrators. Requires the explicit confirmation phrase;
-   * saving configurations, listing, or the non-paid check never reach it, and the returned test
-   * image is not stored or published.
-   */
-  public JsonNode testGenerate(String actor, String id, JsonNode body) {
-    if (body.size() != 2
-        || !"PAID_TEST".equals(body.path("confirm").asText())
-        || !body.path("aspect_ratio").asText().matches("[1-9][0-9]?:[1-9][0-9]?"))
-      throw new Problem(400, "INVALID_CONTRACT");
-    JsonNode config = claimConfig(id);
-    if (checkUrl.isBlank()) throw new Problem(503, "PROVIDER_UNAVAILABLE");
-    ObjectNode payload = (ObjectNode) config;
-    payload
-        .put(
-            "prompt",
-            "Internal paid connectivity test. Plain soft gradient background only; "
-                + "no objects, products, people, logos or text.")
-        .put("aspect_ratio", body.path("aspect_ratio").asText());
-    HttpRequest request;
-    try {
-      request =
-          HttpRequest.newBuilder(URI.create(checkUrl + "/internal/v1/provider/test"))
-              .timeout(Duration.ofSeconds(240))
-              .header("Authorization", "Bearer " + checkToken)
-              .header("Content-Type", "application/json")
-              .POST(HttpRequest.BodyPublishers.ofString(Json.MAPPER.writeValueAsString(payload)))
-              .build();
-    } catch (Exception ex) {
-      throw new Problem(503, "PROVIDER_UNAVAILABLE");
-    }
-    HttpResponse<byte[]> response;
-    try {
-      response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
-    } catch (Exception ex) {
-      audit(actor, "PROVIDER_CONFIG_PAID_TEST_FAILED", id);
-      throw new Problem(503, "PROVIDER_UNAVAILABLE");
-    }
-    if (response.statusCode() != 200 || response.body().length > 33554432)
-      throw new Problem(503, "PROVIDER_UNAVAILABLE");
-    JsonNode result;
-    try {
-      result = Json.parse(new String(response.body(), java.nio.charset.StandardCharsets.UTF_8));
-    } catch (Exception ex) {
-      throw new Problem(503, "PROVIDER_UNAVAILABLE");
-    }
-    // Whitelisted test-output fields only; review status is imposed, never trusted.
-    result = ProviderRelaySanitizer.paidTest(result);
-    audit(actor, "PROVIDER_CONFIG_PAID_TEST", id);
-    return result;
   }
 
   private void audit(String actor, String action, String resource) {

@@ -94,7 +94,6 @@ def process_scene(api, request, lease, adapter, *, cancelled=None):
     subject = extract_subject(original, mask)
     output = request["output"]
     count = output["count"]
-    version = request.get("schema_version", 2)
     box = request["layout"]["product"]
     prompt = " ".join(
         request.get(field, "")
@@ -112,21 +111,20 @@ def process_scene(api, request, lease, adapter, *, cancelled=None):
             raise ValueError("scene processing lease or time budget exhausted")
         # Confirm the current lease immediately before each potentially billable call.
         api.call("POST", f"/internal/v1/work/{request['attempt_id']}/heartbeat", lease=lease)
-        if version == 3:
-            # Durable server-side fence survives Worker loss and another Worker's reclaim.
-            api.call(
-                "POST",
-                f"/internal/v1/work/{request['attempt_id']}/generation-calls/{ordinal}",
-                lease=lease,
-            )
+        # Durable server-side fence survives Worker loss and another Worker's reclaim.
+        api.call(
+            "POST",
+            f"/internal/v1/work/{request['attempt_id']}/generation-calls/{ordinal}",
+            lease=lease,
+        )
         generated = adapter.generate(
             BackgroundRequest(
                 prompt=prompt,
                 template_version="scene-composite-v1",
                 correlation_id=f"{request['attempt_id']}-{ordinal}",
                 aspect_ratio=output["aspect_ratio"],
-                resolution=output.get("resolution") if version == 2 else None,
-                output_format=output["format"] if version == 2 else None,
+                resolution=None,
+                output_format=None,
             )
         )
         digest = hashlib.sha256(generated.content).hexdigest()
@@ -136,11 +134,9 @@ def process_scene(api, request, lease, adapter, *, cancelled=None):
         with Image.open(io.BytesIO(generated.content)) as image:
             budget(image.size)
             background = image.convert("RGBA")
-        background_transform = {}
-        if version == 3:
-            background, background_transform = fit_background(
-                background, output["width"], output["height"]
-            )
+        background, background_transform = fit_background(
+            background, output["width"], output["height"]
+        )
         result, shadow, placement = composite(background, subject, box)
 
         def put(index, kind, data):
@@ -167,14 +163,14 @@ def process_scene(api, request, lease, adapter, *, cancelled=None):
                     "product_sha256": request["product_asset"]["sha256"],
                     "alpha_sha256": request["product_alpha_asset"]["sha256"],
                     "transform": placement,
-                    **({"background_transform": background_transform} if version == 3 else {}),
+                    "background_transform": background_transform,
                     "review_status": "PENDING",
                 },
             }
         )
     return {
-        "schema_version": version,
-        "event_type": f"image.task.completed.v{version}",
+        "schema_version": 3,
+        "event_type": "image.task.completed.v3",
         "event_id": uuid.uuid4().hex,
         **{key: request[key] for key in ("task_id", "attempt_id", "correlation_id")},
         "duration_ms": round((time.monotonic() - started) * 1000),

@@ -42,20 +42,4 @@ public class ProviderConfigApi {
     configs.status(actor, id, body(request));
     return ResponseEntity.noContent().header("Cache-Control", "no-store").build();
   }
-
-  /** Non-paid capability check only; never triggers any paid request. */
-  @PostMapping("/api/v1/admin/provider-configs/{id}/check")
-  ResponseEntity<JsonNode> check(@PathVariable String id, HttpServletRequest request) {
-    String actor = accounts.manager(request.getHeader("Authorization"));
-    return ResponseEntity.ok().header("Cache-Control", "no-store").body(configs.check(actor, id));
-  }
-
-  /** Single paid probe; requires the explicit confirmation phrase and is billed by provider. */
-  @PostMapping("/api/v1/admin/provider-configs/{id}/test-generate")
-  ResponseEntity<JsonNode> testGenerate(@PathVariable String id, HttpServletRequest request) {
-    String actor = accounts.manager(request.getHeader("Authorization"));
-    return ResponseEntity.ok()
-        .header("Cache-Control", "no-store")
-        .body(configs.testGenerate(actor, id, body(request)));
-  }
 }

@@ -1,9 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { join } from 'node:path'
 
-test('admin manages provider configuration from the page with mock relays', async ({
-  page,
-}) => {
+test('admin manages provider configuration from the page', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/')
   await page.getByLabel('本地账号', { exact: true }).fill('admin')
@@ -23,16 +21,10 @@ test('admin manages provider configuration from the page with mock relays', asyn
   await expect(row).toContainText('****')
   await expect(row).toContainText('当前版本')
 
-  await page.getByTestId('provider-check').click()
-  await expect(page.getByTestId('provider-check-result')).toContainText(
-    '能力摘要',
-  )
-
-  await page.getByLabel('我已了解可能产生费用').check()
-  await page.getByTestId('provider-paid-run').click()
-  const paid = page.getByTestId('paid-result')
-  await expect(paid).toContainText('付费测试输出 · 待人工审核 · 非成品')
-  expect(await paid.locator('img').count()).toBe(1)
+  // The capability-check relay and the paid test generation were withdrawn from the page.
+  await expect(page.getByTestId('provider-check')).toHaveCount(0)
+  await expect(page.getByTestId('paid-dialog')).toHaveCount(0)
+  await expect(page.getByText('付费', { exact: false })).toHaveCount(0)
 
   await page.getByRole('button', { name: '禁用当前版本' }).click()
   await expect(state).toContainText('已禁用')

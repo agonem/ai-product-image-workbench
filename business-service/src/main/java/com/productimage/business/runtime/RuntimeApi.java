@@ -67,18 +67,6 @@ public class RuntimeApi {
     return tasks.get(actor, id);
   }
 
-  @PostMapping("/api/v2/scene-tasks")
-  public ResponseEntity<JsonNode> createScene(HttpServletRequest request) {
-    String actor = users.authenticate(request.getHeader("Authorization"));
-    return ResponseEntity.accepted()
-        .body(tasks.createScene(actor, request.getHeader("Idempotency-Key"), json(request)));
-  }
-
-  @GetMapping("/api/v2/scene-tasks/{id}")
-  public JsonNode getScene(@PathVariable String id, HttpServletRequest request) {
-    return tasks.getScene(users.authenticate(request.getHeader("Authorization")), id);
-  }
-
   @PostMapping("/api/v3/scene-tasks")
   public ResponseEntity<JsonNode> createSceneV3(HttpServletRequest request) {
     String actor = users.authenticate(request.getHeader("Authorization"));

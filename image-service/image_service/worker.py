@@ -87,7 +87,10 @@ def failure(request, code, retryable=True):
 def process(
     api: Api, request: dict, lease: str, fixture: bool, *, cancelled=None, provider_config=None
 ) -> dict:
-    if request.get("schema_version") in (2, 3):
+    if request.get("schema_version") == 2:
+        # Scene v2 was withdrawn: a legacy batch fails visibly and never spends a provider call.
+        return failure(request, "INVALID_CONTRACT", False)
+    if request.get("schema_version") == 3:
         if fixture:
             return failure(request, "INVALID_CONTRACT", False)
         from image_service.background_config import config_from_mapping, load_config
