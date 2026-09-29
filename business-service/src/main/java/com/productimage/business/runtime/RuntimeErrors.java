@@ -46,6 +46,8 @@ public class RuntimeErrors {
           case "UPLOAD_TYPE_UNSUPPORTED" -> "请上传与声明类型一致的 PNG 或 JPEG";
           case "UPLOAD_CONTENT_REJECTED" -> "图片损坏或含未支持元数据，请使用无附加元数据的 PNG/JPEG";
           case "UPLOAD_BUDGET_EXCEEDED" -> "图片超过开发环境的大小或像素限制";
+          case "ASSET_IN_USE" -> "这张原图正在生成中使用，完成后再删除";
+          case "ASSET_DELETED" -> "原图已删除，不能再用于生成或重试";
           case "PROVIDER_DISABLED" -> "图片生成已被管理员禁用；管理员启用供应商配置前无法提交生成任务";
           default -> "请求未被接受，请检查输入或服务状态";
         };

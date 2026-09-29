@@ -6,6 +6,10 @@ import { workbenchKey } from '../workbench/useWorkbench'
 const w = inject(workbenchKey)!
 const kind = ref<'PRODUCT' | 'GIFT'>('PRODUCT')
 const items = computed(() => (kind.value === 'PRODUCT' ? w.products : w.gifts))
+function remove(id: string) {
+  if (confirm('确定删除这张原图？删除后不可恢复；用它生成过的结果仍保留。'))
+    void w.deleteAsset(id)
+}
 async function pick(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
@@ -59,7 +63,18 @@ async function pick(event: Event) {
             />
           </figure>
           <p>
-            {{ asset.width }}×{{ asset.height }} · {{ asset.id.slice(0, 8) }}
+            <span
+              >{{ asset.width }}×{{ asset.height }} ·
+              {{ asset.id.slice(0, 8) }}</span
+            >
+            <button
+              class="text-button danger"
+              :disabled="w.busy"
+              :aria-label="`删除素材 ${asset.id.slice(0, 8)}`"
+              @click="remove(asset.id)"
+            >
+              删除
+            </button>
           </p>
         </article>
       </div>

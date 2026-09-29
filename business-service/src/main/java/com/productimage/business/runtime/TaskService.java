@@ -65,7 +65,7 @@ public final class TaskService {
         || ordinal >= count) throw new Problem(409, "TASK_CONFLICT");
     var bases =
         jdbc.queryForList(
-            "SELECT id,object_key,sha256 FROM artifacts WHERE task_id=? AND attempt_id=? AND ordinal=? AND kind='BACKGROUND'",
+            "SELECT id,object_key,sha256 FROM artifacts WHERE task_id=? AND attempt_id=? AND ordinal=? AND kind='BACKGROUND' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=artifacts.id)",
             sourceId,
             row.get("current_attempt_id"),
             count + ordinal);
@@ -231,7 +231,7 @@ public final class TaskService {
     if (row.get("status").equals("SUCCEEDED")) {
       for (var artifact :
           jdbc.queryForList(
-              "SELECT id,kind,width,height FROM artifacts WHERE task_id=? AND attempt_id=? AND kind='COMPOSITE' ORDER BY ordinal",
+              "SELECT id,kind,width,height FROM artifacts WHERE task_id=? AND attempt_id=? AND kind='COMPOSITE' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=artifacts.id) ORDER BY ordinal",
               id,
               row.get("current_attempt_id"))) {
         artifacts.add(
@@ -268,7 +268,7 @@ public final class TaskService {
     if ("SUCCEEDED".equals(row.get("status")))
       for (var base :
           jdbc.queryForList(
-              "SELECT id,width,height FROM artifacts WHERE task_id=? AND attempt_id=? AND kind='BACKGROUND' ORDER BY ordinal",
+              "SELECT id,width,height FROM artifacts WHERE task_id=? AND attempt_id=? AND kind='BACKGROUND' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=artifacts.id) ORDER BY ordinal",
               id,
               row.get("current_attempt_id")))
         bases.add(
@@ -297,15 +297,71 @@ public final class TaskService {
           // Scene v2/v3 were replaced by v4; a legacy task stays readable but is not re-run.
           int version = snapshot.path("schema_version").asInt(1);
           if (version == 2 || version == 3) throw new Problem(409, "TASK_CONFLICT");
+          // A deleted original (or stored model output) cannot be sent again.
+          for (String input :
+              new String[] {
+                String.valueOf(row.get("product_asset_id")),
+                String.valueOf(row.get("gift_asset_id")),
+                snapshot.path("base_image").path("asset_id").asText()
+              })
+            if (jdbc.queryForObject(
+                    "SELECT count(*) FROM deletions WHERE target_id=?", Long.class, input)
+                > 0) throw new Problem(409, "ASSET_DELETED");
           enqueue(id, current + 1, snapshot);
           return get(actor, id);
         });
   }
 
+  /**
+   * The owner deletes one generated result (D-08) together with the model output behind it, so the
+   * image is really gone and can no longer be re-typeset. Rows stay for history and audit.
+   */
+  public void deleteArtifact(String actor, String id) {
+    java.util.List<String> keys =
+        tx.execute(
+            status -> {
+              var rows =
+                  jdbc.queryForList(
+                      "SELECT a.attempt_id,a.ordinal FROM artifacts a JOIN generation_tasks t ON t.id=a.task_id JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND a.kind='COMPOSITE' AND p.owner_id=? AND u.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) FOR UPDATE OF t",
+                      id,
+                      actor);
+              if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
+              Object attempt = rows.getFirst().get("attempt_id");
+              int count =
+                  jdbc.queryForObject(
+                      "SELECT count(*) FROM artifacts WHERE attempt_id=? AND kind='COMPOSITE'",
+                      Integer.class,
+                      attempt);
+              var targets =
+                  jdbc.queryForList(
+                      "SELECT id,object_key FROM artifacts WHERE attempt_id=? AND (id=? OR (kind='BACKGROUND' AND ordinal=?)) AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=artifacts.id)",
+                      attempt,
+                      id,
+                      count + ((Number) rows.getFirst().get("ordinal")).intValue());
+              var removed = new java.util.ArrayList<String>();
+              for (var target : targets) {
+                jdbc.update(
+                    "INSERT INTO deletions(target_id,target_kind,deleted_by) VALUES (?,'ARTIFACT',?)",
+                    target.get("id"),
+                    actor);
+                jdbc.update(
+                    "INSERT INTO audit_events(id,actor_id,action,resource_id,correlation_id) VALUES (?,?,?,?,?)",
+                    Json.id(),
+                    actor,
+                    "ARTIFACT_DELETED",
+                    target.get("id"),
+                    id);
+                removed.add(target.get("object_key").toString());
+              }
+              return removed;
+            });
+    keys.forEach(store::delete);
+  }
+
   public byte[] content(String actor, String id) {
     var rows =
         jdbc.queryForList(
-            "SELECT a.object_key,a.sha256 FROM artifacts a JOIN generation_tasks t ON t.id=a.task_id JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND p.owner_id=? AND u.status='ACTIVE'",
+            "SELECT a.object_key,a.sha256 FROM artifacts a JOIN generation_tasks t ON t.id=a.task_id JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND p.owner_id=? AND u.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id)",
             id,
             actor);
     if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
@@ -324,6 +380,7 @@ public final class TaskService {
       case "OUTPUT_VALIDATION_FAILED" -> "产物校验失败";
       case "INVALID_CONTRACT" -> "任务协议校验失败";
       case "TASK_CONFLICT" -> "任务请求冲突";
+      case "ASSET_DELETED" -> "原图已删除";
       default -> "任务执行失败，请检查配置后重试";
     };
   }

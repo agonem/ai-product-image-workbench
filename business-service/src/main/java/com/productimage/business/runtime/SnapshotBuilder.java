@@ -132,8 +132,14 @@ final class SnapshotBuilder {
   private ObjectNode asset(String id, String project, String kind) {
     var rows =
         jdbc.queryForList(
-            "SELECT * FROM assets WHERE id=? AND project_id=? AND kind=?", id, project, kind);
-    if (rows.isEmpty()) throw new Problem(422, "INVALID_ASSET");
+            "SELECT * FROM assets WHERE id=? AND project_id=? AND kind=? FOR SHARE",
+            id,
+            project,
+            kind);
+    // The share lock serialises with an owner deletion; a deleted original cannot be used again.
+    if (rows.isEmpty()
+        || jdbc.queryForObject("SELECT count(*) FROM deletions WHERE target_id=?", Long.class, id)
+            > 0) throw new Problem(422, "INVALID_ASSET");
     var row = rows.getFirst();
     var info =
         store.inspect(

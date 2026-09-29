@@ -110,6 +110,13 @@ public class RuntimeApi {
     return ResponseEntity.accepted().body(tasks.retry(actor, id, body.path("attempt").intValue()));
   }
 
+  /** The owner deletes one generated result and the model output behind it (D-08). */
+  @DeleteMapping("/api/v1/artifacts/{id}")
+  public ResponseEntity<Void> deleteArtifact(@PathVariable String id, HttpServletRequest request) {
+    tasks.deleteArtifact(users.authenticate(request.getHeader("Authorization")), id);
+    return ResponseEntity.noContent().header("Cache-Control", "no-store").build();
+  }
+
   @GetMapping("/api/v1/artifacts/{id}/content")
   public ResponseEntity<byte[]> content(@PathVariable String id, HttpServletRequest request) {
     String actor = users.authenticate(request.getHeader("Authorization"));

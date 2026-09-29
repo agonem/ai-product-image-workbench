@@ -1999,9 +1999,9 @@
     }
   },
   {
-    "name": "success-without-artifacts",
+    "name": "success-all-results-deleted",
     "contract": "task-response",
-    "valid": false,
+    "valid": true,
     "payload": {
       "id": "task_fixture",
       "feature_type": "GIFT",

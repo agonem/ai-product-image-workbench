@@ -153,6 +153,10 @@ async function generate() {
   view.value = null
   await w.submit(feature.value)
 }
+function remove(artifact: string) {
+  if (confirm('确定删除这张生成结果？删除后不可恢复，也不能再免费改字。'))
+    void w.deleteArtifact(artifact)
+}
 async function applyText() {
   const text = textSpec(draft.value)
   if (!view.value || !text) return
@@ -522,6 +526,13 @@ onMounted(() => {
                     "
                   >
                     下载
+                  </button>
+                  <button
+                    class="text-button danger"
+                    :disabled="w.busy"
+                    @click="remove(artifact.id)"
+                  >
+                    删除
                   </button>
                 </div>
               </div>

@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(8, flyway.migrate().migrationsExecuted);
+    assertEquals(9, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -141,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(7, upgrade.migrate().migrationsExecuted);
+      assertEquals(8, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(6, current.migrate().migrationsExecuted);
+      assertEquals(7, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -454,7 +454,7 @@ class DatabaseMigrationIT {
           "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(1, upgrade.migrate().migrationsExecuted);
+      assertEquals(2, upgrade.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
               "SELECT provider,active_version_id,enabled FROM provider_config_state")) {
@@ -473,6 +473,23 @@ class DatabaseMigrationIT {
         assertEquals(null, rows.getString(3));
       }
     }
+  }
+
+  @Test
+  void deletionsAreFinalAndAttributed() throws SQLException {
+    sql("INSERT INTO deletions(target_id,target_kind,deleted_by) VALUES ('product','ASSET','u')");
+    rejects(
+        "23505",
+        "INSERT INTO deletions(target_id,target_kind,deleted_by) VALUES ('product','ASSET','u')");
+    rejects(
+        "23514", "INSERT INTO deletions(target_id,target_kind,deleted_by) VALUES ('x','TASK','u')");
+    rejects(
+        "23503",
+        "INSERT INTO deletions(target_id,target_kind,deleted_by) VALUES ('y','ARTIFACT','nobody')");
+    rejects("23514", "UPDATE deletions SET deleted_by='v' WHERE target_id='product'");
+    rejects("23514", "DELETE FROM deletions WHERE target_id='product'");
+    // The original row itself stays for history.
+    assertEquals(2, count("assets"));
   }
 
   @Test

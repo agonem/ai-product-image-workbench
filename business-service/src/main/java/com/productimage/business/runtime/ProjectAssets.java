@@ -94,7 +94,7 @@ public final class ProjectAssets {
   private Map<String, Object> owned(String actor, String id) {
     var rows =
         jdbc.queryForList(
-            "SELECT a.* FROM assets a JOIN projects p ON p.id=a.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND p.owner_id=? AND u.status='ACTIVE'",
+            "SELECT a.* FROM assets a JOIN projects p ON p.id=a.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND p.owner_id=? AND u.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id)",
             id,
             actor);
     if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
@@ -112,6 +112,36 @@ public final class ProjectAssets {
         .put("height", ((Number) row.get("height")).intValue())
         .put("review_status", row.get("review_status").toString())
         .put("content_url", "/api/v1/assets/" + id + "/content");
+  }
+
+  /**
+   * The owner deletes an original (D-08). The row stays so history can say what was used; the bytes
+   * are removed and every read path hides it. Not while a queued or running task uses it.
+   */
+  void delete(String actor, String id) {
+    String key =
+        tx.execute(
+            status -> {
+              var rows =
+                  jdbc.queryForList(
+                      "SELECT a.object_key FROM assets a JOIN projects p ON p.id=a.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND p.owner_id=? AND u.status='ACTIVE' AND a.kind IN ('PRODUCT','GIFT') AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) FOR UPDATE OF a",
+                      id,
+                      actor);
+              if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
+              if (jdbc.queryForObject(
+                      "SELECT count(*) FROM generation_tasks WHERE (product_asset_id=? OR gift_asset_id=?) AND status IN ('QUEUED','RUNNING')",
+                      Long.class,
+                      id,
+                      id)
+                  > 0) throw new Problem(409, "ASSET_IN_USE");
+              jdbc.update(
+                  "INSERT INTO deletions(target_id,target_kind,deleted_by) VALUES (?,'ASSET',?)",
+                  id,
+                  actor);
+              audit(actor, "ASSET_DELETED", id);
+              return rows.getFirst().get("object_key").toString();
+            });
+    store.delete(key);
   }
 
   byte[] content(String actor, String id) {

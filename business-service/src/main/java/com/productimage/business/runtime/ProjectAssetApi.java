@@ -78,6 +78,13 @@ public class ProjectAssetApi {
         .body(assets.asset(actor(request), id));
   }
 
+  /** The owner deletes an original upload (D-08); history keeps a "deleted" placeholder. */
+  @DeleteMapping("/api/v1/assets/{id}")
+  ResponseEntity<Void> delete(@PathVariable String id, HttpServletRequest request) {
+    assets.delete(actor(request), id);
+    return ResponseEntity.noContent().header("Cache-Control", "no-store").build();
+  }
+
   @GetMapping("/api/v1/assets/{id}/content")
   ResponseEntity<byte[]> content(@PathVariable String id, HttpServletRequest request) {
     byte[] data = assets.content(actor(request), id);

@@ -101,10 +101,10 @@
         },
         "artifacts": {
           "type": "array",
-          "minItems": 1,
           "items": {
             "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/public_artifact"
-          }
+          },
+          "description": "Visible results; empty when the owner deleted every result (ADR-20260929-B)."
         },
         "error": {
           "type": "null"

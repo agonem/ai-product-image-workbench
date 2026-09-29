@@ -84,6 +84,12 @@ textarea:focus-visible {
 .text-button:hover:enabled {
   background: var(--primary-soft);
 }
+.text-button.danger {
+  color: var(--danger);
+}
+.text-button.danger:hover:enabled {
+  background: #fdf0ef;
+}
 input,
 select,
 textarea {
@@ -890,10 +896,21 @@ dialog.compare::backdrop {
   object-fit: contain;
 }
 .asset-card p {
-  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 4px 4px 4px 8px;
+}
+.asset-card p > span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.asset-card p > button {
+  flex: none;
+  padding: 4px 8px;
 }
 
 @media (max-width: 1180px) {

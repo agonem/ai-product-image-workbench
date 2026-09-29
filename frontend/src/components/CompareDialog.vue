@@ -42,6 +42,7 @@ onMounted(async () => {
           :path="`/assets/${detail.request.product_asset_id}/content`"
           alt="商品原图"
           :api="w.api"
+          missing="原图已删除"
         />
         <figcaption>商品原图</figcaption>
       </figure>
@@ -50,6 +51,7 @@ onMounted(async () => {
           :path="`/assets/${detail.request.gift_asset_id}/content`"
           alt="赠品原图"
           :api="w.api"
+          missing="原图已删除"
         />
         <figcaption>赠品原图</figcaption>
       </figure>

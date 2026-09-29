@@ -377,6 +377,29 @@ export function useWorkbench() {
     })
     return created
   }
+  /** The owner deletes an original; results made from it stay in history. */
+  async function deleteAsset(id: string) {
+    await action(async () => {
+      await api(`/assets/${id}`, { method: 'DELETE' })
+      assets.value = assets.value.filter((item) => item.id !== id)
+      for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const) {
+        if (drafts[key].product === id) drafts[key].product = ''
+        if (drafts[key].gift === id) drafts[key].gift = ''
+      }
+      notice.value = '原图已删除；用它生成过的结果仍保留。'
+    })
+  }
+  /** The owner deletes one result (and the model output behind it). */
+  async function deleteArtifact(id: string) {
+    await action(async () => {
+      await api(`/artifacts/${id}`, { method: 'DELETE' })
+      await refreshHistory()
+      const current = selected.value
+      if (current?.artifacts.some((item) => item.id === id))
+        await select(current.id)
+      notice.value = '生成结果已删除。'
+    })
+  }
   async function download(artifact: string, name: string) {
     await action(async () => {
       const blob = await api<Blob>(`/artifacts/${artifact}/content`)
@@ -528,6 +551,8 @@ export function useWorkbench() {
     moreAssets,
     refreshHistory: (more = false) => action(() => refreshHistory(more)),
     upload,
+    deleteAsset,
+    deleteArtifact,
     download,
     select: (id: string) => action(() => select(id)),
     refreshTask,

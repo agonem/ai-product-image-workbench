@@ -191,7 +191,7 @@ class Core:
 
 
 def api_checks(core, admin, alice, bob, project):
-    """V4-A1..A12 at the API boundary; every model call is the mock."""
+    """V4-A1..A13 at the API boundary; every model call is the mock."""
     run, evidence, uploads = core.run, {}, {}
     for kind, shape in (("PRODUCT", PRODUCT_RGB), ("GIFT", GIFT_RGB)):
         data = synthetic_png(shape=shape)
@@ -381,6 +381,7 @@ def api_checks(core, admin, alice, bob, project):
     # A10: text without a deployment font fails before any paid call, and is retryable.
     state = core.generate(alice, selling, "v4-nofont", font=False)
     assert state["status"] == "FAILED" and state["error"]["code"] == "GENERATION_FAILED"
+    nofont = state["id"]
     attempt = run.sql(f"SELECT current_attempt_id FROM generation_tasks WHERE id='{state['id']}'")
     assert core.fences(attempt) == "0"
 
@@ -447,6 +448,48 @@ def api_checks(core, admin, alice, bob, project):
 
     for kind, (asset, data) in uploads.items():
         assert run.http("GET", f"/api/v1/assets/{asset}/content", alice)[1] == data, kind
+
+    # A13: owner deletion (D-08). Others and the admin get 404; a result goes together with the
+    # model output behind it; an original used by a queued task is kept; deleted items vanish
+    # from every read path while tasks and audit keep their history.
+    scene_task = evidence["scene"]["task"]
+    artifact = core.get(alice, scene_task)[1]["artifacts"][0]["id"]
+    for token in (bob, admin):
+        assert run.http("DELETE", f"/api/v1/artifacts/{artifact}", token)[0] == 404
+    assert run.http("DELETE", f"/api/v1/artifacts/{artifact}", alice)[0] == 204
+    assert run.http("GET", f"/api/v1/artifacts/{artifact}/content", alice)[0] == 404
+    detail = core.get(alice, scene_task)[1]
+    assert detail["status"] == "SUCCEEDED" and detail["artifacts"] == [] and detail["bases"] == []
+    assert run.http("DELETE", f"/api/v1/artifacts/{artifact}", alice)[0] == 404
+    retype = {"ordinal": 0, "text": text}
+    path = f"/api/v4/generation-tasks/{scene_task}/retypeset"
+    assert core.post(alice, path, retype)[0] == 409
+    status, queued = core.post(
+        alice, "/api/v4/generation-tasks", dict(scene, scene_preset="bedroom")
+    )
+    assert status == 202 and queued["status"] == "QUEUED", (status, queued)
+    for token in (bob, admin):
+        assert run.http("DELETE", f"/api/v1/assets/{product}", token)[0] == 404
+    status, body, _ = run.http("DELETE", f"/api/v1/assets/{product}", alice)
+    assert status == 409 and body["code"] == "ASSET_IN_USE", (status, body)
+    core.worker()
+    assert core.get(alice, queued["id"])[1]["status"] == "SUCCEEDED"
+    assert run.http("DELETE", f"/api/v1/assets/{product}", alice)[0] == 204
+    assert run.http("GET", f"/api/v1/assets/{product}/content", alice)[0] == 404
+    listed = run.http("GET", f"/api/v1/projects/{project}/assets", alice)[1]["items"]
+    assert product not in {item["id"] for item in listed} and gift in {i["id"] for i in listed}
+    assert (
+        core.post(alice, "/api/v4/generation-tasks", dict(scene, scene_preset="kitchen"))[0] == 422
+    )
+    status, body, _ = run.http("POST", f"/api/v1/tasks/{nofont}/retry", alice, {"attempt": 1})
+    assert status == 409 and body["code"] == "ASSET_DELETED", (status, body)
+    assert core.get(alice, queued["id"])[1]["status"] == "SUCCEEDED"
+    deleted = run.sql("SELECT count(*) FROM deletions")
+    audited = run.sql(
+        "SELECT count(*) FROM audit_events WHERE action IN ('ASSET_DELETED','ARTIFACT_DELETED')"
+    )
+    assert deleted == "3" and audited == "3", (deleted, audited)
+    evidence["deletion"] = {"artifact": artifact, "asset": product}
     return evidence
 
 
@@ -566,8 +609,8 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A12: three entries, references, text, retypeset, isolation, "
-            "withdrawn routes, provider types",
+            "PASS V4-A1..A13: three entries, references, text, retypeset, isolation, "
+            "withdrawn routes, provider types, owner deletion",
             flush=True,
         )
         if browser_checks(core, stack):

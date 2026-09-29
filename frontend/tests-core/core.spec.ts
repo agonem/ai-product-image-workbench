@@ -298,3 +298,33 @@ test('V4-B6: history, works and admin-only settings', async ({
   })
   await admin.close()
 })
+
+test('V4-B7: owners delete an original and a result; history keeps a placeholder', async ({
+  page,
+}) => {
+  await login(page)
+  page.on('dialog', (dialog) => void dialog.accept())
+  await page.getByRole('link', { name: '素材管理' }).click()
+  const assets = page.locator('.asset-card')
+  const before = await assets.count()
+  await assets
+    .first()
+    .getByRole('button', { name: /^删除素材/ })
+    .click()
+  await expect(page.getByRole('status')).toContainText('原图已删除')
+  await expect(assets).toHaveCount(before - 1)
+
+  // Results made from a deleted original stay, and the comparison says so.
+  await page.getByRole('link', { name: '我的作品' }).click()
+  await page.getByRole('button', { name: '场景主图' }).click()
+  const cards = page.getByTestId('result-card')
+  await cards.first().getByRole('button', { name: '对照原图' }).click()
+  const dialog = page.getByRole('dialog', { name: '原图对照' })
+  await expect(dialog).toContainText('原图已删除')
+  await dialog.getByRole('button', { name: '关闭' }).click()
+
+  const results = await cards.count()
+  await cards.first().getByRole('button', { name: '删除' }).click()
+  await expect(page.getByRole('status')).toContainText('生成结果已删除')
+  await expect(cards).toHaveCount(results - 1)
+})

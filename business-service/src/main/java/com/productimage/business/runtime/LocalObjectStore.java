@@ -100,6 +100,18 @@ public final class LocalObjectStore {
     }
   }
 
+  /**
+   * Removes a deleted object's bytes. Best effort: the deletion record is authoritative and a
+   * leftover file is never served again, so a failure here leaves only unreachable bytes.
+   */
+  public void delete(String key) {
+    try {
+      Files.deleteIfExists(path(key, false));
+    } catch (IOException | Problem ex) {
+      /* Unreachable leftover; every read path already hides the deleted target. */
+    }
+  }
+
   public Info put(String key, byte[] data) {
     Info info = inspect(key, data);
     Path temporary = null;

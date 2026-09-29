@@ -23,6 +23,8 @@ const messages: Record<string, string> = {
   TEXT_OVERFLOW: '文字放不下：请缩短文字、减小字号或放大文字区域。',
   PROVIDER_UNAVAILABLE: '生成服务暂不可用，请稍后重试或联系管理员。',
   TASK_CONFLICT: '任务状态已变化或不可重试，请刷新任务。',
+  ASSET_IN_USE: '这张原图正在生成中使用，完成后再删除。',
+  ASSET_DELETED: '原图已删除，不能再用于生成或重试。',
   INVALID_CONTRACT: '请求内容不符合接口要求，请检查输入。',
 }
 export async function request<T>(

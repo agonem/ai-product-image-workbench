@@ -78,10 +78,8 @@ const until = computed(() =>
           ><span class="role-tag">{{ admin ? '管理员' : '运营' }}</span></strong
         >
         <small
-          ><span class="status-dot" aria-hidden="true"></span>在线<template
-            v-if="until"
-            >· 有效至 {{ until }}</template
-          ></small
+          ><span class="status-dot" aria-hidden="true"></span
+          >{{ until ? `在线 · 有效至 ${until}` : '在线' }}</small
         >
       </div>
       <button

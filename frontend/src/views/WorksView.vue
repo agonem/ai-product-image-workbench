@@ -9,6 +9,10 @@ import { workbenchKey } from '../workbench/useWorkbench'
 const w = inject(workbenchKey)!
 const filter = ref<Feature | ''>('')
 const comparing = ref<{ task: string; artifact: string } | null>(null)
+function remove(artifact: string) {
+  if (confirm('确定删除这张生成结果？删除后不可恢复，也不能再免费改字。'))
+    void w.deleteArtifact(artifact)
+}
 const works = computed(() =>
   w.history
     .filter(
@@ -78,6 +82,13 @@ const works = computed(() =>
                 "
               >
                 下载
+              </button>
+              <button
+                class="text-button danger"
+                :disabled="w.busy"
+                @click="remove(item.artifact.id)"
+              >
+                删除
               </button>
             </div>
           </div>
