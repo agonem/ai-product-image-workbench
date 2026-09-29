@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import AssetsView from './views/AssetsView.vue'
 import CreateView from './views/CreateView.vue'
 import HomeView from './views/HomeView.vue'
+import ModelsView from './views/ModelsView.vue'
 import SettingsView from './views/SettingsView.vue'
 import TasksView from './views/TasksView.vue'
 import WorksView from './views/WorksView.vue'
@@ -17,6 +18,7 @@ export const router = createRouter({
     { path: '/works', component: WorksView },
     // Account settings work without a project (e.g. a new admin configuring the provider).
     { path: '/settings', component: SettingsView, meta: { project: false } },
+    { path: '/models', component: ModelsView, meta: { project: false } },
     { path: '/:rest(.*)*', redirect: '/' },
   ],
 })

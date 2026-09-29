@@ -49,7 +49,9 @@ const w = inject(workbenchKey)!
           w.busy ? '登录中…' : w.production ? '登录生产账号' : '登录开发环境'
         }}
       </button>
-      <small>会话只保存在当前页面内存中，刷新后需重新登录。</small>
+      <small
+        >登录后在有效期内保持登录，刷新页面不会退出；到期或点击退出后需重新登录。</small
+      >
     </form>
   </main>
 </template>

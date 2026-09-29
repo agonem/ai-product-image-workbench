@@ -9,8 +9,8 @@ async function login(page: Page, name = 'alice') {
   await page.getByLabel('本地账号', { exact: true }).fill(name)
   await page.getByLabel('密码', { exact: true }).fill(process.env.T06_PASSWORD!)
   await page.getByRole('button', { name: '登录开发环境' }).click()
-  await expect(page.getByRole('button', { name: '退出本地账号' })).toBeVisible()
-  await expect(page.getByText('正在读取项目素材与任务…')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
+  await expect(page.getByText('正在读取素材与任务…')).toHaveCount(0)
 }
 function generationPost(request: Request) {
   return (
@@ -36,6 +36,8 @@ test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failur
       page.getByRole('button', { name: `${name} 立即生成` }),
     ).toBeVisible()
   await expect(page.getByText('模拟模型验收模式')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
 
   // Old fixture tasks stay labelled as test data and cannot be opened as results.
   await page.getByRole('link', { name: '任务记录' }).click()
@@ -103,18 +105,14 @@ test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failur
   })
   await page.setViewportSize({ width: 1440, height: 1000 })
 
-  await page.getByRole('button', { name: '退出本地账号' }).click()
+  await page.getByRole('button', { name: '退出登录' }).click()
   await expect(page.getByRole('button', { name: '登录开发环境' })).toBeVisible()
   await login(page)
   await page.getByRole('link', { name: '任务记录' }).click()
   await expect(rows).toHaveCount(20)
-  await page.getByRole('button', { name: '退出本地账号' }).click()
+  await page.getByRole('button', { name: '退出登录' }).click()
+  // Bob has no project yet: one is created implicitly and starts empty.
   await login(page, 'bob')
-  await expect(
-    page.getByText(
-      '还没有项目。请在上方输入项目名称并创建项目，然后开始生成。',
-    ),
-  ).toBeVisible()
   await page.getByRole('link', { name: '任务记录' }).click()
   await expect(rows).toHaveCount(0)
   expect(errors).toEqual([])
@@ -216,7 +214,7 @@ test('ACC-T06 A2/A5: task polling shows RUNNING, survives a network error and re
   await expect(current).toContainText('生成失败', { timeout: 10000 })
   await page.unroute('**/api/v4/generation-tasks/*')
 
-  await page.getByLabel('新项目名称').fill('private unsaved project')
+  await page.getByLabel('场景描述（可选补充）').fill('private unsaved draft')
   await page.route(
     '**/api/v1/projects/p/tasks?offset=0',
     (route) =>
@@ -232,5 +230,5 @@ test('ACC-T06 A2/A5: task polling shows RUNNING, survives a network error and re
   await page.getByLabel('本地账号', { exact: true }).fill('alice')
   await page.getByLabel('密码', { exact: true }).fill(process.env.T06_PASSWORD!)
   await page.getByLabel('密码', { exact: true }).press('Enter')
-  await expect(page.getByLabel('新项目名称')).toHaveValue('')
+  await expect(page.getByLabel('场景描述（可选补充）')).toHaveValue('')
 })

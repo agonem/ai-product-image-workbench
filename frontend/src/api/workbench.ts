@@ -27,7 +27,6 @@ const messages: Record<string, string> = {
 }
 export async function request<T>(
   path: string,
-  token: string,
   init: RequestInit = {},
 ): Promise<T> {
   let response: Response
@@ -35,11 +34,9 @@ export async function request<T>(
     response = await fetch((/^\/v4\//.test(path) ? '/api' : '/api/v1') + path, {
       ...init,
       cache: 'no-store',
-      credentials: 'omit',
-      headers: {
-        ...(token ? { Authorization: 'Bearer ' + token } : {}),
-        ...init.headers,
-      },
+      // The session is an HttpOnly same-origin cookie set by Java at login;
+      // scripts never see or store the token.
+      credentials: 'same-origin',
       signal: init.signal ?? AbortSignal.timeout(15000),
     })
   } catch {

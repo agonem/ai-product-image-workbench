@@ -18,7 +18,8 @@ from common import ROOT, business_jar, environment, process_options, stop, tool
 class ProductionCheck(RuntimeCheck):
     def __init__(self, env, work):
         super().__init__(env, work)
-        self.password = "合成测试-" + secrets.token_urlsafe(24)
+        # New passwords are 6-15 characters (user decision); 15 here keeps a CJK prefix.
+        self.password = "合成-" + secrets.token_urlsafe(9)
         bootstrap = account("admin", "unused", self.password)
         bootstrap.pop("user_id")
         self.bootstrap = work / "bootstrap.json"
@@ -140,12 +141,10 @@ def verify(run):
         )[0]
         == 409
     )
-    assert (
-        run.http("POST", accounts, admin, {"username": "bad", "password": "short", "role": "USER"})[
-            0
-        ]
-        == 400
-    )
+    # New passwords must be 6-15 characters.
+    for bad in ("short", "x" * 16):
+        body = {"username": "bad", "password": bad, "role": "USER"}
+        assert run.http("POST", accounts, admin, body)[0] == 400, len(bad)
     assert (
         run.http(
             "POST",
@@ -210,7 +209,7 @@ def verify(run):
     run.start()
     assert run.http("GET", base + "/me", alice)[0] == 200
     # Race login using the old password against an administrator reset.
-    race_password = secrets.token_urlsafe(24)
+    race_password = secrets.token_urlsafe(9)
     with ThreadPoolExecutor(max_workers=2) as pool:
         login_future = pool.submit(
             run.http, "POST", base + "/login", None, {"username": "bob", "password": run.password}
@@ -235,7 +234,7 @@ def verify(run):
         "POST", base + "/login", body={"username": "bob", "password": race_password}
     )
     assert status == 429 and limited["code"] == "SESSION_LIMIT_REACHED"
-    new_password = secrets.token_urlsafe(24)
+    new_password = secrets.token_urlsafe(9)
     assert (
         run.http(
             "POST",

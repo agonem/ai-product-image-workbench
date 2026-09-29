@@ -152,7 +152,7 @@ async function resetPassword() {
         @submit.prevent="changePassword"
       >
         <h2>修改本人密码</h2>
-        <p>修改后所有会话失效，需用新密码重新登录。新密码为 15–128 个字符。</p>
+        <p>修改后所有会话失效，需用新密码重新登录。新密码为 6–15 个字符。</p>
         <label
           >当前密码<input
             v-model="current"
@@ -166,8 +166,8 @@ async function resetPassword() {
             v-model="next"
             type="password"
             autocomplete="new-password"
-            minlength="15"
-            maxlength="128"
+            minlength="6"
+            maxlength="15"
             required
             :disabled="busy"
         /></label>
@@ -193,8 +193,8 @@ async function resetPassword() {
               v-model="initial"
               type="password"
               autocomplete="new-password"
-              minlength="15"
-              maxlength="128"
+              minlength="6"
+              maxlength="15"
               required
               :disabled="busy"
           /></label>
@@ -252,8 +252,8 @@ async function resetPassword() {
               v-model="replacement"
               type="password"
               autocomplete="new-password"
-              minlength="15"
-              maxlength="128"
+              minlength="6"
+              maxlength="15"
               required
               :disabled="busy"
           /></label>

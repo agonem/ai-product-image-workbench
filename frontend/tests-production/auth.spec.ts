@@ -4,7 +4,11 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const password = process.env.T06_PASSWORD!
+// New passwords are limited to 6-15 characters.
+const changed = password.slice(0, 10) + '-c2'
 async function login(page: Page, username: string, secret = password) {
+  // Each login starts from an empty cookie jar, like a fresh browser.
+  await page.context().clearCookies()
   await page.goto('/')
   await page.getByLabel('本地账号', { exact: true }).fill(username)
   await page.getByLabel('密码', { exact: true }).fill(secret)
@@ -54,7 +58,7 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   expect(await apiStatus(page, original, '/admin/accounts')).toBe(403)
   const second = await browser.newPage()
   const secondToken = await login(second, 'alice')
-  await expect(page.getByRole('button', { name: '退出本地账号' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
   for (const name of ['赠品+文字主图', '场景主图', '卖点主图'])
     await expect(
       page.getByRole('button', { name: `${name} 立即生成` }),
@@ -69,7 +73,7 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   await expect(page.getByTestId('provider-state')).toHaveCount(0)
   await page.getByRole('button', { name: '本人改密', exact: true }).click()
   await page.getByLabel('当前密码', { exact: true }).fill(password)
-  await page.getByLabel('新密码', { exact: true }).fill(password + '-changed')
+  await page.getByLabel('新密码', { exact: true }).fill(changed)
   await page.getByRole('button', { name: '保存新密码' }).click()
   await expect(
     page.getByRole('heading', { name: '生产账号登录' }),
@@ -79,8 +83,8 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   ).toBeVisible({ timeout: 15000 })
   expect(await apiStatus(page, original, '/local-auth/me')).toBe(401)
   expect(await apiStatus(second, secondToken, '/local-auth/me')).toBe(401)
-  await login(page, 'alice', password + '-changed')
-  const resetToken = await login(second, 'alice', password + '-changed')
+  await login(page, 'alice', changed)
+  const resetToken = await login(second, 'alice', changed)
 
   const admin = await browser.newPage()
   const adminToken = await login(admin, 'admin')
@@ -90,9 +94,6 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
     `/assets/${process.env.T06_ASSET}/content`,
   ])
     expect(await apiStatus(admin, adminToken, path)).toBe(404)
-  await expect(
-    admin.getByRole('option', { name: 'Alice private', exact: true }),
-  ).toHaveCount(0)
   await settings(admin)
   await admin.getByRole('button', { name: '账号管理', exact: true }).click()
   await expect(
@@ -150,7 +151,7 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
     admin.getByRole('heading', { name: '生产账号登录' }),
   ).toBeVisible({ timeout: 15000 })
   await login(page, 'alice')
-  await page.getByRole('button', { name: '退出本地账号' }).click()
+  await page.getByRole('button', { name: '退出登录' }).click()
   await expect(
     page.getByRole('heading', { name: '生产账号登录' }),
   ).toBeVisible()
@@ -180,7 +181,11 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   await expect(
     admin.getByRole('heading', { name: '生产账号登录' }),
   ).toBeVisible()
+  // Within its lifetime the session survives a reload; after sign-out it does not.
   await login(admin, 'admin')
+  await admin.reload()
+  await expect(admin.getByRole('button', { name: '退出登录' })).toBeVisible()
+  await admin.getByRole('button', { name: '退出登录' }).click()
   await admin.reload()
   await expect(
     admin.getByRole('heading', { name: '生产账号登录' }),

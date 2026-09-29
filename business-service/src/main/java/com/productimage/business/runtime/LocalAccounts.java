@@ -161,6 +161,22 @@ public final class LocalAccounts implements UserAuthenticator {
     return session.user();
   }
 
+  /** Signed-in account for a page reload: user id, login name and session expiry. */
+  public synchronized JsonNode me(String header) {
+    String user = authenticate(header);
+    String name =
+        accounts.entrySet().stream()
+            .filter(entry -> entry.getValue().user().equals(user))
+            .map(java.util.Map.Entry::getKey)
+            .findFirst()
+            .orElse(user);
+    return Json.object()
+        .put("id", user)
+        .put("username", name)
+        .put("mode", "development-only")
+        .put("expires_at", sessions.get(sessionKey(header)).expires().toString());
+  }
+
   public synchronized void logout(String header) {
     authenticate(header);
     sessions.remove(sessionKey(header));

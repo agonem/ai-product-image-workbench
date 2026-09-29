@@ -120,7 +120,7 @@ ssl pkcs12 -export -name business -inkey "$STAGE/business.key" -in "$STAGE/busin
 rm -f "$STAGE/business.key" "$STAGE/business.crt" "$STAGE/ca.cnf" "$LOG"
 
 # First administrator: only a salted PBKDF2 verifier is stored, never the password.
-echo "Choose the first administrator password (15-128 characters):"
+echo "Choose the first administrator password (6-15 characters):"
 if [ -t 0 ]; then
   "$PYTHON" ../scripts/prod_accounts.py --file "$STAGE/bootstrap/admin.json" --username "$ADMIN"
 else

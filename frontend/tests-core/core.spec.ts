@@ -9,8 +9,8 @@ async function login(page: Page, name = 'alice') {
   await page.getByLabel('本地账号', { exact: true }).fill(name)
   await page.getByLabel('密码', { exact: true }).fill(process.env.T06_PASSWORD!)
   await page.getByRole('button', { name: '登录生产账号' }).click()
-  await expect(page.getByRole('button', { name: '退出本地账号' })).toBeVisible()
-  await expect(page.getByText('正在读取项目素材与任务…')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
+  await expect(page.getByText('正在读取素材与任务…')).toHaveCount(0)
 }
 function generationPost(request: Request) {
   return (
@@ -62,6 +62,15 @@ test('V4-B1: home shows three independent entries and navigation', async ({
   expect(
     await page.evaluate(() => localStorage.length + sessionStorage.length),
   ).toBe(0)
+  // The session is an HttpOnly cookie: scripts cannot read it, and a reload keeps it.
+  expect(await page.evaluate(() => document.cookie)).toBe('')
+  const cookie = (await page.context().cookies()).find(
+    (c) => c.name === 'wb_session',
+  )!
+  expect(cookie.httpOnly && cookie.sameSite === 'Strict').toBe(true)
+  await page.reload()
+  await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
+  await expect(page.getByText('alice', { exact: true })).toBeVisible()
   await page.screenshot({ path: join(artifacts, 'home-desktop.png') })
   await page.setViewportSize({ width: 390, height: 844 })
   await noHorizontalScroll(page)
@@ -245,10 +254,19 @@ test('V4-B6: history, works and admin-only settings', async ({
   await expect(page.getByTestId('result-card').first()).toBeVisible()
   await page.getByRole('link', { name: '账号与安全' }).click()
   await expect(page.getByRole('button', { name: '本人改密' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '供应商配置' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: '模型配置' })).toHaveCount(0)
+  // Sign-out is an icon at the bottom of the sidebar; the next visit needs a login.
+  await page.getByRole('button', { name: '退出登录' }).click()
+  await expect(
+    page.getByRole('heading', { name: '生产账号登录' }),
+  ).toBeVisible()
+  await page.reload()
+  await expect(
+    page.getByRole('heading', { name: '生产账号登录' }),
+  ).toBeVisible()
   const admin = await browser.newPage()
   await login(admin, 'admin')
-  await admin.getByRole('link', { name: '账号与安全' }).click()
+  await admin.getByRole('link', { name: '模型配置' }).click()
   await admin.getByRole('button', { name: '供应商配置' }).click()
   await expect(admin.getByTestId('provider-state')).toContainText('已启用')
   await expect(

@@ -215,31 +215,81 @@ small {
   min-width: 0;
   padding-bottom: 32px;
 }
-.top-bar {
+.nav-list {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  min-height: 0;
+}
+/* Signed-in user, status and the sign-out control sit at the bottom of the sidebar. */
+.user-card {
+  display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 12px 24px;
+  gap: 10px;
+  padding: 10px 8px 2px;
+  border-top: 1px solid var(--line);
+}
+.user-meta {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+.user-meta strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.92rem;
+  min-width: 0;
+}
+.user-meta strong > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.role-tag {
+  flex: none;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+.user-meta small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+}
+.icon-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border-radius: 8px;
+  border: 1px solid var(--line);
   background: #fff;
-  border-bottom: 1px solid var(--line);
+  color: #4b5563;
 }
-.project-tools {
-  display: flex;
-  gap: 8px;
-  align-items: end;
-  flex-wrap: wrap;
-}
-.project-tools label {
-  min-width: 180px;
-}
-.user-tools {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+.icon-button:hover:enabled {
+  color: var(--danger);
+  border-color: #f4ccc9;
+  background: #fdf0ef;
 }
 .avatar {
+  flex: none;
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -867,12 +917,21 @@ dialog.compare::backdrop {
     padding-bottom: 0;
     width: 100%;
   }
+  .nav-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
   .nav-group {
     display: contents;
   }
   .nav-group > span,
   .side-foot {
     display: none;
+  }
+  .user-card {
+    width: 100%;
+    padding-top: 8px;
   }
   .nav-sub {
     padding-left: 12px;
@@ -890,8 +949,7 @@ dialog.compare::backdrop {
   .result-strip {
     grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
-  .page,
-  .top-bar {
+  .page {
     padding-left: 16px;
     padding-right: 16px;
   }

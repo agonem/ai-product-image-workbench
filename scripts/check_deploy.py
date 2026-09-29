@@ -57,7 +57,7 @@ def rehearse(env, work):
     shutil.copytree(ROOT / "deploy", target, ignore=ignored)
     (work / "scripts").mkdir()
     shutil.copy2(ROOT / "scripts/prod_accounts.py", work / "scripts")
-    password = "rehearsal-" + secrets.token_urlsafe(18)
+    password = "rh-" + secrets.token_urlsafe(9)
     init_env = {**env, "PYTHON": sys.executable, "MSYS_NO_PATHCONV": "1"}
     subprocess.run(
         [tool("bash"), "init.sh", SERVER_IP, "admin"],

@@ -17,6 +17,15 @@ import type {
   TextSpec,
 } from './model'
 
+/** Signed-in account as returned by login or `/me`. */
+interface Account {
+  id: string
+  username?: string
+  role?: 'ADMIN' | 'USER'
+  mode: string
+  expires_at?: string
+}
+
 export type WorkbenchStore = UnwrapNestedRefs<ReturnType<typeof useWorkbench>>
 export const workbenchKey: InjectionKey<WorkbenchStore> = Symbol('workbench')
 
@@ -55,16 +64,18 @@ export function useWorkbench() {
   } | null>(null)
   let sessionTimer: ReturnType<typeof setTimeout> | undefined
   let expiresAt = 0
-  const token = ref(''),
+  // The session itself is an HttpOnly cookie; the page only knows whether it is signed in.
+  const signedIn = ref(false),
+    restoring = ref(true),
+    sessionExpires = ref(''),
     username = ref(''),
     password = ref(''),
     error = ref(''),
     notice = ref('')
   const busy = ref(false),
     loading = ref(false)
-  const projects = ref<Project[]>([]),
-    project = ref(''),
-    projectName = ref('')
+  // Every account works in one implicit project (created on first sign-in).
+  const project = ref('')
   const options = ref<Options | null>(null),
     assets = ref<Asset[]>([]),
     assetNext = ref<number | null>(null)
@@ -102,6 +113,7 @@ export function useWorkbench() {
     clearTimeout(sessionTimer)
     identity.value = null
     expiresAt = 0
+    sessionExpires.value = ''
     epoch++
     projectEpoch++
     refreshSequence++
@@ -109,11 +121,9 @@ export function useWorkbench() {
     abort.abort()
     abort = new AbortController()
     stopPolling()
-    token.value = ''
+    signedIn.value = false
     password.value = ''
-    projects.value = []
     project.value = ''
-    projectName.value = ''
     options.value = null
     assets.value = []
     history.value = []
@@ -128,7 +138,7 @@ export function useWorkbench() {
   async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     const current = epoch
     try {
-      const value = await request<T>(path, token.value, {
+      const value = await request<T>(path, {
         ...init,
         signal: AbortSignal.any([abort.signal, AbortSignal.timeout(20000)]),
       })
@@ -161,36 +171,69 @@ export function useWorkbench() {
     }
   }
 
+  /** Accept a login or `/me` answer and open the workbench. */
+  async function start(account: Account) {
+    if (account.mode !== mode)
+      throw new Error('页面与服务认证模式不符，请联系管理员。')
+    expiresAt = Date.parse(account.expires_at ?? '')
+    if (production) {
+      if (
+        !account.username ||
+        !['ADMIN', 'USER'].includes(account.role ?? '') ||
+        !Number.isFinite(expiresAt) ||
+        expiresAt <= Date.now()
+      )
+        throw new Error('生产认证响应无效。')
+      identity.value = {
+        id: account.id,
+        username: account.username,
+        role: account.role!,
+      }
+    } else
+      identity.value = {
+        id: account.id,
+        username: account.username ?? username.value,
+        role: 'USER',
+      }
+    sessionExpires.value = Number.isFinite(expiresAt)
+      ? new Date(expiresAt).toISOString()
+      : ''
+    signedIn.value = true
+    if (production) scheduleSession()
+    await loadProjects()
+  }
   async function login() {
     await action(async () => {
       const result = await api<{
-        access_token: string
         mode: string
         expires_at?: string
-        user?: { id: string; username: string; role: 'ADMIN' | 'USER' }
+        user?: { id: string; username?: string; role?: 'ADMIN' | 'USER' }
       }>(
         authPath + '/login',
         json({ username: username.value, password: password.value }),
       )
       password.value = ''
-      if (result.mode !== mode)
-        throw new Error('页面与服务认证模式不匹配，请联系管理员。')
-      if (production) {
-        expiresAt = Date.parse(result.expires_at ?? '')
-        if (
-          !result.user ||
-          !['ADMIN', 'USER'].includes(result.user.role) ||
-          !Number.isFinite(expiresAt) ||
-          expiresAt <= Date.now()
-        )
-          throw new Error('生产认证响应无效。')
-        identity.value = result.user
-      } else identity.value = { id: '', username: username.value, role: 'USER' }
-      token.value = result.access_token
-      if (production) scheduleSession()
-      await loadProjects()
+      if (!result.user) throw new Error('认证响应无效。')
+      await start({
+        ...result.user,
+        mode: result.mode,
+        expires_at: result.expires_at,
+      })
     })
     password.value = ''
+  }
+  /** On page load: reuse a still-valid session cookie instead of asking to log in again. */
+  async function restore() {
+    try {
+      const account = await request<Account>(authPath + '/me')
+      await start(account)
+    } catch (cause) {
+      // No valid session is the normal case; only report problems after sign-in.
+      if (signedIn.value) report(cause)
+      else reset()
+    } finally {
+      restoring.value = false
+    }
   }
   function expire() {
     reset()
@@ -204,7 +247,7 @@ export function useWorkbench() {
     )
   }
   async function checkSession() {
-    if (!production || !token.value) return
+    if (!production || !signedIn.value) return
     if (Date.now() >= expiresAt) {
       expire()
       return
@@ -214,7 +257,7 @@ export function useWorkbench() {
     } catch (cause) {
       report(cause)
     } finally {
-      if (token.value) scheduleSession()
+      if (signedIn.value) scheduleSession()
     }
   }
   async function loadProjects() {
@@ -224,10 +267,12 @@ export function useWorkbench() {
     ])
     if (config.mode !== mode)
       throw new Error('能力配置与当前页面模式不符，请联系管理员。')
-    projects.value = list
     options.value = config
-    if (!list.some((p) => p.id === project.value))
-      project.value = list[0]?.id ?? ''
+    // The list is newest first; the oldest project is the account's working project.
+    const chosen =
+      list.at(-1) ??
+      (await api<Project>('/projects', json({ name: '默认项目' })))
+    project.value = chosen.id
     await loadProject()
   }
   async function logout() {
@@ -237,17 +282,6 @@ export function useWorkbench() {
       } finally {
         reset()
       }
-    })
-  }
-  async function createProject() {
-    await action(async () => {
-      const value = await api<Project>(
-        '/projects',
-        json({ name: projectName.value }),
-      )
-      project.value = value.id
-      projectName.value = ''
-      await loadProjects()
     })
   }
   async function loadProject() {
@@ -359,7 +393,7 @@ export function useWorkbench() {
   function schedule() {
     stopPolling()
     if (
-      token.value &&
+      signedIn.value &&
       selected.value &&
       ['QUEUED', 'RUNNING'].includes(selected.value.status)
     )
@@ -428,7 +462,7 @@ export function useWorkbench() {
       if (cause instanceof ApiError && cause.status > 0 && cause.status < 500) {
         submission.resolve()
         uncertain.value = false
-      } else if (token.value) uncertain.value = true
+      } else if (signedIn.value) uncertain.value = true
       throw cause
     }
   }
@@ -461,22 +495,23 @@ export function useWorkbench() {
   }
 
   onUnmounted(reset)
+  void restore()
   return {
     production,
     mockProvider,
     identity,
     api,
     expire,
-    token,
+    signedIn,
+    restoring,
+    sessionExpires,
     username,
     password,
     error,
     notice,
     busy,
     loading,
-    projects,
     project,
-    projectName,
     options,
     generation,
     assets,
@@ -490,8 +525,6 @@ export function useWorkbench() {
     drafts,
     login,
     logout,
-    createProject,
-    loadProject,
     moreAssets,
     refreshHistory: (more = false) => action(() => refreshHistory(more)),
     upload,
@@ -501,6 +534,5 @@ export function useWorkbench() {
     submit,
     retypeset,
     retry,
-    reload: () => action(loadProjects),
   }
 }

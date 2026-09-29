@@ -25,8 +25,11 @@ final class ProductionPasswords {
     if (!name.matches("[a-z0-9][a-z0-9_-]{0,63}")) throw new Problem(400, "INVALID_CONTRACT");
   }
 
+  /** New passwords (bootstrap, change, reset, create): 6-15 characters by user decision. */
+  static final int MIN_LENGTH = 6, MAX_LENGTH = 15;
+
   static Encoded encode(String password) {
-    if (password.length() < 15 || password.length() > 128)
+    if (password.length() < MIN_LENGTH || password.length() > MAX_LENGTH)
       throw new Problem(400, "INVALID_CONTRACT");
     byte[] salt = new byte[16];
     new SecureRandom().nextBytes(salt);

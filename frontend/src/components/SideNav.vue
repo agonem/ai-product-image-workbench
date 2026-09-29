@@ -1,5 +1,18 @@
 <script setup lang="ts">
+import { computed, inject } from 'vue'
 import { features } from '../workbench/generation'
+import { workbenchKey } from '../workbench/useWorkbench'
+
+const w = inject(workbenchKey)!
+const admin = computed(() => w.identity?.role === 'ADMIN')
+const until = computed(() =>
+  w.sessionExpires
+    ? new Date(w.sessionExpires).toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '',
+)
 </script>
 
 <template>
@@ -29,22 +42,67 @@ import { features } from '../workbench/generation'
         <strong>母婴商品图工作台</strong><small>AI 让商品图更简单</small>
       </div>
     </div>
-    <router-link class="nav-link" to="/">首页</router-link>
-    <div class="nav-group">
-      <span>图片生成</span>
-      <router-link
-        v-for="item in features"
-        :key="item.id"
-        class="nav-link nav-sub"
-        :to="`/create/${item.route}`"
-        >{{ item.name }}</router-link
+    <nav class="nav-list">
+      <router-link class="nav-link" to="/">首页</router-link>
+      <div class="nav-group">
+        <span>图片生成</span>
+        <router-link
+          v-for="item in features"
+          :key="item.id"
+          class="nav-link nav-sub"
+          :to="`/create/${item.route}`"
+          >{{ item.name }}</router-link
+        >
+      </div>
+      <router-link class="nav-link" to="/assets">素材管理</router-link>
+      <router-link class="nav-link" to="/tasks">任务记录</router-link>
+      <router-link class="nav-link" to="/works">我的作品</router-link>
+      <div class="nav-group">
+        <span>设置</span>
+        <router-link class="nav-link nav-sub" to="/settings"
+          >账号与安全</router-link
+        >
+        <router-link v-if="admin" class="nav-link nav-sub" to="/models"
+          >模型配置</router-link
+        >
+      </div>
+    </nav>
+    <p class="side-foot">生成结果需人工审核 · 仅生成与下载，不自动上架</p>
+    <div class="user-card">
+      <span class="avatar" aria-hidden="true">{{
+        (w.identity?.username ?? 'U').slice(0, 1).toUpperCase()
+      }}</span>
+      <div class="user-meta">
+        <strong
+          ><span>{{ w.identity?.username }}</span
+          ><span class="role-tag">{{ admin ? '管理员' : '运营' }}</span></strong
+        >
+        <small
+          ><span class="status-dot" aria-hidden="true"></span>在线<template
+            v-if="until"
+            >· 有效至 {{ until }}</template
+          ></small
+        >
+      </div>
+      <button
+        type="button"
+        class="icon-button"
+        aria-label="退出登录"
+        title="退出登录"
+        :disabled="w.busy"
+        @click="w.logout"
       >
+        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M15 16l4-4-4-4M19 12H9"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
     </div>
-    <router-link class="nav-link" to="/assets">素材管理</router-link>
-    <router-link class="nav-link" to="/tasks">任务记录</router-link>
-    <router-link class="nav-link" to="/works">我的作品</router-link>
-    <p class="side-foot">
-      商品原图永久保留 · 生成结果需人工审核 · 仅生成与下载，不自动上架
-    </p>
   </aside>
 </template>

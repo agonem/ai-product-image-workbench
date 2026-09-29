@@ -114,11 +114,17 @@ public final class ProductionAccounts implements UserAuthenticator {
 
   public JsonNode me(String header) {
     var row = account(authenticate(header), false);
+    var expires =
+        jdbc.queryForObject(
+            "SELECT expires_at FROM local_sessions WHERE token_hash=?",
+            Timestamp.class,
+            key(header));
     return Json.object()
         .put("id", row.get("user_id").toString())
         .put("username", row.get("username").toString())
         .put("role", row.get("role").toString())
-        .put("mode", "production-local");
+        .put("mode", "production-local")
+        .put("expires_at", expires.toInstant().toString());
   }
 
   public JsonNode login(JsonNode body) {

@@ -24,9 +24,9 @@ def main():
     )
     if (
         not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", args.username)
-        or not 15 <= len(password.encode("utf-16-le")) // 2 <= 128
+        or not 6 <= len(password.encode("utf-16-le")) // 2 <= 15
     ):
-        parser.error("Use a lowercase username and a 15-128 character password")
+        parser.error("Use a lowercase username and a 6-15 character password")
     salt = secrets.token_bytes(16)
     value = {
         "username": args.username,

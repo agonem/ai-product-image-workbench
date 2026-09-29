@@ -26,7 +26,7 @@ cd /opt/workbench/deploy
 ./init.sh 192.168.1.20 admin              # 换成服务器 IP 和首个管理员账号名
 ```
 
-`init.sh` 会提示输入首个管理员密码（15–128 位），并生成：`secrets/`（数据库密码、Worker 令牌、密钥加密主密钥、内部证书、管理员引导文件）、`.env`、`workbench-ca.crt`。它拒绝覆盖已有安装。
+`init.sh` 会提示输入首个管理员密码（6–15 位），并生成：`secrets/`（数据库密码、Worker 令牌、密钥加密主密钥、内部证书、管理员引导文件）、`.env`、`workbench-ca.crt`。它拒绝覆盖已有安装。
 
 ```bash
 docker compose up -d --build              # 首次构建约 5–15 分钟

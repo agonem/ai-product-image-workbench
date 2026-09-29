@@ -2,6 +2,7 @@ package com.productimage.business.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -32,8 +33,10 @@ public class ProductionAuthApi {
   }
 
   @PostMapping("/api/v1/local-auth/login")
-  ResponseEntity<JsonNode> login(HttpServletRequest request) {
-    return ok(accounts.login(body(request)));
+  ResponseEntity<JsonNode> login(HttpServletRequest request, HttpServletResponse response) {
+    JsonNode result = accounts.login(body(request));
+    response.addHeader("Set-Cookie", SessionCookies.issue(result, request));
+    return ok(result);
   }
 
   @GetMapping("/api/v1/local-auth/me")
@@ -42,7 +45,9 @@ public class ProductionAuthApi {
   }
 
   @PostMapping("/api/v1/local-auth/logout")
-  ResponseEntity<Void> logout(HttpServletRequest request) {
+  ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
+    // The browser forgets the cookie even when the session was already gone.
+    response.addHeader("Set-Cookie", SessionCookies.clear(request));
     accounts.logout(token(request));
     return done();
   }
