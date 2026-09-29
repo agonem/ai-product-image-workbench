@@ -48,11 +48,76 @@ public final class TaskService {
     return create(actor, key, raw, "scene-v3-create");
   }
 
+  /** v4 whole-image generation for all three entries (ADR-20260929). */
+  public JsonNode createGeneration(String actor, String key, String raw) {
+    return create(actor, key, raw, "generation-v4-create");
+  }
+
+  /**
+   * Re-render only the text of one successful v4 image from its stored model output. No model call
+   * and no provider binding; the source task stays unchanged.
+   */
+  public JsonNode retypeset(String actor, String key, String sourceId, String raw) {
+    JsonNode body = Json.parse(raw);
+    Json.validate("generation-v4-retypeset", body);
+    var row = owned(actor, sourceId, false);
+    var source = Json.parse(row.get("worker_snapshot_json").toString());
+    int ordinal = body.path("ordinal").asInt();
+    int count = source.path("output").path("count").asInt();
+    if (source.path("schema_version").asInt() != 4
+        || !"SUCCEEDED".equals(row.get("status"))
+        || ordinal >= count) throw new Problem(409, "TASK_CONFLICT");
+    var bases =
+        jdbc.queryForList(
+            "SELECT id,object_key,sha256 FROM artifacts WHERE task_id=? AND attempt_id=? AND ordinal=? AND kind='BACKGROUND'",
+            sourceId,
+            row.get("current_attempt_id"),
+            count + ordinal);
+    if (bases.isEmpty()) throw new Problem(409, "TASK_CONFLICT");
+    var base =
+        Json.object()
+            .put("asset_id", bases.getFirst().get("id").toString())
+            .put("object_key", bases.getFirst().get("object_key").toString())
+            .put("sha256", bases.getFirst().get("sha256").toString());
+    var request =
+        Json.object()
+            .put("project_id", row.get("project_id").toString())
+            .put("product_asset_id", row.get("product_asset_id").toString())
+            .put("feature_type", row.get("feature_type").toString())
+            .put("source_task_id", sourceId)
+            .put("ordinal", ordinal);
+    if (row.get("gift_asset_id") != null)
+      request.put("gift_asset_id", row.get("gift_asset_id").toString());
+    request.set("text", body.get("text"));
+    return insert(
+        actor,
+        key,
+        request,
+        RequestFingerprint.sha256(request.toString()),
+        () -> snapshots.buildRetypeset(source, sourceId, ordinal, base, body.get("text")));
+  }
+
   private JsonNode create(String actor, String key, String raw, String contract) {
     JsonNode request = Json.parse(raw);
     Json.validate(contract, request);
+    return insert(
+        actor,
+        key,
+        request,
+        RequestFingerprint.sha256(raw),
+        () ->
+            contract.startsWith("generation")
+                ? snapshots.buildGeneration(request)
+                : snapshots.build(request));
+  }
+
+  private JsonNode insert(
+      String actor,
+      String key,
+      JsonNode request,
+      String hash,
+      java.util.function.Supplier<ObjectNode> build) {
     Json.validate("idempotency-key", Json.MAPPER.getNodeFactory().textNode(key == null ? "" : key));
-    String hash = RequestFingerprint.sha256(raw);
     return tx.execute(
         status -> {
           authorizeProject(actor, request.path("project_id").asText());
@@ -63,11 +128,13 @@ public final class TaskService {
                   request.path("feature_type").asText(),
                   key);
           if (!existing.isEmpty()) return existing(actor, existing.getFirst(), hash);
-          ObjectNode worker = snapshots.build(request);
-          // Real background tasks freeze the admin binding (or reject when an admin actively
-          // disabled it); retries reuse the frozen column because snapshots are never rewritten.
+          ObjectNode worker = build.get();
+          // Model tasks freeze the admin binding (or reject when an admin actively disabled
+          // it); retries reuse the frozen column. Text-only re-renders call no model.
           String configVersion =
-              worker.path("schema_version").asInt() >= 2 ? configs.sceneBinding() : null;
+              worker.path("schema_version").asInt() >= 2 && !worker.has("base_image")
+                  ? configs.sceneBinding()
+                  : null;
           String id = Json.id();
           int inserted =
               jdbc.update(
@@ -119,7 +186,9 @@ public final class TaskService {
         .put("correlation_id", task)
         .put("output_object_prefix", "outputs/" + task + "/" + attempt + "/");
     Json.validate(
-        version == 3 ? "scene-v3-request" : version == 2 ? "scene-request" : "task-request",
+        version == 4
+            ? "generation-v4-request"
+            : version == 3 ? "scene-v3-request" : version == 2 ? "scene-request" : "task-request",
         payload);
     jdbc.update(
         "INSERT INTO outbox_events(id,task_id,attempt_id,event_type,payload) VALUES (?,?,?,?,?::jsonb)",
@@ -166,7 +235,7 @@ public final class TaskService {
     if (row.get("status").equals("SUCCEEDED")) {
       for (var artifact :
           jdbc.queryForList(
-              "SELECT id,kind,width,height FROM artifacts WHERE task_id=? AND attempt_id=? ORDER BY ordinal",
+              "SELECT id,kind,width,height FROM artifacts WHERE task_id=? AND attempt_id=? AND kind='COMPOSITE' ORDER BY ordinal",
               id,
               row.get("current_attempt_id"))) {
         artifacts.add(
@@ -196,6 +265,19 @@ public final class TaskService {
     ObjectNode result = (ObjectNode) get(actor, id);
     result.set("output", snapshot.get("output"));
     result.put("publication_policy", "ALL_OR_NOTHING").put("review_status", "PENDING");
+    return result;
+  }
+
+  /** v4 task with its frozen output and the submitted inputs; results await human review. */
+  public JsonNode getGeneration(String actor, String id) {
+    var row = owned(actor, id, false);
+    var snapshot = Json.parse(row.get("worker_snapshot_json").toString());
+    if (snapshot.path("schema_version").asInt() != 4) throw new Problem(404, "NOT_FOUND");
+    ObjectNode result = (ObjectNode) get(actor, id);
+    result.set("output", snapshot.get("output"));
+    result.set("request", Json.parse(row.get("request_snapshot_json").toString()));
+    if (snapshot.has("source")) result.set("source", snapshot.get("source"));
+    result.put("review_status", "PENDING");
     return result;
   }
 

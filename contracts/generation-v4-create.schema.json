@@ -1,0 +1,470 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.product-image-workbench.invalid/v4/generation-create.json",
+  "title": "GenerationCreateV4",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+        },
+        "product_asset_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+        },
+        "style_prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "[^\\s]"
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "aspect_ratio": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]?:[1-9][0-9]?$"
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 2048
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 2048
+            },
+            "format": {
+              "enum": [
+                "png",
+                "jpeg"
+              ]
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            }
+          },
+          "required": [
+            "aspect_ratio",
+            "width",
+            "height",
+            "format",
+            "count"
+          ]
+        },
+        "feature_type": {
+          "const": "GIFT"
+        },
+        "gift_asset_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+        },
+        "gift_position": {
+          "enum": [
+            "BOTTOM_RIGHT",
+            "BOTTOM_LEFT",
+            "RIGHT",
+            "LEFT"
+          ]
+        },
+        "background": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "enum": [
+                "SOLID",
+                "GRADIENT",
+                "CUSTOM"
+              ]
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "prompt": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300,
+              "pattern": "[^\\s]"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "oneOf": [
+            {
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "SOLID",
+                    "GRADIENT"
+                  ]
+                },
+                "color": {}
+              },
+              "required": [
+                "color"
+              ],
+              "not": {
+                "required": [
+                  "prompt"
+                ],
+                "properties": {
+                  "prompt": {}
+                }
+              }
+            },
+            {
+              "properties": {
+                "mode": {
+                  "const": "CUSTOM"
+                },
+                "prompt": {}
+              },
+              "required": [
+                "prompt"
+              ],
+              "not": {
+                "required": [
+                  "color"
+                ],
+                "properties": {
+                  "color": {}
+                }
+              }
+            }
+          ]
+        },
+        "text": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 60,
+              "pattern": "[^\\s]"
+            },
+            "points": {
+              "type": "array",
+              "maxItems": 6,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20,
+                "pattern": "[^\\s]"
+              }
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 12,
+              "maximum": 240
+            },
+            "align": {
+              "enum": [
+                "left",
+                "center",
+                "right"
+              ]
+            },
+            "box": {
+              "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/box"
+            }
+          },
+          "required": [
+            "color",
+            "size",
+            "align",
+            "box"
+          ],
+          "anyOf": [
+            {
+              "required": [
+                "title"
+              ],
+              "properties": {
+                "title": {}
+              }
+            },
+            {
+              "required": [
+                "points"
+              ],
+              "properties": {
+                "points": {}
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "project_id",
+        "product_asset_id",
+        "feature_type",
+        "gift_asset_id",
+        "gift_position",
+        "output"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+        },
+        "product_asset_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+        },
+        "style_prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "[^\\s]"
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "aspect_ratio": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]?:[1-9][0-9]?$"
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 2048
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 2048
+            },
+            "format": {
+              "enum": [
+                "png",
+                "jpeg"
+              ]
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            }
+          },
+          "required": [
+            "aspect_ratio",
+            "width",
+            "height",
+            "format",
+            "count"
+          ]
+        },
+        "feature_type": {
+          "const": "SCENE"
+        },
+        "scene_preset": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
+        },
+        "scene_prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "[^\\s]"
+        }
+      },
+      "required": [
+        "project_id",
+        "product_asset_id",
+        "feature_type",
+        "output"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "scene_preset"
+          ],
+          "properties": {
+            "scene_preset": {}
+          }
+        },
+        {
+          "required": [
+            "scene_prompt"
+          ],
+          "properties": {
+            "scene_prompt": {}
+          }
+        }
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+        },
+        "product_asset_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+        },
+        "style_prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "[^\\s]"
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "aspect_ratio": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]?:[1-9][0-9]?$"
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 2048
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 2048
+            },
+            "format": {
+              "enum": [
+                "png",
+                "jpeg"
+              ]
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            }
+          },
+          "required": [
+            "aspect_ratio",
+            "width",
+            "height",
+            "format",
+            "count"
+          ]
+        },
+        "feature_type": {
+          "const": "SELLING_POINT"
+        },
+        "styles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,31}$"
+          }
+        },
+        "text": {
+          "allOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "pattern": "[^\\s]"
+                },
+                "points": {
+                  "type": "array",
+                  "maxItems": 6,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20,
+                    "pattern": "[^\\s]"
+                  }
+                },
+                "color": {
+                  "type": "string",
+                  "pattern": "^#[0-9A-Fa-f]{6}$"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 12,
+                  "maximum": 240
+                },
+                "align": {
+                  "enum": [
+                    "left",
+                    "center",
+                    "right"
+                  ]
+                },
+                "box": {
+                  "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/box"
+                }
+              },
+              "required": [
+                "color",
+                "size",
+                "align",
+                "box"
+              ],
+              "anyOf": [
+                {
+                  "required": [
+                    "title"
+                  ],
+                  "properties": {
+                    "title": {}
+                  }
+                },
+                {
+                  "required": [
+                    "points"
+                  ],
+                  "properties": {
+                    "points": {}
+                  }
+                }
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "points"
+              ],
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "project_id",
+        "product_asset_id",
+        "feature_type",
+        "styles",
+        "text",
+        "output"
+      ]
+    }
+  ]
+}

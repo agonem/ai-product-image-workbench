@@ -9,6 +9,8 @@ import schema5 from '../../../contracts/task-failed.schema.json' with { type: 'j
 import schema6 from '../../../contracts/task-response.schema.json' with { type: 'json' }
 import schema7 from '../../../contracts/scene-create.schema.json' with { type: 'json' }
 import schema8 from '../../../contracts/scene-v3-create.schema.json' with { type: 'json' }
+import schema9 from '../../../contracts/generation-v4-create.schema.json' with { type: 'json' }
+import schema10 from '../../../contracts/generation-v4-retypeset.schema.json' with { type: 'json' }
 
 const ajv = new Ajv2020({ strict: true, allErrors: true })
 addFormats(ajv, { mode: 'full' })
@@ -22,9 +24,15 @@ for (const schema of [
   schema6,
   schema7,
   schema8,
+  schema9,
+  schema10,
 ])
   ajv.addSchema(schema)
 const contracts: Record<string, string> = {
+  'generation-v4-create':
+    'https://schemas.product-image-workbench.invalid/v4/generation-create.json',
+  'generation-v4-retypeset':
+    'https://schemas.product-image-workbench.invalid/v4/generation-retypeset.json',
   'scene-v3-create':
     'https://schemas.product-image-workbench.invalid/v3/scene-create.json',
   'scene-create':

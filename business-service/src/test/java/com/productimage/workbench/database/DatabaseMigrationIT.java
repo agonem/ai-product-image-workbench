@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(6, flyway.migrate().migrationsExecuted);
+    assertEquals(7, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -141,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(5, upgrade.migrate().migrationsExecuted);
+      assertEquals(6, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(4, current.migrate().migrationsExecuted);
+      assertEquals(5, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -343,6 +343,15 @@ class DatabaseMigrationIT {
         "UPDATE worker_receipts SET payload_sha256='"
             + "c".repeat(64)
             + "' WHERE event_id='receipt'");
+    // V7: v4 envelopes are accepted, but their schema_version must still match the type.
+    sql("INSERT INTO task_attempts(id,task_id,attempt_no) VALUES ('attempt4','t',2)");
+    String v4 =
+        "INSERT INTO outbox_events(id,task_id,attempt_id,event_type,payload) VALUES ('event4','t','attempt4','image.task.requested.v4','{\"event_id\":\"event4\",\"task_id\":\"t\",\"attempt_id\":\"attempt4\",\"event_type\":\"image.task.requested.v4\",\"schema_version\":4}')";
+    sql(v4);
+    rejects(
+        "23514",
+        v4.replace("event4", "event5").replace("\"schema_version\":4", "\"schema_version\":3"));
+    rejects("23514", v4.replace("event4", "event6").replace("requested.v4", "requested.v5"));
   }
 
   @Test

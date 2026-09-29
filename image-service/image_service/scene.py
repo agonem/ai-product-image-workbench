@@ -119,7 +119,7 @@ def process_scene(api, request, lease, adapter, *, cancelled=None):
         )
         generated = adapter.generate(
             BackgroundRequest(
-                prompt=prompt,
+                prompt="Background only. No products, packaging, logos or text. " + prompt,
                 template_version="scene-composite-v1",
                 correlation_id=f"{request['attempt_id']}-{ordinal}",
                 aspect_ratio=output["aspect_ratio"],

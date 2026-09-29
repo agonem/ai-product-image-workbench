@@ -85,8 +85,14 @@ public class RuntimeConfiguration {
   }
 
   @Bean
-  SnapshotBuilder snapshotBuilder(JdbcTemplate jdbc, LocalObjectStore store, ScenePolicy scenes) {
-    return new SnapshotBuilder(jdbc, store, scenes);
+  GenerationPolicy generationPolicy(Environment env) {
+    return new GenerationPolicy(env);
+  }
+
+  @Bean
+  SnapshotBuilder snapshotBuilder(
+      JdbcTemplate jdbc, LocalObjectStore store, ScenePolicy scenes, GenerationPolicy generation) {
+    return new SnapshotBuilder(jdbc, store, scenes, generation);
   }
 
   @Bean

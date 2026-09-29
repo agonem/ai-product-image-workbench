@@ -129,7 +129,9 @@ public final class DeliveryService {
           var row = row(attempt);
           requireLease(row, token);
           var request = Json.parse(row.get("payload").toString());
-          if (request.path("schema_version").asInt() != 3
+          int version = request.path("schema_version").asInt();
+          if ((version != 3 && version != 4)
+              || request.has("base_image")
               || ordinal < 0
               || ordinal >= request.path("output").path("count").asInt())
             throw new Problem(400, "INVALID_CONTRACT");
@@ -147,7 +149,9 @@ public final class DeliveryService {
           var row = row(attempt);
           requireLease(row, token);
           var request = Json.parse(row.get("payload").toString());
-          for (String field : new String[] {"product_asset", "product_alpha_asset", "gift_asset"}) {
+          // Only references frozen into this attempt's snapshot are readable.
+          for (String field :
+              new String[] {"product_asset", "product_alpha_asset", "gift_asset", "base_image"}) {
             var asset = request.path(field);
             if (asset.path("asset_id").asText().equals(assetId)) {
               byte[] bytes = store.read(asset.path("object_key").asText());
@@ -185,13 +189,16 @@ public final class DeliveryService {
   public JsonNode receipt(String attempt, String token, String raw) {
     JsonNode receipt = Json.parse(raw);
     String type = receipt.path("event_type").asText();
-    if (!type.matches("image\\.task\\.(completed|failed)\\.v[123]")) {
+    if (!type.matches("image\\.task\\.(completed|failed)\\.v[1234]")) {
       throw new Problem(400, "INVALID_CONTRACT");
     }
     boolean completed = type.contains(".completed.");
     boolean scene = !type.endsWith(".v1");
+    boolean generation = type.endsWith(".v4");
     Json.validate(
-        (type.endsWith(".v3") ? "scene-v3-" : scene ? "scene-" : "task-")
+        (generation
+                ? "generation-v4-"
+                : type.endsWith(".v3") ? "scene-v3-" : scene ? "scene-" : "task-")
             + (completed ? "completed" : "failed"),
         receipt);
     String hash = RequestFingerprint.sha256(raw);
@@ -238,14 +245,23 @@ public final class DeliveryService {
           String disposition = "APPLIED";
           if (completed) {
             try {
-              if (scene) SceneOutputs.validate(store, prefix(row, token), workerRequest, receipt);
+              if (generation)
+                GenerationOutputs.validate(store, prefix(row, token), workerRequest, receipt);
+              else if (scene)
+                SceneOutputs.validate(store, prefix(row, token), workerRequest, receipt);
               else validateArtifacts(row, token, receipt);
             } catch (Problem ex) {
               if (ex.status == 503) throw ex;
               disposition = "REJECTED";
             }
             if (disposition.equals("APPLIED")) {
-              for (var artifact : receipt.path("artifacts")) {
+              var registered = new java.util.ArrayList<JsonNode>();
+              receipt.path("artifacts").forEach(registered::add);
+              // v4 model outputs are registered too so text can be re-rendered later without
+              // another model call; task results still list only COMPOSITE images.
+              if (generation)
+                receipt.path("generations").forEach(item -> registered.add(item.path("base")));
+              for (var artifact : registered) {
                 jdbc.update(
                     "INSERT INTO artifacts(id,task_id,attempt_id,ordinal,kind,object_key,sha256,width,height) VALUES (?,?,?,?,?,?,?,?,?)",
                     Json.id(),
@@ -260,13 +276,15 @@ public final class DeliveryService {
               }
               jdbc.update(
                   "UPDATE task_attempts SET status='SUCCEEDED',ended_at=now(),provider_info=?::jsonb WHERE id=?",
-                  scene
-                      ? Json.object()
-                          .set("background_generations", receipt.path("background_generations"))
-                          .toString()
-                      : receipt.path("background_generation").isNull()
-                          ? null
-                          : receipt.path("background_generation").toString(),
+                  generation
+                      ? Json.object().set("generations", receipt.path("generations")).toString()
+                      : scene
+                          ? Json.object()
+                              .set("background_generations", receipt.path("background_generations"))
+                              .toString()
+                          : receipt.path("background_generation").isNull()
+                              ? null
+                              : receipt.path("background_generation").toString(),
                   attempt);
               jdbc.update("UPDATE generation_tasks SET status='SUCCEEDED' WHERE id=?", task);
             } else fail(row, "OUTPUT_VALIDATION_FAILED", true);

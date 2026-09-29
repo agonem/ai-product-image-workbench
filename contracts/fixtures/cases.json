@@ -2039,5 +2039,627 @@
       "artifacts": [],
       "error": null
     }
+  },
+  {
+    "name": "v4-gift",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "gift_position": "BOTTOM_RIGHT",
+      "background": {
+        "mode": "SOLID",
+        "color": "#FFFFFF"
+      },
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-gift-minimal",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "gift_position": "BOTTOM_RIGHT",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-scene-preset",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SCENE",
+      "product_asset_id": "product_fixture",
+      "scene_preset": "nursery",
+      "style_prompt": "温暖自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-scene-custom",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SCENE",
+      "product_asset_id": "product_fixture",
+      "style_prompt": "温暖自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "scene_prompt": "浅色木桌，窗边自然光"
+    }
+  },
+  {
+    "name": "v4-selling-two-styles",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SELLING_POINT",
+      "product_asset_id": "product_fixture",
+      "styles": [
+        "warm",
+        "green"
+      ],
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 2
+      }
+    }
+  },
+  {
+    "name": "v4-gift-missing-position",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "background": {
+        "mode": "SOLID",
+        "color": "#FFFFFF"
+      },
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-gift-bad-position",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "gift_position": "TOP",
+      "background": {
+        "mode": "SOLID",
+        "color": "#FFFFFF"
+      },
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-scene-with-gift",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SCENE",
+      "product_asset_id": "product_fixture",
+      "scene_preset": "nursery",
+      "style_prompt": "温暖自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "gift_asset_id": "gift_fixture"
+    }
+  },
+  {
+    "name": "v4-scene-without-source",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SCENE",
+      "product_asset_id": "product_fixture",
+      "style_prompt": "温暖自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-scene-text-rejected",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SCENE",
+      "product_asset_id": "product_fixture",
+      "scene_preset": "nursery",
+      "style_prompt": "温暖自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      }
+    }
+  },
+  {
+    "name": "v4-selling-title-only",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SELLING_POINT",
+      "product_asset_id": "product_fixture",
+      "styles": [
+        "warm",
+        "green"
+      ],
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 2
+      }
+    }
+  },
+  {
+    "name": "v4-selling-duplicate-style",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SELLING_POINT",
+      "product_asset_id": "product_fixture",
+      "styles": [
+        "warm",
+        "warm"
+      ],
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 2
+      }
+    }
+  },
+  {
+    "name": "v4-selling-without-styles",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SELLING_POINT",
+      "product_asset_id": "product_fixture",
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 2
+      }
+    }
+  },
+  {
+    "name": "v4-point-too-long",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SELLING_POINT",
+      "product_asset_id": "product_fixture",
+      "styles": [
+        "warm",
+        "green"
+      ],
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "超超超超超超超超超超超超超超超超超超超超超"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 2
+      }
+    }
+  },
+  {
+    "name": "v4-blank-title",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "gift_position": "BOTTOM_RIGHT",
+      "background": {
+        "mode": "SOLID",
+        "color": "#FFFFFF"
+      },
+      "text": {
+        "title": "   ",
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-custom-background-with-color",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "gift_position": "BOTTOM_RIGHT",
+      "background": {
+        "mode": "CUSTOM",
+        "prompt": "木桌",
+        "color": "#FFFFFF"
+      },
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-count-zero",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SCENE",
+      "product_asset_id": "product_fixture",
+      "scene_preset": "nursery",
+      "style_prompt": "温暖自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 0
+      }
+    }
+  },
+  {
+    "name": "v4-oversize",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SCENE",
+      "product_asset_id": "product_fixture",
+      "scene_preset": "nursery",
+      "style_prompt": "温暖自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 4096,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-unknown-field",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SCENE",
+      "product_asset_id": "product_fixture",
+      "scene_preset": "nursery",
+      "style_prompt": "温暖自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "template_version_id": "layout_v1"
+    }
+  },
+  {
+    "name": "v4-retypeset",
+    "contract": "generation-v4-retypeset",
+    "valid": true,
+    "payload": {
+      "ordinal": 0,
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      }
+    }
+  },
+  {
+    "name": "v4-retypeset-missing-text",
+    "contract": "generation-v4-retypeset",
+    "valid": false,
+    "payload": {
+      "ordinal": 0
+    }
+  },
+  {
+    "name": "v4-retypeset-extra",
+    "contract": "generation-v4-retypeset",
+    "valid": false,
+    "payload": {
+      "ordinal": 0,
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "count": 2
+    }
   }
 ]

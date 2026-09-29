@@ -87,6 +87,33 @@ def failure(request, code, retryable=True):
 def process(
     api: Api, request: dict, lease: str, fixture: bool, *, cancelled=None, provider_config=None
 ) -> dict:
+    if request.get("schema_version") == 4:
+        if fixture:
+            return failure(request, "INVALID_CONTRACT", False)
+        from image_service import generation, typeset
+        from image_service.background_config import config_from_mapping, load_config
+        from image_service.openrouter import OpenRouterAdapter
+
+        try:
+            if "base_image" in request:
+                # Text-only re-render of a stored model output: no provider is contacted.
+                return generation.process_generation(api, request, lease, None)
+            config = (
+                config_from_mapping(provider_config)
+                if provider_config is not None
+                else load_config()
+            )
+            with OpenRouterAdapter(config) as adapter:
+                return generation.process_generation(
+                    api, request, lease, adapter, cancelled=cancelled
+                )
+        except typeset.TextOverflow:
+            return failure(request, "TEXT_OVERFLOW", False)
+        except typeset.FontUnavailable:
+            # A deployment problem, not the user's input: retry works once it is fixed.
+            receipt = failure(request, "GENERATION_FAILED", True)
+            receipt["error"]["safe_message"] = "TEXT_FONT_UNAVAILABLE"
+            return receipt
     if request.get("schema_version") == 2:
         # Scene v2 was withdrawn: a legacy batch fails visibly and never spends a provider call.
         return failure(request, "INVALID_CONTRACT", False)
@@ -173,7 +200,9 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
     request = claim["request"]
     lease = claim["lease_token"]
     if validate_contract(
-        "scene-v3-request"
+        "generation-v4-request"
+        if request.get("schema_version") == 4
+        else "scene-v3-request"
         if request.get("schema_version") == 3
         else "scene-request"
         if request.get("schema_version") == 2
@@ -237,7 +266,9 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
         if lost.is_set():
             raise RuntimeError("Lease lost; output cannot be confirmed")
         contract = (
-            "scene-v3-"
+            "generation-v4-"
+            if request.get("schema_version") == 4
+            else "scene-v3-"
             if request.get("schema_version") == 3
             else "scene-"
             if request.get("schema_version") == 2

@@ -1,4 +1,4 @@
-"""OpenRouter dedicated Images API. No reference images, fallback, or paid-request retry."""
+"""OpenRouter dedicated Images API: optional reference images, no fallback, no paid retry."""
 
 import base64
 import hashlib
@@ -9,7 +9,12 @@ import time
 import httpx
 from PIL import Image
 
-from image_service.background import BackgroundError, BackgroundRequest, BackgroundResult
+from image_service.background import (
+    PNG_SIGNATURE,
+    BackgroundError,
+    BackgroundRequest,
+    BackgroundResult,
+)
 
 MAX_RESPONSE = 16 * 1024 * 1024
 MAX_IMAGE = 10 * 1024 * 1024
@@ -57,7 +62,7 @@ class OpenRouterAdapter:
         except (ValueError, UnicodeError):
             raise BackgroundError("INVALID_RESPONSE", ambiguous=method == "POST") from None
 
-    def _capabilities(self, parameters):
+    def _capabilities(self, parameters, references=0):
         models = self._json("GET", "images/models")
         endpoints = self._json("GET", f"images/models/{self.config.model}/endpoints")
         try:
@@ -68,6 +73,7 @@ class OpenRouterAdapter:
                 or not isinstance(architecture["output_modalities"], list)
                 or "text" not in architecture["input_modalities"]
                 or "image" not in architecture["output_modalities"]
+                or (references and "image" not in architecture["input_modalities"])
             ):
                 raise ValueError()
             selected = [
@@ -86,6 +92,10 @@ class OpenRouterAdapter:
                         or not isinstance(descriptor["values"], list)
                         or value not in descriptor["values"]
                     ):
+                        raise ValueError()
+                if references:
+                    limit = endpoint["supported_parameters"]["input_references"]
+                    if limit["type"] != "range" or int(limit["max"]) < references:
                         raise ValueError()
         except (KeyError, TypeError, ValueError, StopIteration):
             raise BackgroundError("UNSUPPORTED_CAPABILITY") from None
@@ -125,19 +135,30 @@ class OpenRouterAdapter:
         }
         if request.resolution is not None:
             parameters.update(resolution=request.resolution, output_format=request.output_format)
-        self._capabilities(parameters)
-        prompt = "Background only. No products, packaging, logos or text. " + request.prompt
+        self._capabilities(parameters, len(request.references))
+        prompt = request.prompt
+        body = {
+            "model": self.config.model,
+            "prompt": prompt,
+            **parameters,
+            "provider": {"only": [self.config.provider_tag], "allow_fallbacks": False},
+        }
+        if request.references:
+            # Official shape: base64 data URLs as image_url references (image-to-image).
+            body["input_references"] = [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:"
+                        + ("image/png" if item[:8] == PNG_SIGNATURE else "image/jpeg")
+                        + ";base64,"
+                        + base64.b64encode(item).decode("ascii")
+                    },
+                }
+                for item in request.references
+            ]
         started = time.monotonic()
-        response = self._json(
-            "POST",
-            "images",
-            {
-                "model": self.config.model,
-                "prompt": prompt,
-                **parameters,
-                "provider": {"only": [self.config.provider_tag], "allow_fallbacks": False},
-            },
-        )
+        response = self._json("POST", "images", body)
         content, width, height = decode_background(response, request)
         usage = response.get("usage")
         if not isinstance(usage, dict):
@@ -153,7 +174,7 @@ class OpenRouterAdapter:
                 "provider_tag": self.config.provider_tag,
                 "prompt": prompt,
                 "template_version": request.template_version,
-                "parameters": parameters,
+                "parameters": {**parameters, "input_references": len(request.references)},
                 "correlation_id": request.correlation_id,
                 "output_source": "openrouter-images-api",
                 "sha256": hashlib.sha256(content).hexdigest(),

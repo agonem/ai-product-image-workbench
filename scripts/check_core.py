@@ -1,26 +1,45 @@
-"""Core loop acceptance (docs/08 §5): cutout candidate -> human confirmation, isolated.
+"""Core acceptance for v4 whole-image generation (ADR-20260929), fully isolated.
 
-Production-mode Java (HTTPS, disposable PostgreSQL, own JAR/ports), the image service on
-loopback with a random token, and a real Chromium page. Synthetic images only; no provider
-calls and nothing is approved except by the explicit review request under test.
+Production-mode Java (HTTPS, disposable PostgreSQL, own JAR/ports), a real v4 Worker whose model
+is mocked (scripts/mock_provider_worker.py - zero paid calls), synthetic images only. Result
+pixels are checked with the image service's Pillow. Nothing is approved by these checks.
 """
 
+import base64
 import json
-import os
 import secrets
 import socket
 import ssl
 import struct
 import subprocess
-import time
+import uuid
 import zlib
 from contextlib import ExitStack
-from urllib.error import URLError
-from urllib.request import HTTPSHandler, ProxyHandler, build_opener, urlopen
+from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 
 from check_t04_prod import ProductionCheck
 from common import ROOT, process_options, stop, tool
 from smoke import wait_ready
+
+PRODUCT_RGB, GIFT_RGB, TEXT_RGB = (186, 64, 72), (40, 96, 200), (0x11, 0x22, 0x33)
+PIXEL_CHECKER = """
+import json, sys
+from PIL import Image
+path, checks = sys.argv[1], json.loads(sys.argv[2])
+with Image.open(path) as image:
+    fmt = image.format
+    rgb = image.convert("RGB")
+result = {"format": fmt, "size": list(rgb.size), "regions": []}
+for box, color, tolerance in checks.get("regions", []):
+    region = rgb.crop(tuple(box))
+    colors = region.getcolors(region.width * region.height) or []
+    result["regions"].append(
+        any(max(abs(a - b) for a, b in zip(c, color)) <= tolerance for _, c in colors)
+    )
+print(json.dumps(result))
+"""
 
 
 def free_port():
@@ -29,8 +48,8 @@ def free_port():
         return listener.getsockname()[1]
 
 
-def synthetic_png(width=240, height=200, *, shape=(186, 64, 72), blank=False):
-    """White background with a solid rectangle 'product'; pure stdlib encoder."""
+def synthetic_png(width=240, height=200, *, shape=PRODUCT_RGB):
+    """White background with a solid rectangle item; pure stdlib encoder."""
 
     def chunk(kind, data):
         return (
@@ -44,9 +63,7 @@ def synthetic_png(width=240, height=200, *, shape=(186, 64, 72), blank=False):
     for y in range(height):
         row = bytearray(b"\x00")
         for x in range(width):
-            inside = (
-                not blank and width * 0.3 <= x < width * 0.7 and height * 0.2 <= y < height * 0.85
-            )
+            inside = width * 0.3 <= x < width * 0.7 and height * 0.2 <= y < height * 0.85
             row += bytes(shape) if inside else b"\xff\xff\xff"
         rows.append(bytes(row))
     return (
@@ -57,161 +74,346 @@ def synthetic_png(width=240, height=200, *, shape=(186, 64, 72), blank=False):
     )
 
 
-def start_image_service(stack, work, token):
-    port = free_port()
-    log_path = work / "image-service.log"
-    log = stack.enter_context(log_path.open("w", encoding="utf-8"))
-    process = subprocess.Popen(
-        [tool("uv"), "run", "--frozen", "--directory", str(ROOT / "image-service")]
-        + ["python", "-m", "image_service"],
-        env={
-            **{k: v for k, v in os.environ.items() if not k.startswith("OPENROUTER")},
-            "IMAGE_HOST": "127.0.0.1",
-            "IMAGE_PORT": str(port),
-            "IMAGE_SERVICE_TOKEN": token,
-        },
-        stdout=log,
-        stderr=subprocess.STDOUT,
-        **process_options(),
-    )
-    url = f"http://127.0.0.1:{port}"
-    deadline = time.monotonic() + 60
-    while True:
-        if process.poll() is not None:
-            raise RuntimeError(f"image service exited; see {log_path}")
-        try:
-            with urlopen(url + "/internal/v1/health", timeout=2):
-                break
-        except (URLError, ConnectionError, TimeoutError):
-            if time.monotonic() > deadline:
-                raise RuntimeError(f"image service not ready; see {log_path}") from None
-            time.sleep(0.25)
-    return process, url
+def find_font():
+    """Deployment font for text overlay; the harness never ships or commits one."""
+    for candidate in (
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+    ):
+        if Path(candidate).is_file():
+            return candidate
+    return None
 
 
-def cutout_api_checks(run, admin, alice, bob, project):
-    """N0-A1..A6 at the API boundary."""
-    original = synthetic_png()
-    status, product, _ = run.http(
-        "POST",
-        f"/api/v1/projects/{project}/assets?kind=PRODUCT",
-        alice,
-        data=original,
-        mime="image/png",
-    )
-    assert status == 201 and product["review_status"] == "PENDING"
-    pid = product["id"]
-    path = f"/api/v1/assets/{pid}/cutouts"
+class Core:
+    def __init__(self, run, work, certificate, font):
+        self.run, self.work, self.certificate, self.font = run, work, certificate, font
 
-    # A1: owner-only; admin role does not grant cross-project access.
-    for token in (bob, admin):
-        assert run.http("POST", path, token, {"tolerance": 12})[0] == 404
-        assert run.http("GET", path, token)[0] == 404
-    # A2: strict input, never echoed.
-    for body in ({}, {"tolerance": 33}, {"tolerance": "12"}, {"tolerance": 12, "x": 1}):
-        status, value, _ = run.http("POST", path, alice, body)
-        assert status == 400 and value["code"] == "INVALID_CONTRACT", (body, status)
-
-    listing = run.http("GET", f"/api/v1/projects/{project}/assets", alice)[1]["items"]
-    assert next(i for i in listing if i["id"] == pid)["cutout_ready"] is False
-
-    # A3: candidate is PENDING, same size, private, and the original is untouched.
-    status, candidate, _ = run.http("POST", path, alice, {"tolerance": 12})
-    assert status == 201, (status, candidate)
-    assert candidate["review_status"] == "PENDING" and candidate["source_asset_id"] == pid
-    assert (candidate["width"], candidate["height"]) == (240, 200)
-    alpha = run.http("GET", f"/api/v1/assets/{candidate['id']}/content", alice)[1]
-    assert alpha[:8] == b"\x89PNG\r\n\x1a\n" and alpha[25] == 0  # 8-bit grayscale
-    assert run.http("GET", f"/api/v1/assets/{candidate['id']}/content", admin)[0] == 404
-    assert run.http("GET", f"/api/v1/assets/{pid}/content", alice)[1] == original
-    assert run.http("GET", f"/api/v1/assets/{pid}/approved-alpha", alice)[0] == 404
-    listing = run.http("GET", f"/api/v1/projects/{project}/assets", alice)[1]["items"]
-    assert next(i for i in listing if i["id"] == pid)["cutout_ready"] is False
-    details = json.loads(
-        run.sql(
-            "SELECT details FROM audit_events WHERE action='CUTOUT_CANDIDATE_CREATED' "
-            f"AND resource_id='{candidate['id']}'"
+    def worker(self, *, fail_at=None, font=True, once=True):
+        env = {
+            k: v
+            for k, v in self.run.env.items()
+            if not k.startswith(("DB_", "PGPASSWORD", "PROD_", "SERVER_SSL_", "OPENROUTER_"))
+        }
+        env.update(
+            {
+                "APP_ENV": "production",
+                "WORKER_API_URL": self.run.base,
+                "WORKER_CA_FILE": str(self.certificate),
+                "WORKER_JOURNAL_ROOT": str(self.work / "journal"),
+            }
         )
-    )
-    assert details == {
-        "source_asset_id": pid,
-        "algorithm": "white-border-flood-v1",
-        "tolerance": 12,
+        if fail_at:
+            env["MOCK_FAIL_AT"] = str(fail_at)
+        if font and self.font:
+            env["GENERATION_TEXT_FONT"] = self.font
+        command = [
+            tool("uv"),
+            "run",
+            "--frozen",
+            "--directory",
+            str(ROOT / "image-service"),
+            "python",
+            str(ROOT / "scripts/mock_provider_worker.py"),
+        ] + (["--once"] if once else [])
+        log = (self.work / "worker.log").open("a", encoding="utf-8")
+        if not once:
+            process = subprocess.Popen(
+                command, env=env, stdout=log, stderr=subprocess.STDOUT, **process_options()
+            )
+            return process, log
+        with log:
+            subprocess.run(
+                command, env=env, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=180
+            )
+        return None
+
+    def post(self, token, path, body, key=None):
+        request = Request(
+            self.run.base + path,
+            data=json.dumps(body).encode(),
+            method="POST",
+            headers={
+                "Authorization": "Bearer " + token,
+                "Content-Type": "application/json",
+                "Idempotency-Key": key or uuid.uuid4().hex,
+            },
+        )
+        try:
+            response = self.run.client.open(request, timeout=20)
+        except HTTPError as error:
+            response = error
+        with response:
+            raw = response.read()
+            return response.status, json.loads(raw) if raw else None
+
+    def get(self, token, task):
+        return self.run.http("GET", f"/api/v4/generation-tasks/{task}", token)
+
+    def generate(self, token, body, key=None, **worker):
+        status, task = self.post(token, "/api/v4/generation-tasks", body, key)
+        assert status == 202, (status, task)
+        self.worker(**worker)
+        return self.get(token, task["id"])[1]
+
+    def image(self, token, artifact):
+        status, data, _ = self.run.http("GET", f"/api/v1/artifacts/{artifact}/content", token)
+        assert status == 200
+        return data
+
+    def inspect(self, data, regions):
+        path = self.work / f"inspect-{secrets.token_hex(4)}.image"
+        path.write_bytes(data)
+        script = self.work / "pixel_checker.py"
+        script.write_text(PIXEL_CHECKER, encoding="utf-8")
+        result = subprocess.run(
+            [tool("uv"), "run", "--frozen", "--directory", str(ROOT / "image-service")]
+            + ["python", str(script), str(path), json.dumps({"regions": regions})],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return json.loads(result.stdout.strip().splitlines()[-1])
+
+    def generations(self, task):
+        attempt = self.run.sql(f"SELECT current_attempt_id FROM generation_tasks WHERE id='{task}'")
+        info = self.run.sql(f"SELECT provider_info FROM task_attempts WHERE id='{attempt}'")
+        return attempt, json.loads(info)["generations"]
+
+    def fences(self, attempt):
+        return self.run.sql(
+            f"SELECT count(*) FROM generation_call_fences WHERE attempt_id='{attempt}'"
+        )
+
+
+def api_checks(core, admin, alice, bob, project):
+    """V4-A1..A10 at the API boundary; every model call is the mock."""
+    run, evidence, uploads = core.run, {}, {}
+    for kind, shape in (("PRODUCT", PRODUCT_RGB), ("GIFT", GIFT_RGB)):
+        data = synthetic_png(shape=shape)
+        status, asset, _ = run.http(
+            "POST",
+            f"/api/v1/projects/{project}/assets?kind={kind}",
+            alice,
+            data=data,
+            mime="image/png",
+        )
+        assert status == 201 and asset["review_status"] == "PENDING"
+        uploads[kind] = (asset["id"], data)
+    product, gift = uploads["PRODUCT"][0], uploads["GIFT"][0]
+    options = run.http("GET", "/api/v1/workbench/options", alice)[1]["generation"]
+    assert options["enabled"] and options["max_count"] == 4
+    assert {"nursery", "wood_table"} <= {item["id"] for item in options["scene_presets"]}
+    assert "prompt" not in json.dumps(options)
+    output = {"aspect_ratio": "1:1", "width": 800, "height": 800, "format": "png", "count": 1}
+    text = {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": ["安全材质", "防胀气设计", "易清洗"],
+        "color": "#112233",
+        "size": 56,
+        "align": "left",
+        "box": {"x": 0.04, "y": 0.04, "width": 0.46, "height": 0.56},
+    }
+    scene = {
+        "project_id": project,
+        "feature_type": "SCENE",
+        "product_asset_id": product,
+        "scene_preset": "nursery",
+        "output": output,
     }
 
-    # A4: only the owner decides; a decision is final for that candidate.
-    review = f"/api/v1/assets/{candidate['id']}/review"
-    assert run.http("POST", review, bob, {"decision": "APPROVED"})[0] == 404
-    assert run.http("POST", review, admin, {"decision": "APPROVED"})[0] == 404
-    assert run.http("POST", review, alice, {"decision": "OK"})[0] == 400
-    status, approved, _ = run.http("POST", review, alice, {"decision": "APPROVED"})
-    assert status == 200 and approved["review_status"] == "APPROVED"
-    assert run.http("POST", review, alice, {"decision": "REJECTED"})[0] == 409
-    assert run.http("GET", f"/api/v1/assets/{pid}/approved-alpha", alice)[1] == alpha
-    listing = run.http("GET", f"/api/v1/projects/{project}/assets", alice)[1]["items"]
-    assert next(i for i in listing if i["id"] == pid)["cutout_ready"] is True
-    actor = run.sql(
-        f"SELECT actor_id FROM audit_events WHERE action='CUTOUT_APPROVED' "
-        f"AND resource_id='{candidate['id']}'"
-    )
-    assert actor == run.http("GET", "/api/v1/local-auth/me", alice)[1]["id"]
+    # A1: scene, default one image, no cutout, frozen admin binding, product sent as reference.
+    state = core.generate(alice, scene, "v4-scene")
+    assert state["status"] == "SUCCEEDED", state
+    assert state["review_status"] == "PENDING" and state["output"] == output
+    assert state["request"]["scene_preset"] == "nursery" and len(state["artifacts"]) == 1
+    assert run.sql("SELECT count(*) FROM assets WHERE kind='ALPHA'") == "0"
+    attempt, gens = core.generations(state["id"])
+    provenance = gens[0]["provenance"]
+    assert provenance["model"] == "test/mock-model" and provenance["provider_tag"] == "mock"
+    assert provenance["parameters"] == {"aspect_ratio": "1:1", "input_references": 1}
+    assert "nursery" in provenance["prompt"] and "exact product" in provenance["prompt"]
+    product_sha = run.sql(f"SELECT sha256 FROM assets WHERE id='{product}'")
+    assert provenance["inputs"] == {"product_sha256": product_sha}
+    assert core.fences(attempt) == "1"
+    image = core.image(alice, state["artifacts"][0]["id"])
+    checked = core.inspect(image, [[[0, 0, 800, 800], list(PRODUCT_RGB), 6]])
+    assert checked["format"] == "PNG" and checked["size"] == [800, 800], checked
+    assert checked["regions"] == [True], checked
+    history = run.http("GET", f"/api/v1/projects/{project}/tasks", alice)[1]["items"]
+    assert next(i for i in history if i["task"]["id"] == state["id"])["generation_v4"] is True
+    evidence["scene"] = {"task": state["id"], "provenance_model": provenance["model"]}
 
-    # A5: a later rejected candidate never replaces the confirmed one.
-    status, second, _ = run.http("POST", path, alice, {"tolerance": 3})
-    assert status == 201 and second["review_status"] == "PENDING"
-    assert run.http("GET", f"/api/v1/assets/{pid}/approved-alpha", alice)[1] == alpha
-    assert (
-        run.http("POST", f"/api/v1/assets/{second['id']}/review", alice, {"decision": "REJECTED"})[
-            1
-        ]["review_status"]
-        == "REJECTED"
+    # A2: custom scene, two JPEG images at an exact 3:4 size, each a separate paid permit.
+    custom = {k: v for k, v in scene.items() if k != "scene_preset"}
+    custom.update(
+        scene_prompt="浅色木桌，窗边自然光",
+        style_prompt="温暖自然",
+        output={"aspect_ratio": "3:4", "width": 600, "height": 800, "format": "jpeg", "count": 2},
     )
-    items = run.http("GET", path, alice)[1]["items"]
-    assert [i["review_status"] for i in items] == ["REJECTED", "APPROVED"]
-    assert run.http("GET", f"/api/v1/assets/{pid}/approved-alpha", alice)[1] == alpha
+    state = core.generate(alice, custom, "v4-scene-2")
+    assert state["status"] == "SUCCEEDED" and len(state["artifacts"]) == 2, state
+    attempt, gens = core.generations(state["id"])
+    assert len({g["base"]["sha256"] for g in gens}) == 2 and core.fences(attempt) == "2"
+    for artifact in state["artifacts"]:
+        checked = core.inspect(core.image(alice, artifact["id"]), [])
+        assert checked["format"] == "JPEG" and checked["size"] == [600, 800]
 
-    # A6: a blank white image is a diagnosable failure; an alpha cannot be a source.
-    blank = run.http(
-        "POST",
-        f"/api/v1/projects/{project}/assets?kind=GIFT",
-        alice,
-        data=synthetic_png(blank=True),
-        mime="image/png",
-    )[1]
-    status, value, _ = run.http(
-        "POST", f"/api/v1/assets/{blank['id']}/cutouts", alice, {"tolerance": 12}
+    # A3: gift + product references, solid background, text overlaid by the program.
+    gift_body = {
+        "project_id": project,
+        "feature_type": "GIFT",
+        "product_asset_id": product,
+        "gift_asset_id": gift,
+        "gift_position": "BOTTOM_RIGHT",
+        "background": {"mode": "SOLID", "color": "#F4F0E8"},
+        "text": text,
+        "output": output,
+    }
+    state = core.generate(alice, gift_body, "v4-gift")
+    if core.font:
+        assert state["status"] == "SUCCEEDED", state
+        _, gens = core.generations(state["id"])
+        provenance = gens[0]["provenance"]
+        assert provenance["parameters"]["input_references"] == 2 and provenance["text_rendered"]
+        assert "bottom-right" in provenance["prompt"] and "#F4F0E8" in provenance["prompt"]
+        assert "top-left area" in provenance["prompt"]
+        checked = core.inspect(
+            core.image(alice, state["artifacts"][0]["id"]),
+            [
+                [[0, 0, 800, 800], list(GIFT_RGB), 6],
+                [[0, 0, 800, 800], list(PRODUCT_RGB), 6],
+                [[32, 32, 400, 480], list(TEXT_RGB), 40],
+            ],
+        )
+        assert checked["regions"] == [True, True, True], checked
+        evidence["gift"] = {"task": state["id"], "font": Path(core.font).name}
+    else:
+        assert state["status"] == "FAILED" and state["error"]["code"] == "GENERATION_FAILED"
+        evidence["gift"] = "NOT TESTED: no deployment font on this machine"
+
+    # A4: selling points - one image per selected style, verbatim points on every image.
+    selling = {
+        "project_id": project,
+        "feature_type": "SELLING_POINT",
+        "product_asset_id": product,
+        "styles": ["warm", "green"],
+        "text": text,
+        "output": dict(output, count=2),
+    }
+    state = core.generate(alice, selling, "v4-selling")
+    selling_task = state["id"]
+    if core.font:
+        assert state["status"] == "SUCCEEDED" and len(state["artifacts"]) == 2, state
+        _, gens = core.generations(state["id"])
+        assert "warm cream" in gens[0]["provenance"]["prompt"]
+        assert "sage green" in gens[1]["provenance"]["prompt"]
+        badges = ((0xF6, 0xE9, 0xDA), (0xE4, 0xF0, 0xE3))
+        for artifact, badge in zip(state["artifacts"], badges, strict=True):
+            checked = core.inspect(
+                core.image(alice, artifact["id"]),
+                [[[32, 32, 400, 480], list(TEXT_RGB), 40], [[32, 32, 400, 480], list(badge), 12]],
+            )
+            assert checked["regions"] == [True, True], checked
+
+    # A5: contract and policy rejections happen before any work is queued.
+    before = run.sql("SELECT count(*) FROM generation_tasks")
+    for body, expected in (
+        (dict(selling, output=dict(output, count=1)), 422),
+        (dict(scene, output=dict(output, height=600)), 422),
+        (dict(scene, output=dict(output, count=5)), 422),
+        (dict(scene, scene_preset="missing"), 422),
+        (dict(scene, product_asset_id=gift), 422),
+        (dict(scene, template_version_id="x"), 400),
+    ):
+        assert core.post(alice, "/api/v4/generation-tasks", body)[0] == expected, body
+    assert core.post(bob, "/api/v4/generation-tasks", scene)[0] == 404
+    assert run.sql("SELECT count(*) FROM generation_tasks") == before
+    # A6: owner-only reads; the admin role grants no cross-project access.
+    for token in (bob, admin):
+        assert core.get(token, selling_task)[0] == 404
+    # A7: idempotency - same key and body returns the task; a changed body conflicts.
+    same = core.post(alice, "/api/v4/generation-tasks", scene, "v4-scene")[1]
+    assert same["id"] == evidence["scene"]["task"]
+    changed = dict(scene, scene_preset="bathroom")
+    assert core.post(alice, "/api/v4/generation-tasks", changed, "v4-scene")[0] == 409
+
+    # A8: re-typeset reuses the stored model output - no model call, no paid permit.
+    if core.font:
+        new_text = dict(text, title="新标题", align="right", color="#445566")
+        path = f"/api/v4/generation-tasks/{selling_task}/retypeset"
+        status, task = core.post(alice, path, {"ordinal": 1, "text": new_text}, "v4-retype")
+        assert status == 202, (status, task)
+        assert core.post(bob, path, {"ordinal": 1, "text": new_text})[0] == 404
+        assert core.post(alice, path, {"ordinal": 2, "text": new_text})[0] == 409
+        core.worker()
+        state = core.get(alice, task["id"])[1]
+        assert state["status"] == "SUCCEEDED", state
+        assert state["source"] == {"task_id": selling_task, "ordinal": 1}
+        attempt, gens = core.generations(task["id"])
+        _, source_gens = core.generations(selling_task)
+        assert gens[0]["provenance"]["output_source"] == "retypeset"
+        assert gens[0]["base"]["sha256"] == source_gens[1]["base"]["sha256"]
+        assert core.fences(attempt) == "0"
+        checked = core.inspect(
+            core.image(alice, state["artifacts"][0]["id"]),
+            # Right-aligned inside the same text box (x 32..400).
+            [[[216, 32, 400, 480], [0x44, 0x55, 0x66], 40]],
+        )
+        assert checked["regions"] == [True], checked
+        evidence["retypeset"] = {"task": task["id"], "source": selling_task}
+
+    # A9: a failed model call publishes nothing and is retryable; the retry succeeds.
+    state = core.generate(alice, dict(scene, scene_preset="kitchen"), "v4-fail", fail_at=1)
+    assert state["status"] == "FAILED" and state["artifacts"] == [], state
+    assert state["error"]["code"] == "PROVIDER_UNAVAILABLE"
+    status, retried, _ = run.http(
+        "POST", f"/api/v1/tasks/{state['id']}/retry", alice, {"attempt": 1}
     )
-    assert status == 422 and value["code"] == "CUTOUT_NO_FOREGROUND"
-    assert "white-border" not in json.dumps(value)
-    status, value, _ = run.http(
-        "POST", f"/api/v1/assets/{candidate['id']}/cutouts", alice, {"tolerance": 12}
-    )
-    assert status == 422 and value["code"] == "INVALID_ASSET"
-    assert run.sql("SELECT count(*) FROM assets WHERE review_status='APPROVED'") == "1"
-    return {"product": pid, "approved_alpha": candidate["id"], "rejected_alpha": second["id"]}
+    assert status == 202 and retried["attempt"] == 2, (status, retried)
+    core.worker()
+    assert core.get(alice, state["id"])[1]["status"] == "SUCCEEDED"
+
+    # A10: text without a deployment font fails before any paid call, and is retryable.
+    state = core.generate(alice, selling, "v4-nofont", font=False)
+    assert state["status"] == "FAILED" and state["error"]["code"] == "GENERATION_FAILED"
+    attempt = run.sql(f"SELECT current_attempt_id FROM generation_tasks WHERE id='{state['id']}'")
+    assert core.fences(attempt) == "0"
+
+    for kind, (asset, data) in uploads.items():
+        assert run.http("GET", f"/api/v1/assets/{asset}/content", alice)[1] == data, kind
+    return evidence
 
 
-def browser_checks(run, work, certificate, project, stack):
+def browser_checks(core, stack):
+    """Real Chromium over the rebuilt page; runs once tests-core specs exist."""
+    if not any((ROOT / "frontend/tests-core").glob("*.spec.ts")):
+        return False
+    run, work = core.run, core.work
     port = free_port()
-    product = work / "browser-product.png"
-    product.write_bytes(synthetic_png(320, 280, shape=(64, 120, 186)))
+    for name, shape in (("product", PRODUCT_RGB), ("gift", GIFT_RGB)):
+        (work / f"browser-{name}.png").write_bytes(synthetic_png(320, 280, shape=shape))
     page_env = {
         k: v
         for k, v in run.env.items()
-        if not k.startswith(("DB_", "PGPASSWORD", "RUNTIME_", "PROD_", "SERVER_SSL_", "IMAGE_"))
+        if not k.startswith(("DB_", "PGPASSWORD", "RUNTIME_", "PROD_", "SERVER_SSL_"))
     }
     page_env.update(
         {
             "VITE_AUTH_MODE": "production-local",
-            "NODE_EXTRA_CA_CERTS": str(certificate),
+            "VITE_ACCEPTANCE_MODE": "mock-provider",
+            "NODE_EXTRA_CA_CERTS": str(core.certificate),
             "DEV_HOST": "127.0.0.1",
             "DEV_PORT": str(port),
             "DEV_API_TARGET": run.base,
             "T06_BASE_URL": f"http://127.0.0.1:{port}",
             "T06_PASSWORD": run.password,
             "T06_ARTIFACTS": str(work / "browser"),
-            "CORE_PROJECT": project,
-            "CORE_PRODUCT_FILE": str(product),
+            "CORE_PRODUCT_FILE": str(work / "browser-product.png"),
+            "CORE_GIFT_FILE": str(work / "browser-gift.png"),
+            "CORE_FONT": "1" if core.font else "",
         }
     )
     output = work / "frontend-dist"
@@ -235,6 +437,9 @@ def browser_checks(run, work, certificate, project, stack):
     )
     stack.callback(stop, vite)
     wait_ready(page_env["T06_BASE_URL"], vite, log_path)
+    worker, worker_log = core.worker(once=False)
+    stack.callback(worker_log.close)
+    stack.callback(stop, worker)
     with (work / "browser.log").open("w", encoding="utf-8") as browser_log:
         subprocess.run(
             [tool("npm"), "exec", "--", "playwright", "test", "--config=playwright.core.config.ts"],
@@ -243,14 +448,15 @@ def browser_checks(run, work, certificate, project, stack):
             stdout=browser_log,
             stderr=subprocess.STDOUT,
             check=True,
-            timeout=300,
+            timeout=600,
         )
+    return True
 
 
 def run_core_checks(env, work):
     work.mkdir(parents=True)
-    token = secrets.token_urlsafe(32)
     run = ProductionCheck({k: v for k, v in env.items() if not k.startswith("OPENROUTER_")}, work)
+    run.env["PROVIDER_MASTER_KEY"] = base64.b64encode(secrets.token_bytes(32)).decode()
     certificate = work / "test-public.pem"
     subprocess.run(
         [tool("keytool"), "-exportcert", "-rfc", "-alias", "test", "-keystore"]
@@ -263,44 +469,31 @@ def run_core_checks(env, work):
     run.client = build_opener(
         ProxyHandler({}), HTTPSHandler(context=ssl.create_default_context(cafile=str(certificate)))
     )
-    evidence = {"mode": "synthetic images, no provider calls"}
+    core = Core(run, work, certificate, find_font())
+    evidence = {"mode": "synthetic images, mock model, zero paid calls"}
     with ExitStack() as stack:
-        image, url = start_image_service(stack, work, token)
-        stack.callback(stop, image)
-        run.env.update({"IMAGE_SERVICE_URL": url, "IMAGE_SERVICE_TOKEN": token})
         stack.callback(run.close)
         run.start()
         admin = run.login("admin")
         for name in ("alice", "bob"):
-            assert (
-                run.http(
-                    "POST",
-                    "/api/v1/admin/accounts",
-                    admin,
-                    {"username": name, "password": run.password, "role": "USER"},
-                )[0]
-                == 201
-            )
+            body = {"username": name, "password": run.password, "role": "USER"}
+            assert run.http("POST", "/api/v1/admin/accounts", admin, body)[0] == 201
+        # A frozen admin binding proves the lease-delivered configuration reaches the model.
+        mock_key = "mock-" + secrets.token_urlsafe(24)
+        config = {
+            "provider": "openrouter",
+            "model": "test/mock-model",
+            "provider_tag": "mock",
+            "api_key": mock_key,
+            "enabled": True,
+        }
+        assert run.http("POST", "/api/v1/admin/provider-configs", admin, config)[0] == 201
         alice, bob = run.login("alice"), run.login("bob")
-        project = run.http("POST", "/api/v1/projects", alice, {"name": "core loop"})[1]["id"]
-        evidence["api"] = cutout_api_checks(run, admin, alice, bob, project)
-        print(
-            "PASS N0-A1..A6: cutout candidate, owner-only confirmation, no auto approval",
-            flush=True,
-        )
-        browser_checks(run, work, certificate, project, stack)
-        print("PASS N0-B1: page generates, previews and confirms a cutout", flush=True)
-        # A7: the image service going away is a clear, retryable condition, not a silent pass.
-        stop(image)
-        blank_asset = run.sql(
-            f"SELECT id FROM assets WHERE project_id='{project}' AND kind='PRODUCT' "
-            "ORDER BY created_at LIMIT 1"
-        )
-        status, value, _ = run.http(
-            "POST", f"/api/v1/assets/{blank_asset}/cutouts", alice, {"tolerance": 12}
-        )
-        assert status == 503 and value["code"] == "CUTOUT_SERVICE_UNAVAILABLE"
-        print("PASS N0-A7: unavailable image service reported as 503", flush=True)
-        for name in ("java-1.log", "image-service.log"):
-            assert token not in (work / name).read_text(errors="replace")
+        project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
+        evidence["api"] = api_checks(core, admin, alice, bob, project)
+        print("PASS V4-A1..A10: three entries, references, text, retypeset, isolation", flush=True)
+        if browser_checks(core, stack):
+            print("PASS V4-B: rebuilt page flows with the mock model", flush=True)
+        for log in work.glob("*.log"):
+            assert mock_key not in log.read_text(errors="replace"), log.name
     (work / "core-evidence.json").write_text(json.dumps(evidence, indent=2), encoding="utf-8")

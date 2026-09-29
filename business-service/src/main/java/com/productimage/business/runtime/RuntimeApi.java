@@ -79,6 +79,27 @@ public class RuntimeApi {
     return tasks.getScene(users.authenticate(request.getHeader("Authorization")), id);
   }
 
+  /** v4 whole-image generation for the gift, scene and selling-point entries. */
+  @PostMapping("/api/v4/generation-tasks")
+  public ResponseEntity<JsonNode> createGeneration(HttpServletRequest request) {
+    String actor = users.authenticate(request.getHeader("Authorization"));
+    return ResponseEntity.accepted()
+        .body(tasks.createGeneration(actor, request.getHeader("Idempotency-Key"), json(request)));
+  }
+
+  @GetMapping("/api/v4/generation-tasks/{id}")
+  public JsonNode getGeneration(@PathVariable String id, HttpServletRequest request) {
+    return tasks.getGeneration(users.authenticate(request.getHeader("Authorization")), id);
+  }
+
+  /** Text-only re-render of one result; never calls the model. */
+  @PostMapping("/api/v4/generation-tasks/{id}/retypeset")
+  public ResponseEntity<JsonNode> retypeset(@PathVariable String id, HttpServletRequest request) {
+    String actor = users.authenticate(request.getHeader("Authorization"));
+    return ResponseEntity.accepted()
+        .body(tasks.retypeset(actor, request.getHeader("Idempotency-Key"), id, json(request)));
+  }
+
   @PostMapping("/internal/v1/work/{attempt}/generation-calls/{ordinal}")
   public ResponseEntity<Void> generationCall(
       @PathVariable String attempt, @PathVariable int ordinal, HttpServletRequest request) {

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.product-image-workbench.invalid/v4/generation-retypeset.json",
+  "title": "GenerationRetypesetV4",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "ordinal": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9
+    },
+    "text": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "pattern": "[^\\s]"
+        },
+        "points": {
+          "type": "array",
+          "maxItems": 6,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20,
+            "pattern": "[^\\s]"
+          }
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 12,
+          "maximum": 240
+        },
+        "align": {
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ]
+        },
+        "box": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/box"
+        }
+      },
+      "required": [
+        "color",
+        "size",
+        "align",
+        "box"
+      ],
+      "anyOf": [
+        {
+          "required": [
+            "title"
+          ],
+          "properties": {
+            "title": {}
+          }
+        },
+        {
+          "required": [
+            "points"
+          ],
+          "properties": {
+            "points": {}
+          }
+        }
+      ]
+    }
+  },
+  "required": [
+    "ordinal",
+    "text"
+  ]
+}

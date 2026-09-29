@@ -219,3 +219,55 @@ def test_oversized_key_file_is_rejected(tmp_path):
     secret.write_bytes(b"x" * 4097)
     with pytest.raises(BackgroundError, match="CONFIGURATION"):
         config(OPENROUTER_API_KEY="", OPENROUTER_API_KEY_FILE=str(secret))
+
+
+def reference_png():
+    stream = io.BytesIO()
+    Image.new("RGB", (8, 8), "red").save(stream, format="PNG")
+    return stream.getvalue()
+
+
+def reference_provider():
+    provider = Provider()
+    provider.parameters = {
+        "aspect_ratio": {"type": "enum", "values": ["4:3"]},
+        "input_references": {"type": "range", "min": 0, "max": 16},
+    }
+    provider.architecture = {"input_modalities": ["text", "image"], "output_modalities": ["image"]}
+    return provider
+
+
+def test_reference_images_are_sent_as_data_urls():
+    provider = reference_provider()
+    image = reference_png()
+    result = generate(
+        provider, request(resolution=None, output_format=None, references=(image, image))
+    )
+    body = json.loads(provider.calls[-1].content)
+    assert [item["type"] for item in body["input_references"]] == ["image_url", "image_url"]
+    url = body["input_references"][0]["image_url"]["url"]
+    assert url == "data:image/png;base64," + base64.b64encode(image).decode()
+    assert "Background only" not in body["prompt"]
+    assert result.provenance["parameters"] == {"aspect_ratio": "4:3", "input_references": 2}
+    assert "base64" not in repr(result)
+
+
+@pytest.mark.parametrize("gap", ["parameter", "modality", "limit"])
+def test_references_require_declared_capability(gap):
+    provider = reference_provider()
+    if gap == "parameter":
+        del provider.parameters["input_references"]
+    elif gap == "modality":
+        provider.architecture["input_modalities"] = ["text"]
+    else:
+        provider.parameters["input_references"]["max"] = 1
+    with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
+        generate(
+            provider,
+            request(
+                resolution=None,
+                output_format=None,
+                references=(reference_png(), reference_png()),
+            ),
+        )
+    assert all(call.method == "GET" for call in provider.calls)

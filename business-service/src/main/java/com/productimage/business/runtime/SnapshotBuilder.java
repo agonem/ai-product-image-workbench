@@ -11,11 +11,75 @@ final class SnapshotBuilder {
   private final JdbcTemplate jdbc;
   private final LocalObjectStore store;
   private final ScenePolicy scenes;
+  private final GenerationPolicy generation;
 
-  SnapshotBuilder(JdbcTemplate jdbc, LocalObjectStore store, ScenePolicy scenes) {
+  SnapshotBuilder(
+      JdbcTemplate jdbc, LocalObjectStore store, ScenePolicy scenes, GenerationPolicy generation) {
     this.jdbc = jdbc;
     this.store = store;
     this.scenes = scenes;
+    this.generation = generation;
+  }
+
+  /**
+   * v4 whole-image generation (ADR-20260929): originals are frozen as reference inputs by hash; no
+   * cutout is required. Presets/styles are copied in so retries and history keep the exact prompt.
+   */
+  ObjectNode buildGeneration(JsonNode request) {
+    generation.validate(request);
+    String project = request.path("project_id").asText();
+    String feature = request.path("feature_type").asText();
+    var worker = Json.object().put("schema_version", 4).put("feature_type", feature);
+    worker.set(
+        "product_asset", asset(request.path("product_asset_id").asText(), project, "PRODUCT"));
+    if (feature.equals("GIFT")) {
+      worker.set("gift_asset", asset(request.path("gift_asset_id").asText(), project, "GIFT"));
+      worker.set("gift_position", request.get("gift_position"));
+      if (request.has("background")) worker.set("background", request.get("background"));
+    } else if (feature.equals("SCENE")) {
+      ObjectNode scene;
+      if (request.has("scene_preset")) {
+        scene = (ObjectNode) generation.scene(request.path("scene_preset").asText());
+        if (request.has("scene_prompt"))
+          scene.put(
+              "prompt",
+              scene.path("prompt").asText() + ". " + request.path("scene_prompt").asText());
+      } else scene = Json.object().put("prompt", request.path("scene_prompt").asText());
+      worker.set("scene", scene);
+    } else {
+      var styles = worker.putArray("styles");
+      request.path("styles").forEach(id -> styles.add(generation.style(id.asText())));
+    }
+    if (request.has("style_prompt")) worker.set("style_prompt", request.get("style_prompt"));
+    if (request.has("text")) worker.set("text", request.get("text"));
+    worker.put("presets_version", generation.version());
+    worker.set("output", request.get("output"));
+    freezeOutput(worker, request.get("output"));
+    return worker;
+  }
+
+  /** Text-only re-render of one stored model output: no model call, same frozen inputs. */
+  ObjectNode buildRetypeset(
+      JsonNode source, String sourceTask, int ordinal, JsonNode base, JsonNode text) {
+    GenerationPolicy.validateText(text);
+    var worker = (ObjectNode) source.deepCopy();
+    worker.set("text", text);
+    worker.set("base_image", base);
+    worker.putObject("source").put("task_id", sourceTask).put("ordinal", ordinal);
+    if (worker.has("styles")) {
+      var style = worker.path("styles").get(ordinal).deepCopy();
+      worker.putArray("styles").add(style);
+    }
+    var output = ((ObjectNode) worker.get("output").deepCopy()).put("count", 1);
+    worker.set("output", output);
+    freezeOutput(worker, output);
+    return worker;
+  }
+
+  private static void freezeOutput(ObjectNode worker, JsonNode output) {
+    var snapshot = worker.putObject("template_snapshot");
+    snapshot.putArray("versions");
+    snapshot.putObject("output_preset").put("id", GenerationPolicy.PRESET).set("config", output);
   }
 
   ObjectNode build(JsonNode request) {

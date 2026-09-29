@@ -1,8 +1,15 @@
-"""Version 1 internal background-only adapter boundary; not a Worker contract."""
+"""Internal image-generation adapter boundary; not a Worker contract.
+
+Text-only requests produce backgrounds (scene v3). Since ADR-20260929, v4 requests may carry up to
+four reference images (the product and optionally the gift) for whole-image generation.
+"""
 
 import re
 from dataclasses import dataclass, field
 from typing import Protocol
+
+PNG_SIGNATURE = bytes([0x89]) + b"PNG" + bytes([0x0D, 0x0A, 0x1A, 0x0A])
+JPEG_SIGNATURE = bytes([0xFF, 0xD8, 0xFF])
 
 
 class BackgroundError(Exception):
@@ -21,6 +28,7 @@ class BackgroundRequest:
     aspect_ratio: str
     resolution: str | None
     output_format: str | None
+    references: tuple = field(default=(), repr=False)
 
     def __post_init__(self):
         if (
@@ -36,6 +44,14 @@ class BackgroundRequest:
             or self.resolution not in (None, "512", "1K", "2K", "4K")
             or self.output_format not in (None, "png", "jpeg")
             or (self.resolution is None) != (self.output_format is None)
+            or not isinstance(self.references, tuple)
+            or len(self.references) > 4
+            or any(
+                not isinstance(item, bytes)
+                or not 0 < len(item) <= 10 * 1024 * 1024
+                or not (item[:8] == PNG_SIGNATURE or item[:3] == JPEG_SIGNATURE)
+                for item in self.references
+            )
         ):
             raise BackgroundError("INVALID_INPUT")
 

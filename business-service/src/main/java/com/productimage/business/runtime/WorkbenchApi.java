@@ -17,6 +17,7 @@ public class WorkbenchApi {
   private final ProjectAssets assets;
   private final TaskService tasks;
   private final ScenePolicy scenes;
+  private final GenerationPolicy generation;
 
   public WorkbenchApi(
       JdbcTemplate jdbc,
@@ -24,13 +25,15 @@ public class WorkbenchApi {
       ProjectAccess access,
       ProjectAssets assets,
       TaskService tasks,
-      ScenePolicy scenes) {
+      ScenePolicy scenes,
+      GenerationPolicy generation) {
     this.jdbc = jdbc;
     this.users = users;
     this.access = access;
     this.assets = assets;
     this.tasks = tasks;
     this.scenes = scenes;
+    this.generation = generation;
   }
 
   private String actor(HttpServletRequest request) {
@@ -64,6 +67,7 @@ public class WorkbenchApi {
                 users instanceof ProductionAccounts ? "production-local" : "development-only")
             .put("generation_available", false);
     result.set("scene", scenes.options());
+    result.set("generation", generation.options());
     var templates = result.putArray("templates");
     for (var row :
         jdbc.queryForList(
@@ -126,7 +130,8 @@ public class WorkbenchApi {
               .put("test_fixture", "t05_transport_fixture".equals(row.get("preset")))
               .put(
                   "real_scene",
-                  "scene_v2".equals(row.get("preset")) || "scene_v3".equals(row.get("preset")));
+                  "scene_v2".equals(row.get("preset")) || "scene_v3".equals(row.get("preset")))
+              .put("generation_v4", GenerationPolicy.PRESET.equals(row.get("preset")));
       item.set("task", tasks.get(actor, row.get("id").toString()));
       items.add(item);
     }

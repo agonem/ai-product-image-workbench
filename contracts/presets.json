@@ -1,0 +1,74 @@
+{
+  "version": "presets-v1",
+  "note": "Internal defaults (ADR-20260929); editable via template management in phase 2. Not platform rules.",
+  "scenes": [
+    {
+      "id": "nursery",
+      "name": "婴儿房",
+      "prompt": "a bright, cozy nursery room with soft daylight, light wood furniture and pastel textiles"
+    },
+    {
+      "id": "wood_table",
+      "name": "木质桌面",
+      "prompt": "a light natural wood tabletop by a window with soft morning light and minimal props"
+    },
+    {
+      "id": "bathroom",
+      "name": "浴室台面",
+      "prompt": "a clean white bathroom countertop with soft folded towels and gentle daylight"
+    },
+    {
+      "id": "outdoor",
+      "name": "户外草地",
+      "prompt": "a sunny outdoor picnic on soft green grass with a light blanket and shallow depth of field"
+    },
+    {
+      "id": "kitchen",
+      "name": "厨房台面",
+      "prompt": "a tidy modern kitchen counter in soft neutral tones with warm light"
+    },
+    {
+      "id": "bedroom",
+      "name": "卧室床品",
+      "prompt": "a soft bed with cream linen bedding in calm, warm light"
+    }
+  ],
+  "styles": [
+    {
+      "id": "warm",
+      "name": "暖木奶油",
+      "prompt": "warm cream and light wood tones, soft natural light, cozy lifestyle setting",
+      "title_color": "#4A2E1F",
+      "badge_color": "#F6E9DA",
+      "badge_text_color": "#4A2E1F",
+      "accent_color": "#C8814E"
+    },
+    {
+      "id": "pink",
+      "name": "柔和粉",
+      "prompt": "soft pastel pink setting with gentle bokeh, tender and warm mood",
+      "title_color": "#B23A48",
+      "badge_color": "#FCE5E8",
+      "badge_text_color": "#7A2531",
+      "accent_color": "#E0607A"
+    },
+    {
+      "id": "green",
+      "name": "自然绿",
+      "prompt": "fresh sage green natural setting with a few leaves and soft daylight",
+      "title_color": "#2F5D3A",
+      "badge_color": "#E4F0E3",
+      "badge_text_color": "#2F5D3A",
+      "accent_color": "#5E9A6B"
+    },
+    {
+      "id": "blue",
+      "name": "清新蓝",
+      "prompt": "clean light blue airy setting with soft diffused light",
+      "title_color": "#1F4E79",
+      "badge_color": "#E2EEF9",
+      "badge_text_color": "#1F4E79",
+      "accent_color": "#4A90C8"
+    }
+  ]
+}
