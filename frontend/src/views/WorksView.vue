@@ -48,6 +48,8 @@ const works = computed(() =>
           v-for="item in works"
           :key="item.artifact.id"
           class="result-card"
+          data-testid="result-card"
+          :data-task="item.task.id"
         >
           <figure>
             <PrivateImage

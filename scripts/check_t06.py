@@ -100,8 +100,9 @@ def run_workbench(env, work):
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
+        # The page tests submit real v4 tasks; the Worker must never see model credentials.
         page_env = {
-            **run.env,
+            **{k: v for k, v in run.env.items() if not k.upper().startswith("OPENROUTER_")},
             "DEV_HOST": "127.0.0.1",
             "DEV_PORT": str(port),
             "DEV_API_TARGET": run.base,

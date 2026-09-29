@@ -109,6 +109,11 @@ label {
   font-size: 0.86rem;
   color: #374151;
 }
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 small {
   color: var(--muted);
 }
@@ -876,6 +881,14 @@ dialog.compare::backdrop {
   .workspace-grid,
   .login-layout {
     grid-template-columns: 1fr;
+  }
+  /* One column: follow the step order (materials, design, parameters). */
+  .workspace-grid > .canvas-panel {
+    order: 0;
+  }
+  /* Two result thumbnails per row on phones instead of one very long column. */
+  .result-strip {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
   .page,
   .top-bar {

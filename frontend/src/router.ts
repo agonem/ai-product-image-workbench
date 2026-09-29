@@ -15,7 +15,8 @@ export const router = createRouter({
     { path: '/assets', component: AssetsView },
     { path: '/tasks', component: TasksView },
     { path: '/works', component: WorksView },
-    { path: '/settings', component: SettingsView },
+    // Account settings work without a project (e.g. a new admin configuring the provider).
+    { path: '/settings', component: SettingsView, meta: { project: false } },
     { path: '/:rest(.*)*', redirect: '/' },
   ],
 })

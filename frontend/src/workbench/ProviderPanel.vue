@@ -110,7 +110,7 @@ async function toggle() {
       </button>
     </nav>
     <div v-if="view === 'config'" class="panel account-panel">
-      <h2>背景供应商配置</h2>
+      <h2>生成模型供应商配置</h2>
       <p>
         仅 OpenRouter 官方接口；密钥加密保存，任何页面都不回显。
         新任务绑定启用版本，重试沿用各自冻结版本，禁用不回退环境凭据。
@@ -171,7 +171,9 @@ async function toggle() {
             required
             :disabled="busy"
         /></label>
-        <label><input v-model="enabled" type="checkbox" />保存后立即启用</label>
+        <label class="check"
+          ><input v-model="enabled" type="checkbox" />保存后立即启用</label
+        >
         <button :disabled="busy">保存新版本</button>
       </form>
     </div>

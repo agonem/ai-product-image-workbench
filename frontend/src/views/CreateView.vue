@@ -144,8 +144,8 @@ watch(
       w.selected?.feature_type === feature.value &&
       (!view.value || view.value.task !== id)
     ) {
+      // Show the finished result but keep any text the user edited while waiting.
       view.value = { task: id, ordinal: 0 }
-      adopt(w.selected)
     }
   },
 )
@@ -484,6 +484,7 @@ onMounted(() => {
               :key="artifact.id"
               class="result-card"
               data-testid="result-card"
+              :data-task="task.id"
             >
               <figure>
                 <PrivateImage
@@ -526,7 +527,12 @@ onMounted(() => {
               </div>
             </article>
           </template>
-          <article v-else class="result-card" data-testid="result-card">
+          <article
+            v-else
+            class="result-card"
+            data-testid="result-card"
+            :data-task="task.id"
+          >
             <figure>
               <span>{{
                 task.status === 'FAILED' ? '生成失败' : '生成中，请稍候…'

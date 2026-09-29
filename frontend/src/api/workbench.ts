@@ -12,7 +12,7 @@ const messages: Record<string, string> = {
   FORBIDDEN: '当前账号没有账号管理权限。',
   ACCOUNT_CONFLICT: '账号名称已存在，请使用其他名称。',
   LAST_ADMIN_REQUIRED: '必须保留至少一个启用的管理员账号。',
-  PROVIDER_DISABLED: '背景生成已被管理员禁用，请联系管理员或等待启用。',
+  PROVIDER_DISABLED: '图片生成已被管理员禁用，请联系管理员或等待启用。',
   UNSUPPORTED_CAPABILITY:
     '供应商能力不支持当前参数（模型或比例），请检查配置。',
   UPLOAD_CONTENT_REJECTED:

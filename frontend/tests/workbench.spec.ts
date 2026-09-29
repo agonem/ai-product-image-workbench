@@ -1,65 +1,60 @@
 import { test, expect } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import type { Page, Request } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
+// dev-local has no provider configuration and the Worker gets no credentials, so every
+// generation here fails visibly; no model is ever called by these page tests.
 async function login(page: Page, name = 'alice') {
   await page.goto('/')
-  await page.getByLabel('本地账号').fill(name)
+  await page.getByLabel('本地账号', { exact: true }).fill(name)
   await page.getByLabel('密码', { exact: true }).fill(process.env.T06_PASSWORD!)
   await page.getByRole('button', { name: '登录开发环境' }).click()
   await expect(page.getByRole('button', { name: '退出本地账号' })).toBeVisible()
   await expect(page.getByText('正在读取项目素材与任务…')).toHaveCount(0)
 }
-async function scene(page: Page) {
-  await page
-    .getByRole('button', { name: '场景图 选择场景预设或描述你的场景' })
-    .click()
-  await page
-    .getByRole('combobox', { name: '商品原图', exact: true })
-    .selectOption('product')
-  await page
-    .getByRole('combobox', { name: '输出预设', exact: true })
-    .selectOption('t05_transport_fixture')
-  await page
-    .getByLabel('场景描述', { exact: true })
-    .fill('仅用于页面测试的合成场景描述')
+function generationPost(request: Request) {
+  return (
+    request.method() === 'POST' &&
+    request.url().endsWith('/api/v4/generation-tasks')
+  )
+}
+function card(page: Page, task: string) {
+  return page.locator(`[data-task="${task}"]`)
 }
 
-test('ACC-T06 A1–A3/A5–A8: dev-local workflows, history, errors and responsive pages', async ({
+test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failure and responsive pages', async ({
   page,
 }, info) => {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await login(page)
   await expect(
-    page.getByText('真实图片生成尚未开放', { exact: true }),
+    page.getByRole('heading', { name: '选择功能开始生成' }),
   ).toBeVisible()
-  await expect(
-    page.getByRole('button', { name: '赠品图 独立赠品素材，手动调整位置' }),
-  ).toBeVisible()
-  // Current fixture success is explicitly presented as transport testing, never a product result.
-  await page
-    .locator('.history-item')
-    .filter({ hasText: '开发/测试任务完成' })
-    .first()
-    .click()
-  await page.getByRole('button', { name: '查看测试产物' }).click()
-  await expect(
-    page.getByAltText('开发/测试产物 · 非真实商品成品'),
-  ).toBeVisible()
-  const downloaded = page.waitForEvent('download')
-  await page.getByRole('button', { name: '下载测试产物' }).click()
-  expect((await downloaded).suggestedFilename()).toMatch(/^development-test-/)
-  await page.getByRole('button', { name: '加载更早任务' }).click()
-  await expect(page.locator('.history-item')).toHaveCount(22)
+  for (const name of ['赠品+文字主图', '场景主图', '卖点主图'])
+    await expect(
+      page.getByRole('button', { name: `${name} 立即生成` }),
+    ).toBeVisible()
+  await expect(page.getByText('模拟模型验收模式')).toHaveCount(0)
 
-  await page.getByLabel('上传商品图').setInputFiles({
+  // Old fixture tasks stay labelled as test data and cannot be opened as results.
+  await page.getByRole('link', { name: '任务记录' }).click()
+  const rows = page.locator('.history-item')
+  await expect(rows).toHaveCount(20)
+  await expect(rows.filter({ hasText: '开发/测试任务' })).toHaveCount(20)
+  await expect(rows.filter({ hasText: '（旧版任务）' })).toHaveCount(20)
+  await expect(page.getByRole('button', { name: '查看' })).toHaveCount(0)
+  await page.getByRole('button', { name: '加载更早任务' }).click()
+  await expect(rows).toHaveCount(22)
+
+  await page.getByRole('link', { name: '素材管理' }).click()
+  await page.getByLabel('上传商品白底图').setInputFiles({
     name: 'invalid.png',
     mimeType: 'image/png',
     buffer: Buffer.from('not an image'),
   })
   await expect(page.getByRole('alert')).toContainText('图片内容或尺寸')
-  await page.getByLabel('上传商品图').setInputFiles({
+  await page.getByLabel('上传商品白底图').setInputFiles({
     name: 'synthetic.jpg',
     mimeType: 'image/jpeg',
     buffer: Buffer.from(
@@ -68,121 +63,72 @@ test('ACC-T06 A1–A3/A5–A8: dev-local workflows, history, errors and responsi
     ),
   })
   await expect(page.getByRole('status')).toContainText('原图已保存')
-  await expect(
-    page.getByRole('button', { name: '提交开发任务' }),
-  ).toBeDisabled()
-  await expect(
-    page.getByText('商品抠图尚未确认：请在商品下方生成抠图候选并确认边缘。'),
-  ).toBeVisible()
-  await page.getByRole('button', { name: '查看商品原图' }).click()
-  await expect(page.getByAltText('上传原图 · 非生成预览')).toBeVisible()
+  await expect(page.locator('.asset-card')).not.toHaveCount(0)
 
-  await scene(page)
-  await page.getByLabel('自定义风格（可选）').fill('保留我的风格文字')
-  await page.getByRole('button', { name: /卖点图 人工输入卖点/ }).click()
-  await expect(page.getByLabel('场景描述', { exact: true })).toHaveCount(0)
-  await page
-    .getByLabel('人工卖点（每行一条，原文提交）')
-    .fill(' 人工第一条 \n第二条')
-  await page
-    .getByRole('button', { name: '场景图 选择场景预设或描述你的场景' })
-    .click()
-  await expect(page.getByLabel('自定义风格（可选）')).toHaveValue(
-    '保留我的风格文字',
+  // Without a configured provider the task fails with a diagnosable code, never silently.
+  await page.getByRole('link', { name: '场景主图' }).click()
+  await page.getByLabel('场景描述（可选补充）').fill('仅用于页面测试的场景描述')
+  const sent = page.waitForRequest(generationPost)
+  const answered = page.waitForResponse(
+    (r) => generationPost(r.request()) && r.status() === 202,
   )
-  const sent = page.waitForRequest(
-    (r) => r.method() === 'POST' && r.url().endsWith('/api/v1/tasks'),
-  )
-  await page.getByRole('button', { name: '提交开发任务' }).click()
-  const sceneBody = (await sent).postDataJSON()
-  expect(sceneBody.feature_type).toBe('SCENE')
-  expect(sceneBody).not.toHaveProperty('gift_asset_id')
-  expect(sceneBody).not.toHaveProperty('selling_points')
-  await expect(page.locator('.task-status')).toHaveText('执行失败', {
-    timeout: 20000,
-  })
-  await expect(page.locator('.task-panel')).toContainText(
-    'PROVIDER_UNAVAILABLE',
-  )
-  await page.getByRole('button', { name: '重试任务', exact: true }).click()
-  await expect(page.locator('.task-panel')).toContainText('第 2 次')
-  await expect(page.locator('.task-status')).toHaveText('执行失败', {
-    timeout: 20000,
-  })
-
-  for (const feature of ['GIFT', 'SELLING_POINT']) {
-    await page
-      .getByRole('button', {
-        name:
-          feature === 'GIFT'
-            ? '赠品图 独立赠品素材，手动调整位置'
-            : /卖点图 人工输入卖点/,
-      })
-      .click()
-    await page
-      .getByRole('combobox', { name: '商品原图', exact: true })
-      .selectOption('product')
-    await page
-      .getByRole('combobox', { name: '排版模板版本', exact: true })
-      .selectOption('layout_v1')
-    await page
-      .getByRole('combobox', { name: '输出预设', exact: true })
-      .selectOption('t05_transport_fixture')
-    const submitted = page.waitForRequest(
-      (r) => r.method() === 'POST' && r.url().endsWith('/api/v1/tasks'),
-    )
-    await page.getByRole('button', { name: '提交开发任务' }).click()
-    const body = (await submitted).postDataJSON()
-    expect(body.feature_type).toBe(feature)
-    expect(body).not.toHaveProperty('scene_custom_prompt')
-    if (feature === 'SELLING_POINT')
-      expect(body.selling_points).toEqual([' 人工第一条 ', '第二条'])
-    await expect(page.locator('.task-status')).toHaveText('执行失败', {
-      timeout: 20000,
-    })
-  }
+  await page.getByRole('button', { name: /生成图片/ }).click()
+  const body = (await sent).postDataJSON()
+  const task = (await (await answered).json()).id as string
+  expect(body.feature_type).toBe('SCENE')
+  expect(body.output.count).toBe(1)
+  expect(body.scene_prompt).toBe('仅用于页面测试的场景描述')
+  expect(body).not.toHaveProperty('text')
+  await expect(card(page, task)).toContainText('生成失败', { timeout: 30000 })
+  await expect(card(page, task)).toContainText('PROVIDER_UNAVAILABLE')
+  await card(page, task).getByRole('button', { name: '重试' }).click()
+  await expect(page.getByRole('alert')).toContainText('不可重试')
   await page.screenshot({
-    path: info.outputPath('desktop.png'),
+    path: info.outputPath('desktop-scene.png'),
     fullPage: true,
   })
-  await page
-    .locator('.workspace')
-    .screenshot({ path: info.outputPath('desktop-workspace.png') })
+
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.screenshot({ path: info.outputPath('mobile.png'), fullPage: true })
-  await page
-    .locator('.inputs')
-    .screenshot({ path: info.outputPath('mobile-inputs.png') })
-  await page
-    .locator('.task-panel')
-    .screenshot({ path: info.outputPath('mobile-task.png') })
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth,
-    ),
-  ).toBe(true)
+  for (const link of ['首页', '赠品+文字主图', '卖点主图', '任务记录']) {
+    await page.getByRole('link', { name: link }).click()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+  }
+  await page.screenshot({
+    path: info.outputPath('mobile-tasks.png'),
+    fullPage: true,
+  })
+  await page.setViewportSize({ width: 1440, height: 1000 })
+
   await page.getByRole('button', { name: '退出本地账号' }).click()
-  await expect(page.locator('.history-item')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '登录开发环境' })).toBeVisible()
   await login(page)
-  await expect(page.locator('.history-item')).toHaveCount(20)
+  await page.getByRole('link', { name: '任务记录' }).click()
+  await expect(rows).toHaveCount(20)
   await page.getByRole('button', { name: '退出本地账号' }).click()
   await login(page, 'bob')
   await expect(
-    page.getByText('还没有项目。创建项目后上传素材，开始验证工作流程。'),
+    page.getByText(
+      '还没有项目。请在上方输入项目名称并创建项目，然后开始生成。',
+    ),
   ).toBeVisible()
-  await expect(page.locator('.history-item')).toHaveCount(0)
+  await page.getByRole('link', { name: '任务记录' }).click()
+  await expect(rows).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
-test('ACC-T06 A2/A4/A5: lost response reuses key; network and expired session are visible', async ({
+test('ACC-T06 A2/A4: lost response reuses the key; network error and expired session are visible', async ({
   page,
 }) => {
   await login(page)
-  await scene(page)
+  await page.getByRole('link', { name: '场景主图' }).click()
   let firstKey = '',
     firstBody = ''
   await page.route(
-    '**/api/v1/tasks',
+    '**/api/v4/generation-tasks',
     async (route) => {
       firstKey = route.request().headers()['idempotency-key']!
       firstBody = route.request().postData()!
@@ -191,24 +137,23 @@ test('ACC-T06 A2/A4/A5: lost response reuses key; network and expired session ar
     },
     { times: 1 },
   )
-  await page.getByRole('button', { name: '提交开发任务' }).click()
-  await expect(page.getByRole('button', { name: '用原请求重发' })).toBeVisible()
-  const resent = page.waitForRequest(
-    (r) => r.method() === 'POST' && r.url().endsWith('/api/v1/tasks'),
-  )
-  await page.getByRole('button', { name: '用原请求重发' }).click()
-  const request = await resent
+  await page.getByRole('button', { name: /生成图片/ }).click()
+  const resend = page.getByRole('button', { name: '用原请求重发' })
+  await expect(resend).toBeVisible()
+  const again = page.waitForRequest(generationPost)
+  await resend.click()
+  const request = await again
   expect(request.headers()['idempotency-key']).toBe(firstKey)
   expect(request.postData()).toBe(firstBody)
-  await expect(page.getByRole('button', { name: '用原请求重发' })).toHaveCount(
-    0,
-  )
+  await expect(resend).toHaveCount(0)
+
+  await page.getByRole('link', { name: '任务记录' }).click()
   await page.route(
     '**/api/v1/projects/p/tasks?offset=0',
     (route) => route.abort('failed'),
     { times: 1 },
   )
-  await page.getByRole('button', { name: '刷新历史', exact: true }).click()
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('连接中断或超时')
   await page.route(
     '**/api/v1/projects/p/tasks?offset=0',
@@ -220,10 +165,72 @@ test('ACC-T06 A2/A4/A5: lost response reuses key; network and expired session ar
       }),
     { times: 1 },
   )
-  await page.getByRole('button', { name: '刷新历史', exact: true }).click()
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
   await expect(page.getByRole('button', { name: '登录开发环境' })).toBeVisible()
-  await expect(page.locator('.history-item')).toHaveCount(0)
+  await expect(page.getByRole('alert')).toContainText('会话已过期')
   expect(
     await page.evaluate(() => [localStorage.length, sessionStorage.length]),
   ).toEqual([0, 0])
+})
+
+test('ACC-T06 A2/A5: task polling shows RUNNING, survives a network error and recovers', async ({
+  page,
+}) => {
+  await login(page)
+  await page.getByRole('link', { name: '任务记录' }).click()
+  // Only this test rewrites GET responses to reach short-lived UI states;
+  // it never writes a successful task or changes persisted server state.
+  let calls = 0
+  await page.route('**/api/v4/generation-tasks/*', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue()
+    calls++
+    if (calls === 1) {
+      const response = await route.fetch()
+      const detail = await response.json()
+      await route.fulfill({
+        response,
+        json: {
+          ...detail,
+          status: 'RUNNING',
+          artifacts: [],
+          bases: [],
+          error: null,
+        },
+      })
+    } else if (calls === 2) await route.abort('failed')
+    else await route.continue()
+  })
+  await page
+    .locator('.history-item')
+    .filter({ hasText: '场景主图' })
+    .filter({ hasNotText: '旧版任务' })
+    .first()
+    .getByRole('button', { name: '查看' })
+    .click()
+  const current = page.locator('.result-card').first()
+  await expect(current).toContainText('生成中')
+  await expect(page.getByRole('alert')).toContainText('连接中断或超时', {
+    timeout: 10000,
+  })
+  await expect.poll(() => calls, { timeout: 15000 }).toBeGreaterThanOrEqual(3)
+  await expect(current).toContainText('生成失败', { timeout: 10000 })
+  await page.unroute('**/api/v4/generation-tasks/*')
+
+  await page.getByLabel('新项目名称').fill('private unsaved project')
+  await page.route(
+    '**/api/v1/projects/p/tasks?offset=0',
+    (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: '{"code":"UNAUTHORIZED"}',
+      }),
+    { times: 1 },
+  )
+  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await expect(page.getByRole('button', { name: '登录开发环境' })).toBeVisible()
+  await page.getByLabel('本地账号', { exact: true }).fill('alice')
+  await page.getByLabel('密码', { exact: true }).fill(process.env.T06_PASSWORD!)
+  await page.getByLabel('密码', { exact: true }).press('Enter')
+  await expect(page.getByLabel('新项目名称')).toHaveValue('')
 })

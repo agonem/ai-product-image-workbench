@@ -25,6 +25,21 @@ async function noHorizontalScroll(page: Page) {
     ),
   ).toBe(true)
 }
+/** Click generate and return the new task id plus the request body that was sent. */
+async function submitAndTrack(page: Page, match = generationPost) {
+  const sent = page.waitForRequest(match)
+  const answered = page.waitForResponse(
+    (r) => match(r.request()) && r.status() === 202,
+  )
+  const body = (await sent).postDataJSON()
+  const task = await (await answered).json()
+  return { body, id: task.id as string }
+}
+function done(page: Page, task: string) {
+  return page
+    .locator(`[data-task="${task}"]`)
+    .filter({ hasText: '已完成 · 待人工审核' })
+}
 function watchErrors(page: Page) {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
@@ -69,15 +84,15 @@ test('V4-B2: scene - upload, preset, one image by default, compare, download', a
     .setInputFiles(process.env.CORE_PRODUCT_FILE!)
   await expect(page.getByRole('status').first()).toContainText('商品原图已保存')
   await page.getByRole('button', { name: '木质桌面' }).click()
-  const sent = page.waitForRequest(generationPost)
+  const tracked = submitAndTrack(page)
   await page.getByRole('button', { name: /生成图片/ }).click()
-  const body = (await sent).postDataJSON()
+  const { body, id } = await tracked
   expect(body.feature_type).toBe('SCENE')
   expect(body.scene_preset).toBe('wood_table')
   expect(body.output.count).toBe(1)
   expect(body).not.toHaveProperty('text')
-  const card = page.getByTestId('result-card').first()
-  await expect(card).toContainText('已完成 · 待人工审核', { timeout: 60000 })
+  const card = done(page, id).first()
+  await expect(card).toBeVisible({ timeout: 60000 })
   await expect(page.getByTestId('design-stage').locator('img')).toBeVisible()
   await card.getByRole('button', { name: '对照原图' }).click()
   const dialog = page.getByRole('dialog', { name: '原图对照' })
@@ -120,9 +135,9 @@ test('V4-B3: gift with text, then a free text-only re-render', async ({
     await page.mouse.move(box.x + 50, box.y + 40, { steps: 5 })
     await page.mouse.up()
   }
-  const sent = page.waitForRequest(generationPost)
+  const tracked = submitAndTrack(page)
   await page.getByRole('button', { name: /生成图片/ }).click()
-  const body = (await sent).postDataJSON()
+  const { body, id } = await tracked
   expect(body.feature_type).toBe('GIFT')
   expect(body.gift_position).toBe('BOTTOM_LEFT')
   expect(body.background).toEqual({ mode: 'SOLID', color: '#FFF6EC' })
@@ -132,10 +147,7 @@ test('V4-B3: gift with text, then a free text-only re-render', async ({
     expect(body.text.points).toEqual(['安全材质'])
     expect(body.text.box.x).toBeGreaterThan(0.05)
   }
-  await expect(page.getByTestId('result-card').first()).toContainText(
-    '已完成 · 待人工审核',
-    { timeout: 60000 },
-  )
+  await expect(done(page, id)).toHaveCount(1, { timeout: 60000 })
   await page.screenshot({
     path: join(artifacts, 'gift-desktop.png'),
     fullPage: true,
@@ -143,20 +155,20 @@ test('V4-B3: gift with text, then a free text-only re-render', async ({
   if (withText) {
     // The model output stays; only the text is re-rendered and no model is called.
     await page.getByLabel('标题文字（可选，原文使用）').fill('新标题')
-    const retype = page.waitForRequest((r) => r.url().endsWith('/retypeset'))
+    const retyped = submitAndTrack(page, (r) =>
+      r.url().endsWith(`/api/v4/generation-tasks/${id}/retypeset`),
+    )
     await page
       .getByRole('button', { name: '应用文字修改（免费，不重新生成）' })
       .click()
-    const request = (await retype).postDataJSON()
-    expect(request.ordinal).toBe(0)
-    expect(request.text.title).toBe('新标题')
-    await expect(page.getByTestId('result-card')).toHaveCount(2, {
-      timeout: 60000,
+    const retype = await retyped
+    expect(retype.body.ordinal).toBe(0)
+    expect(retype.body.text.title).toBe('新标题')
+    await expect(done(page, retype.id)).toHaveCount(1, { timeout: 60000 })
+    await page.screenshot({
+      path: join(artifacts, 'gift-retypeset.png'),
+      fullPage: true,
     })
-    await expect(page.getByTestId('result-card').first()).toContainText(
-      '已完成 · 待人工审核',
-      { timeout: 60000 },
-    )
   }
   await page.setViewportSize({ width: 390, height: 844 })
   await noHorizontalScroll(page)
@@ -180,15 +192,13 @@ test('V4-B4: selling points - one image per chosen style, verbatim points', asyn
   await page
     .getByLabel('卖点（每行一条，原文使用）')
     .fill(' 安全材质 \n防胀气设计\n易清洗')
-  const sent = page.waitForRequest(generationPost)
+  const tracked = submitAndTrack(page)
   await page.getByRole('button', { name: /生成图片/ }).click()
-  const body = (await sent).postDataJSON()
+  const { body, id } = await tracked
   expect(body.styles).toEqual(['warm', 'green'])
   expect(body.output.count).toBe(2)
   expect(body.text.points).toEqual([' 安全材质 ', '防胀气设计', '易清洗'])
-  await expect(
-    page.getByTestId('result-card').filter({ hasText: '已完成' }),
-  ).toHaveCount(2, { timeout: 60000 })
+  await expect(done(page, id)).toHaveCount(2, { timeout: 60000 })
   await page.screenshot({
     path: join(artifacts, 'selling-desktop.png'),
     fullPage: true,

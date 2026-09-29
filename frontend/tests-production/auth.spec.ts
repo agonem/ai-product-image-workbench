@@ -15,6 +15,13 @@ async function login(page: Page, username: string, secret = password) {
   return (await (await response).json()).access_token as string
 }
 
+async function settings(page: Page) {
+  await page.getByRole('link', { name: '账号与安全', exact: true }).click()
+  await expect(
+    page.getByRole('button', { name: '本人改密', exact: true }),
+  ).toBeVisible()
+}
+
 async function apiStatus(page: Page, token: string, path: string) {
   return page.evaluate(
     async ({ token, path }) =>
@@ -48,19 +55,18 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   const second = await browser.newPage()
   const secondToken = await login(second, 'alice')
   await expect(page.getByRole('button', { name: '退出本地账号' })).toBeVisible()
-  await expect(
-    page.getByRole('button', { name: '账号管理', exact: true }),
-  ).toHaveCount(0)
-  for (const name of ['赠品图', '场景图', '卖点图'])
+  for (const name of ['赠品+文字主图', '场景主图', '卖点主图'])
     await expect(
-      page.getByRole('button', { name: new RegExp(name) }).first(),
+      page.getByRole('button', { name: `${name} 立即生成` }),
     ).toBeVisible()
-  await expect(page.getByLabel('能力边界')).toContainText(
-    '真实图片生成尚未开放',
-  )
   expect(
     await page.evaluate(() => localStorage.length + sessionStorage.length),
   ).toBe(0)
+  await settings(page)
+  await expect(
+    page.getByRole('button', { name: '账号管理', exact: true }),
+  ).toHaveCount(0)
+  await expect(page.getByTestId('provider-state')).toHaveCount(0)
   await page.getByRole('button', { name: '本人改密', exact: true }).click()
   await page.getByLabel('当前密码', { exact: true }).fill(password)
   await page.getByLabel('新密码', { exact: true }).fill(password + '-changed')
@@ -87,6 +93,7 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   await expect(
     admin.getByRole('option', { name: 'Alice private', exact: true }),
   ).toHaveCount(0)
+  await settings(admin)
   await admin.getByRole('button', { name: '账号管理', exact: true }).click()
   await expect(
     admin.getByRole('heading', { name: '账号管理', exact: true }),
@@ -95,7 +102,6 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   await alice.getByRole('button', { name: '重置密码' }).click()
   await admin.getByLabel('重置后的密码').fill(password)
   await admin.getByRole('button', { name: '确认重置' }).click()
-  await page.getByRole('button', { name: '本人改密', exact: true }).click()
   await expect(page.getByRole('heading', { name: '生产账号登录' })).toBeVisible(
     { timeout: 15000 },
   )
@@ -149,6 +155,7 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
     page.getByRole('heading', { name: '生产账号登录' }),
   ).toBeVisible()
   await login(admin, 'admin')
+  await settings(admin)
   await admin.getByRole('button', { name: '账号管理', exact: true }).click()
   await admin.screenshot({
     path: `${process.env.T06_ARTIFACTS}/accounts.png`,

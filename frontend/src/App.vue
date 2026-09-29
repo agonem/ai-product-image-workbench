@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { provide, reactive } from 'vue'
+import { useRoute } from 'vue-router'
 import SideNav from './components/SideNav.vue'
 import TopBar from './components/TopBar.vue'
 import LoginView from './views/LoginView.vue'
 import { useWorkbench, workbenchKey } from './workbench/useWorkbench'
 
 const w = reactive(useWorkbench())
+const route = useRoute()
 provide(workbenchKey, w)
 </script>
 
@@ -21,7 +23,7 @@ provide(workbenchKey, w)
       <p v-if="w.error" class="message error" role="alert">{{ w.error }}</p>
       <p v-if="w.notice" class="message" role="status">{{ w.notice }}</p>
       <p v-if="w.loading" class="empty">正在读取项目素材与任务…</p>
-      <main v-else-if="!w.project" class="page">
+      <main v-else-if="!w.project && route.meta.project !== false" class="page">
         <section class="panel empty">
           还没有项目。请在上方输入项目名称并创建项目，然后开始生成。
         </section>
