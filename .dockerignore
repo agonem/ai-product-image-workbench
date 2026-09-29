@@ -1,0 +1,26 @@
+# Image builds only need sources; never send secrets, data or local caches to the builder.
+**/node_modules
+**/.venv
+**/target
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.log
+.git
+.artifacts
+.tools
+.claude
+.workbuddy
+local-data
+uploads
+outputs
+.env
+.env.*
+**/*.pem
+**/*.key
+**/*.p12
+deploy/secrets
+deploy/data
+deploy/.env
+deploy/workbench-ca.crt

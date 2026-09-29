@@ -26,3 +26,8 @@ uploads/
 outputs/
 local-data/
 .workbuddy/
+# Deployment state created on the server by deploy/init.sh
+deploy/secrets/
+deploy/data/
+deploy/workbench-ca.crt
+*.p12

@@ -4,7 +4,9 @@ import base64
 import hashlib
 import io
 import json
+import os
 import time
+from urllib.parse import urlsplit
 
 import httpx
 from PIL import Image
@@ -21,6 +23,31 @@ MAX_IMAGE = 10 * 1024 * 1024
 MAX_PIXELS = 16_000_000
 
 
+def _proxy():
+    """Explicit outbound proxy for model calls only (e.g. an intranet egress proxy).
+
+    Ambient proxy variables stay ignored (trust_env=False); the value is never logged.
+    """
+    value = os.getenv("OPENROUTER_PROXY_URL", "").strip()
+    if not value:
+        return None
+    try:
+        parts = urlsplit(value)
+        valid = (
+            parts.scheme in ("http", "https")
+            and bool(parts.hostname)
+            and parts.path in ("", "/")
+            and not parts.query
+            and not parts.fragment
+        )
+        parts.port  # noqa: B018 - raises ValueError for an invalid port
+    except ValueError:
+        valid = False
+    if not valid:
+        raise BackgroundError("CONFIGURATION")
+    return value
+
+
 class OpenRouterAdapter:
     def __init__(self, config, *, transport=None):
         self.config = config
@@ -30,6 +57,7 @@ class OpenRouterAdapter:
             timeout=httpx.Timeout(180, connect=10),
             follow_redirects=False,
             trust_env=False,
+            proxy=_proxy(),
             transport=transport,
         )
 

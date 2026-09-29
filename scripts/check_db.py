@@ -83,6 +83,11 @@ def main() -> None:
                 "DB_TEST_PASSWORD": password,
             }
         )
+        if "--deploy-only" in sys.argv:
+            from check_deploy import rehearse
+
+            rehearse(env, work / "deploy")
+            return
         if "--core-only" in sys.argv:
             from check_core import run_core_checks
 

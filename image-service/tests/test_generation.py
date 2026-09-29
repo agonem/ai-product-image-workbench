@@ -386,3 +386,24 @@ def test_bad_source_hash_fails_before_provider():
     with pytest.raises(ValueError):
         process_generation(local, value, "lease", adapter)
     assert adapter.requests == [] and local.posts == []
+
+
+def test_unusable_font_setup_fails_before_any_paid_call(monkeypatch):
+    local, adapter = api(), Adapter()
+    monkeypatch.setenv("GENERATION_TEXT_FONT", "/missing/font.ttc")
+    with pytest.raises(typeset.FontUnavailable):
+        process_generation(local, request(local, "SELLING_POINT"), "lease", adapter)
+    monkeypatch.setenv("GENERATION_TEXT_FONT_INDEX", "x")
+    with pytest.raises(typeset.FontUnavailable):
+        typeset.font_path()
+    assert adapter.requests == [] and local.posts == []
+
+
+def test_font_index_selects_a_face_in_a_collection(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        typeset.ImageFont, "truetype", lambda path, size, index=0: seen.append(index) or None
+    )
+    monkeypatch.setenv("GENERATION_TEXT_FONT", "fonts.ttc")
+    monkeypatch.setenv("GENERATION_TEXT_FONT_INDEX", "2")
+    assert typeset.font_path() == "fonts.ttc" and seen == [2]

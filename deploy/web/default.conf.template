@@ -1,0 +1,58 @@
+# Rendered by the nginx image at start; only ${HTTPS_PORT} is substituted.
+server {
+    listen 80;
+    server_name _;
+    return 301 https://$host:${HTTPS_PORT}$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name _;
+    server_tokens off;
+
+    ssl_certificate /run/secrets/web.crt;
+    ssl_certificate_key /run/secrets/web.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+
+    # Above the business upload limit (OBJECT_MAX_BYTES, 10 MiB by default).
+    client_max_body_size 12m;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    root /usr/share/nginx/html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+    location = /index.html {
+        expires -1;
+    }
+    location /assets/ {
+        expires 1y;
+        try_files $uri =404;
+    }
+
+    # Only the public API is proxied; Worker endpoints (/internal/) are never exposed.
+    location /internal/ {
+        return 404;
+    }
+    location /api/ {
+        proxy_pass https://business:8443;
+        proxy_ssl_verify on;
+        proxy_ssl_trusted_certificate /run/secrets/ca.pem;
+        proxy_ssl_name business;
+        proxy_ssl_server_name on;
+        proxy_ssl_protocols TLSv1.2 TLSv1.3;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        # Java already sends this header on files; keep a single copy from nginx.
+        proxy_hide_header X-Content-Type-Options;
+        proxy_read_timeout 120s;
+    }
+}

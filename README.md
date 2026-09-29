@@ -4,6 +4,8 @@
 
 已有：Vue 3 + TypeScript 前端（首页三张功能卡、赠品+文字主图/场景主图/卖点主图三个独立工作台、素材、任务记录、我的作品、账号与安全）、Java Spring Boot 业务服务（v4 生成任务、outbox/幂等重试/私有存储/生产本地账号与项目隔离/加密的供应商配置）、Python 独立 Worker（参考图生成、本地导出、文字叠加）。新结果一律待人工审核；删除功能与模板管理在第二期。仅生成与下载，不自动上架；拼多多平台规则未核实。
 
+**内网部署**（Ubuntu 24.04 + Docker）：见 [deploy/README.md](deploy/README.md)。
+
 ## 快速运行
 
 准备 Node 24.15.0（npm 11.x）、JDK 21、Python 3.13、uv 0.12.5。Maven 由 Wrapper 提供。从仓库根目录执行：

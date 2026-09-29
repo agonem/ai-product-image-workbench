@@ -22,10 +22,20 @@ class FontUnavailable(RuntimeError):
 
 
 def font_path():
+    """Resolve and load the deployment font once, so a bad setup fails before any paid call."""
     path = os.getenv("GENERATION_TEXT_FONT", "")
     if not path:
         raise FontUnavailable("GENERATION_TEXT_FONT is not configured")
+    _font(path, MIN_TITLE_PX)
     return path
+
+
+def _font_index():
+    # Face inside a font collection (.ttc); e.g. 2 selects Simplified Chinese in Noto Sans CJK.
+    value = os.getenv("GENERATION_TEXT_FONT_INDEX", "0")
+    if not value.isdigit() or int(value) > 31:
+        raise FontUnavailable("GENERATION_TEXT_FONT_INDEX must be an integer 0-31")
+    return int(value)
 
 
 def rgb(value):
@@ -38,7 +48,7 @@ def _stroke(size):
 
 def _font(path, size):
     try:
-        return ImageFont.truetype(path, size)
+        return ImageFont.truetype(path, size, index=_font_index())
     except OSError as error:
         raise FontUnavailable("configured text font is unusable") from error
 

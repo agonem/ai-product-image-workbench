@@ -1,0 +1,119 @@
+# Intranet deployment (ADR-20260929): one server, access by IP over HTTPS.
+# Prepare once with ./init.sh, then: docker compose up -d --build
+# Only the web container publishes ports; the database, Java API and Worker stay internal.
+name: product-image-workbench
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: workbench
+      POSTGRES_USER: workbench
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets: [db_password]
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workbench -d workbench"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [internal]
+
+  business:
+    build:
+      context: ..
+      dockerfile: deploy/business/Dockerfile
+    image: product-image-workbench/business:local
+    restart: unless-stopped
+    user: "${RUN_UID:-1000}:${RUN_GID:-1000}"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod-local
+      APP_ENV: production
+      BUSINESS_HOST: 0.0.0.0
+      BUSINESS_PORT: "8443"
+      SERVER_SSL_ENABLED: "true"
+      SERVER_SSL_KEY_STORE: file:/run/secrets/business.p12
+      SERVER_SSL_KEY_STORE_TYPE: PKCS12
+      DB_URL: jdbc:postgresql://db:5432/workbench
+      DB_USER: workbench
+      OBJECT_STORE_ROOT: /data/objects
+      PROVIDER_MASTER_KEY_FILE: /run/secrets/provider_master_key
+      # Read only while the account table is empty (first start); delete the file afterwards.
+      PROD_BOOTSTRAP_FILE: /run/bootstrap/admin.json
+      PROD_SESSION_SECONDS: ${PROD_SESSION_SECONDS:-900}
+      GENERATION_MAX_COUNT: ${GENERATION_MAX_COUNT:-4}
+    secrets: [db_password, worker_token, keystore_password, business.p12, provider_master_key]
+    volumes:
+      - ./data/objects:/data/objects
+      - ./secrets/bootstrap:/run/bootstrap:ro
+    networks: [internal]
+
+  worker:
+    build:
+      context: ..
+      dockerfile: deploy/worker/Dockerfile
+    image: product-image-workbench/worker:local
+    restart: unless-stopped
+    user: "${RUN_UID:-1000}:${RUN_GID:-1000}"
+    depends_on: [business]
+    environment:
+      APP_ENV: production
+      WORKER_API_URL: https://business:8443
+      WORKER_CA_FILE: /run/secrets/ca.pem
+      WORKER_JOURNAL_ROOT: /data/journal
+      GENERATION_TEXT_FONT: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
+      # Face 2 of the Noto CJK collection is Simplified Chinese (face 0 is Japanese).
+      GENERATION_TEXT_FONT_INDEX: "2"
+      # Optional: only when this server reaches https://openrouter.ai through a proxy.
+      OPENROUTER_PROXY_URL: ${OPENROUTER_PROXY_URL:-}
+    secrets: [worker_token, ca.pem]
+    volumes:
+      - ./data/journal:/data/journal
+    # The internal network has no route out; model calls leave through "egress".
+    networks: [internal, egress]
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web/Dockerfile
+    image: product-image-workbench/web:local
+    restart: unless-stopped
+    depends_on: [business]
+    environment:
+      HTTPS_PORT: ${HTTPS_PORT:-443}
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTP_PORT:-80}:80"
+    secrets: [web.crt, web.key, ca.pem]
+    networks: [internal, egress]
+
+networks:
+  internal:
+    internal: true
+  egress: {}
+
+volumes:
+  db-data: {}
+
+secrets:
+  db_password:
+    file: ./secrets/db_password
+  worker_token:
+    file: ./secrets/worker_token
+  keystore_password:
+    file: ./secrets/keystore_password
+  business.p12:
+    file: ./secrets/business.p12
+  provider_master_key:
+    file: ./secrets/provider_master_key
+  ca.pem:
+    file: ./secrets/ca.pem
+  web.crt:
+    file: ./secrets/web.crt
+  web.key:
+    file: ./secrets/web.key

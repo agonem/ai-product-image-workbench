@@ -289,3 +289,22 @@ def test_native_ratio_still_requires_route_support():
     with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
         generate(provider, request(resolution=None, output_format=None))
     assert all(c.method == "GET" for c in provider.calls)
+
+
+@pytest.mark.parametrize(
+    "value", ["ftp://proxy:21", "http://", "http://proxy:3128/path", "http://proxy:99999"]
+)
+def test_invalid_explicit_proxy_is_a_configuration_error(monkeypatch, value):
+    monkeypatch.setenv("OPENROUTER_PROXY_URL", value)
+    with pytest.raises(BackgroundError, match="CONFIGURATION"):
+        OpenRouterAdapter(config())
+
+
+def test_explicit_proxy_is_used_and_ambient_proxy_ignored(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://ambient.invalid:1")
+    monkeypatch.delenv("OPENROUTER_PROXY_URL", raising=False)
+    with OpenRouterAdapter(config()) as adapter:
+        assert not adapter.client._mounts
+    monkeypatch.setenv("OPENROUTER_PROXY_URL", "http://egress.internal:3128")
+    with OpenRouterAdapter(config()) as adapter:
+        assert list(adapter.client._mounts.values())[0] is not None
