@@ -40,50 +40,96 @@ PYTHON="${PYTHON:-python3}"
 command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 1; }
 command -v "$PYTHON" >/dev/null || { echo "$PYTHON is required" >&2; exit 1; }
 
+# Everything is built in a staging directory and only moved into place when complete, so a
+# failed run leaves nothing behind and can simply be repeated.
+STAGE=secrets.partial
+LOG="$STAGE/openssl.log"
+rm -rf "$STAGE"
 umask 077
-mkdir -p secrets/bootstrap data/objects data/journal
+mkdir -p "$STAGE/bootstrap"
+finished=0
+cleanup() {
+  if [ "$finished" != 1 ]; then
+    if [ -s "$LOG" ]; then
+      echo "--- openssl output ---" >&2
+      tail -n 20 "$LOG" >&2
+    fi
+    rm -rf "$STAGE"
+    echo "init.sh failed; nothing was installed. Fix the problem above and run it again." >&2
+  fi
+}
+trap cleanup EXIT
+ssl() { openssl "$@" >>"$LOG" 2>&1; }
 
 random() { openssl rand -hex 32; }
-printf '%s' "$(random)" > secrets/db_password
-printf '%s' "$(random)" > secrets/worker_token
-printf '%s' "$(random)" > secrets/keystore_password
+printf '%s' "$(random)" > "$STAGE/db_password"
+printf '%s' "$(random)" > "$STAGE/worker_token"
+printf '%s' "$(random)" > "$STAGE/keystore_password"
 # AES-256 key for stored provider API keys; losing it makes saved keys unreadable.
-openssl rand -base64 32 | tr -d '\n' > secrets/provider_master_key
+openssl rand -base64 32 | tr -d '\n' > "$STAGE/provider_master_key"
 
+# Certificates use only the configuration written here (never the system openssl.cnf or
+# -addext), so OpenSSL 1.1.1 and 3.x produce the same, duplicate-free extensions.
 # Internal CA, limited by name constraints to this server's IP and the internal API name.
-openssl req -x509 -new -newkey rsa:3072 -nodes -sha256 -days 3650 \
-  -keyout secrets/ca.key -out secrets/ca.pem -subj "/CN=Product Image Workbench CA" \
-  -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
-  -addext "keyUsage=critical,keyCertSign,cRLSign" \
-  -addext "nameConstraints=critical,permitted;IP:${SERVER_IP}/255.255.255.255,permitted;DNS:business" \
-  2>/dev/null
+cat > "$STAGE/ca.cnf" <<EOF
+[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = Product Image Workbench CA
+[ext]
+basicConstraints = critical,CA:TRUE,pathlen:0
+keyUsage = critical,keyCertSign,cRLSign
+subjectKeyIdentifier = hash
+nameConstraints = critical,permitted;IP:${SERVER_IP}/255.255.255.255,permitted;DNS:business
+EOF
+ssl req -x509 -new -config "$STAGE/ca.cnf" -newkey rsa:3072 -nodes -sha256 -days 3650 \
+  -keyout "$STAGE/ca.key" -out "$STAGE/ca.pem"
 
 issue() { # name, subjectAltName, common name (no dots, so it is never read as a host name)
-  openssl req -new -newkey rsa:2048 -nodes -keyout "secrets/$1.key" -out "secrets/$1.csr" \
-    -subj "/CN=$3" 2>/dev/null
-  printf '%s\n' "subjectAltName=$2" "basicConstraints=critical,CA:FALSE" \
-    "keyUsage=critical,digitalSignature,keyEncipherment" "extendedKeyUsage=serverAuth" \
-    > "secrets/$1.ext"
-  openssl x509 -req -in "secrets/$1.csr" -CA secrets/ca.pem -CAkey secrets/ca.key \
-    -CAcreateserial -days 825 -sha256 -extfile "secrets/$1.ext" -out "secrets/$1.crt" 2>/dev/null
-  rm -f "secrets/$1.csr" "secrets/$1.ext"
+  cat > "$STAGE/$1.cnf" <<EOF
+[req]
+distinguished_name = dn
+prompt = no
+[dn]
+CN = $3
+[ext]
+subjectAltName = $2
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+EOF
+  ssl req -new -config "$STAGE/$1.cnf" -newkey rsa:2048 -nodes \
+    -keyout "$STAGE/$1.key" -out "$STAGE/$1.csr"
+  ssl x509 -req -in "$STAGE/$1.csr" -CA "$STAGE/ca.pem" -CAkey "$STAGE/ca.key" \
+    -CAcreateserial -days 825 -sha256 -extfile "$STAGE/$1.cnf" -extensions ext \
+    -out "$STAGE/$1.crt"
+  rm -f "$STAGE/$1.csr" "$STAGE/$1.cnf"
 }
 issue web "IP:${SERVER_IP}" workbench-web
 issue business "DNS:business" business
-openssl pkcs12 -export -name business -inkey secrets/business.key -in secrets/business.crt \
-  -out secrets/business.p12 -passout file:secrets/keystore_password
-rm -f secrets/business.key secrets/business.crt
-openssl verify -CAfile secrets/ca.pem -verify_ip "$SERVER_IP" secrets/web.crt >/dev/null
+ssl verify -CAfile "$STAGE/ca.pem" -verify_ip "$SERVER_IP" "$STAGE/web.crt"
+ssl verify -CAfile "$STAGE/ca.pem" -verify_hostname business "$STAGE/business.crt"
+# Explicit modern PKCS12 algorithms (OpenSSL 1.1.1 defaults to legacy RC2/3DES).
+ssl pkcs12 -export -name business -inkey "$STAGE/business.key" -in "$STAGE/business.crt" \
+  -keypbe AES-256-CBC -certpbe AES-256-CBC -macalg sha256 \
+  -out "$STAGE/business.p12" -passout "file:$STAGE/keystore_password"
+rm -f "$STAGE/business.key" "$STAGE/business.crt" "$STAGE/ca.cnf" "$LOG"
 
 # First administrator: only a salted PBKDF2 verifier is stored, never the password.
 echo "Choose the first administrator password (15-128 characters):"
 if [ -t 0 ]; then
-  "$PYTHON" ../scripts/prod_accounts.py --file secrets/bootstrap/admin.json --username "$ADMIN"
+  "$PYTHON" ../scripts/prod_accounts.py --file "$STAGE/bootstrap/admin.json" --username "$ADMIN"
 else
-  "$PYTHON" ../scripts/prod_accounts.py --file secrets/bootstrap/admin.json --username "$ADMIN" \
-    --password-stdin
+  "$PYTHON" ../scripts/prod_accounts.py --file "$STAGE/bootstrap/admin.json" \
+    --username "$ADMIN" --password-stdin
 fi
 
+mv "$STAGE" secrets
+mkdir -p data/objects data/journal
 # Containers run as this user so they can read the secrets and write ./data.
 cat > .env <<EOF
 RUN_UID=$(id -u)
@@ -97,6 +143,7 @@ chmod 600 .env
 # Public certificate for colleagues' computers (removes the browser warning once trusted).
 umask 022
 cp secrets/ca.pem workbench-ca.crt
+finished=1
 
 echo
 URL="https://${SERVER_IP}/"
