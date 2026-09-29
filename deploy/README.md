@@ -68,6 +68,20 @@ HTTP_PORT=8080 HTTPS_PORT=8443 ./init.sh 192.168.1.20 admin   # 两个都换
 
 数据位置：数据库在 Docker 卷 `product-image-workbench_db-data`，原图与生成结果在 `deploy/data/objects`，Worker 回执在 `deploy/data/journal`。`secrets/` 必须保留：丢失 `provider_master_key` 后已保存的 API Key 无法解密，需要重新录入。
 
+### 服务器只保留运行所需文件（测试服务器已启用）
+
+仓库里的测试、验收脚本、开发环境和文档不需要出现在服务器上。在仓库根目录执行一次：
+
+```bash
+cp deploy/sparse-checkout .git/info/sparse-checkout
+git config core.sparseCheckout true
+git read-tree -mu HEAD
+```
+
+之后 `git pull` 只会检出清单里的文件，镜像照常构建。恢复完整检出：`git config core.sparseCheckout false && git read-tree -mu HEAD`。
+
+服务器没有 GitHub 权限时（私有仓库）：可在 GitHub 仓库 Settings → Deploy keys 给服务器加只读密钥；或在开发机执行 `git bundle create wb.bundle <服务器当前提交>..master`，拷到服务器后 `git fetch wb.bundle master && git merge --ff-only FETCH_HEAD`。
+
 ## 6. 常见问题
 
 | 现象 | 处理 |

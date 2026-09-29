@@ -1,0 +1,23 @@
+# Git sparse-checkout list for servers: only what the images and init.sh need.
+# Tests, acceptance scripts, dev tooling and docs stay in the repository only.
+/.dockerignore
+/.gitignore
+/.gitattributes
+/deploy/
+/contracts/*.json
+/business-service/.mvn/
+/business-service/mvnw
+/business-service/pom.xml
+/business-service/src/main/
+/image-service/pyproject.toml
+/image-service/uv.lock
+/image-service/image_service/
+/frontend/
+!/frontend/tests/
+!/frontend/tests-core/
+!/frontend/tests-production/
+!/frontend/playwright*.ts
+!/frontend/src/**/*.test.ts
+!/frontend/eslint.config.js
+!/frontend/PRODUCT.md
+/scripts/prod_accounts.py
