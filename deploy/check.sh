@@ -61,7 +61,8 @@ for url in ("https://openrouter.ai/api/v1/models", "https://api.openai.com/v1/mo
         status = httpx.get(url, trust_env=False, timeout=20).status_code
         print("ok   worker reaches", host, "(HTTP %d)" % status)
     except httpx.HTTPError as error:
-        print("WARN worker cannot reach", host, "(" + type(error).__name__ + ");",
-              "directly; set the proxy in the model settings page and tick use proxy")' || true
+        print("WARN worker cannot reach", host, "directly (" + type(error).__name__ + ");",
+              "if this provider is used, set the proxy in the model settings page",
+              "and tick use proxy for that model")' || true
 
 echo "PASS: deployment checks. Next: log in, configure the provider, generate one image per entry."
