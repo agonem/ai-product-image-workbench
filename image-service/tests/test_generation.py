@@ -331,3 +331,30 @@ def test_reference_image_bytes_must_be_images():
             output_format=None,
             references=(b"not an image",),
         )
+
+
+@pytest.mark.parametrize(
+    ("box", "zone"),
+    [
+        (
+            {"x": 0.05, "y": 0.05, "width": 0.46, "height": 0.5},
+            "right part of the image, to the right of the first 51%",
+        ),
+        (
+            {"x": 0.55, "y": 0.05, "width": 0.4, "height": 0.5},
+            "left part of the image, within the first 55%",
+        ),
+        (
+            {"x": 0.1, "y": 0.02, "width": 0.8, "height": 0.2},
+            "lower part of the image, below the top 22%",
+        ),
+        (
+            {"x": 0.1, "y": 0.8, "width": 0.8, "height": 0.15},
+            "upper part of the image, above the bottom 20%",
+        ),
+    ],
+)
+def test_text_features_name_where_the_products_go(box, zone):
+    local = api()
+    prompt = build_prompt(request(local, "GIFT", text=dict(TEXT, box=box)), 0)
+    assert zone in prompt and "nothing overlaps the text area" in prompt

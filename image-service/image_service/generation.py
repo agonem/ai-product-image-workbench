@@ -77,11 +77,30 @@ def _text_area(box):
     area = (
         "centre" if (horizontal, vertical) == ("centre", "middle") else f"{vertical}-{horizontal}"
     )
-    return (
+    clear = (
         f"Keep the {area} area of the image (about {round(box['width'] * 100)}% of the width and "
         f"{round(box['height'] * 100)}% of the height) as clean, uncluttered background for text "
         "that will be added later, and keep the products out of that area."
     )
+    # Calibration (2026-09-29): naming where the products go is followed far more reliably
+    # than only asking to avoid the text area.
+    if horizontal == "left":
+        edge = _pct(box["x"] + box["width"])
+        zone = f"the right part of the image, to the right of the first {edge} of the width"
+    elif horizontal == "right":
+        zone = f"the left part of the image, within the first {_pct(box['x'])} of the width"
+    elif vertical == "top":
+        edge = _pct(box["y"] + box["height"])
+        zone = f"the lower part of the image, below the top {edge} of the height"
+    elif vertical == "bottom":
+        zone = f"the upper part of the image, above the bottom {_pct(1 - box['y'])} of the height"
+    else:
+        return clear
+    return f"{clear} Place every product entirely in {zone}, so nothing overlaps the text area."
+
+
+def _pct(value):
+    return f"{round(min(1, max(0, value)) * 100)}%"
 
 
 def build_prompt(request, ordinal):
