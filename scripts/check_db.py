@@ -88,6 +88,11 @@ def main() -> None:
 
             run_scene_checks(env, work / "t09", real="--t09-real" in sys.argv)
             return
+        if "--core-only" in sys.argv:
+            from check_core import run_core_checks
+
+            run_core_checks(env, work / "core")
+            return
         if "--t05-only" in sys.argv:
             from check_t05 import run_runtime
 

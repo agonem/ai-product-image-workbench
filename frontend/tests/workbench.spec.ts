@@ -72,9 +72,7 @@ test('ACC-T06 A1–A3/A5–A8: dev-local workflows, history, errors and responsi
     page.getByRole('button', { name: '提交开发任务' }),
   ).toBeDisabled()
   await expect(
-    page.getByText(
-      '商品边缘待审核。T02 审核能力尚未接入，普通上传暂不能生成。',
-    ),
+    page.getByText('商品抠图尚未确认：请在商品下方生成抠图候选并确认边缘。'),
   ).toBeVisible()
   await page.getByRole('button', { name: '查看商品原图' }).click()
   await expect(page.getByAltText('上传原图 · 非生成预览')).toBeVisible()

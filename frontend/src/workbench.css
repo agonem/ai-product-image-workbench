@@ -490,3 +490,79 @@ textarea:focus-visible {
     margin-top: 15px;
   }
 }
+
+/* Cutout candidate review (PRD-G02): original, mask and transparent preview side by side. */
+.cutout-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #dce2ee;
+  border-radius: 10px;
+  background: #fbfcff;
+}
+.cutout-panel header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.cutout-status {
+  font-size: 0.85rem;
+  color: #8a5a12;
+}
+.cutout-status[data-status='APPROVED'] {
+  color: #2f6b45;
+}
+.cutout-compare {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.cutout-compare figure {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  text-align: center;
+  font-size: 0.8rem;
+}
+.cutout-compare img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border: 1px solid #dce2ee;
+  border-radius: 6px;
+  background: #fff;
+}
+.cutout-compare .checkerboard img {
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #ddd 25%, transparent 25%),
+    linear-gradient(-45deg, #ddd 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #ddd 75%),
+    linear-gradient(-45deg, transparent 75%, #ddd 75%);
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+}
+.cutout-panel .tolerance {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.cutout-panel .tolerance input {
+  width: 4.5em;
+}
+.cutout-hint {
+  margin: 0;
+  font-size: 0.85rem;
+}
+@media (max-width: 560px) {
+  .cutout-compare {
+    grid-template-columns: 1fr;
+  }
+}

@@ -31,6 +31,8 @@ python scripts/dev.py image
 python scripts/dev.py frontend
 ```
 
+网页内“生成抠图候选”需要图像服务（`dev.py image`）在运行：Java 与图像服务配置相同的 `IMAGE_SERVICE_TOKEN`，Java 另配 `IMAGE_SERVICE_URL`（见 `.env.example`、[02 §15](docs/02-接口与数据契约.md)）；未配置时页面明确提示抠图服务不可用。
+
 打开 [本地工作台](http://127.0.0.1:5173)，显示明确的开发环境登录页。默认 Java 健康模式无登录/业务能力；实际使用须先按 [T04 指南](docs/13-T04开发账号与上传.md) 配置私有本地账号、数据库及 `dev-local`，再启动 business/frontend（任务执行另启 worker）。Ctrl+C 停止服务。配置覆盖、原生命令及 Windows JDK 说明见 [T01 开发指南](docs/07-开发环境与版本选择.md)。
 
 T06 提供三独立入口、原图上传/查看、任务提交、状态/重试、项目历史；真实生成尚未接入，普通上传仍受 alpha 审核阻塞。完整页面验收使用隔离数据库和随机开发账号：

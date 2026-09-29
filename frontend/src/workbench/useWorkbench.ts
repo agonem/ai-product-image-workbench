@@ -340,7 +340,10 @@ export function useWorkbench() {
       assets.value.unshift({ ...item, cutout_ready: false })
       if (kind === 'PRODUCT') draft.value.product = item.id
       else draft.value.gift = item.id
-      notice.value = '原图已保存。商品需等待边缘审核；当前不会自动生成图片。'
+      notice.value =
+        kind === 'PRODUCT'
+          ? '原图已保存。请生成抠图候选并确认边缘后再用于生成。'
+          : '赠品原图已保存。'
     })
   }
   async function showImage(id: string, artifact = false, download = false) {

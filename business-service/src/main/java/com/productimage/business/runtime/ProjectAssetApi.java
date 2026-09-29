@@ -13,13 +13,19 @@ public class ProjectAssetApi {
   private final UserAuthenticator users;
   private final ProjectAssets assets;
   private final RuntimeSettings settings;
+  private final CutoutService cutouts;
   // Bound simultaneous buffered image decodes independently of HTTP thread count.
   private final Semaphore uploads = new Semaphore(2);
 
-  ProjectAssetApi(UserAuthenticator users, ProjectAssets assets, RuntimeSettings settings) {
+  ProjectAssetApi(
+      UserAuthenticator users,
+      ProjectAssets assets,
+      RuntimeSettings settings,
+      CutoutService cutouts) {
     this.users = users;
     this.assets = assets;
     this.settings = settings;
+    this.cutouts = cutouts;
   }
 
   private String actor(HttpServletRequest request) {
@@ -96,5 +102,30 @@ public class ProjectAssetApi {
         .header("Cache-Control", "no-store")
         .header("X-Content-Type-Options", "nosniff")
         .body(assets.approvedAlpha(actor(request), id));
+  }
+
+  /** Creates a PENDING cutout candidate; never approves it. */
+  @PostMapping("/api/v1/assets/{id}/cutouts")
+  ResponseEntity<JsonNode> createCutout(@PathVariable String id, HttpServletRequest request) {
+    String actor = actor(request);
+    return ResponseEntity.status(201)
+        .header("Cache-Control", "no-store")
+        .body(cutouts.create(actor, id, HttpInput.json(request, 1024)));
+  }
+
+  @GetMapping("/api/v1/assets/{id}/cutouts")
+  ResponseEntity<JsonNode> cutouts(@PathVariable String id, HttpServletRequest request) {
+    return ResponseEntity.ok()
+        .header("Cache-Control", "no-store")
+        .body(cutouts.list(actor(request), id));
+  }
+
+  /** The owner's explicit decision on a PENDING candidate (APPROVED or REJECTED). */
+  @PostMapping("/api/v1/assets/{id}/review")
+  ResponseEntity<JsonNode> review(@PathVariable String id, HttpServletRequest request) {
+    String actor = actor(request);
+    return ResponseEntity.ok()
+        .header("Cache-Control", "no-store")
+        .body(cutouts.review(actor, id, HttpInput.json(request, 1024)));
   }
 }

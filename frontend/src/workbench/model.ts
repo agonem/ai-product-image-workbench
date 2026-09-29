@@ -121,6 +121,14 @@ export interface Asset {
   review_status: string
   cutout_ready: boolean
 }
+export interface Cutout {
+  id: string
+  source_asset_id: string
+  width: number
+  height: number
+  review_status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  created_at: string
+}
 export interface Task {
   id: string
   feature_type: Feature

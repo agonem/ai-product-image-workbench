@@ -18,7 +18,11 @@ const messages: Record<string, string> = {
   UPLOAD_CONTENT_REJECTED:
     '图片内容或尺寸不符合要求，或包含未支持的附加元数据。请使用有效 PNG/JPEG。',
   CUTOUT_REVIEW_REQUIRED:
-    '商品边缘尚未审核。审核能力接入前，普通上传暂不能提交生成。',
+    '商品抠图尚未确认。请先生成抠图候选并确认边缘后再提交。',
+  CUTOUT_SERVICE_UNAVAILABLE:
+    '抠图服务未配置或暂不可用，请稍后重试或联系管理员。',
+  CUTOUT_NO_FOREGROUND:
+    '没有找到白底之外的商品主体。请确认是白底图，或调小白底容差后重试。',
   INVALID_ASSET: '图片内容或尺寸不符合上传要求，请选择有效的 PNG/JPEG。',
   INVALID_LAYOUT: '输出预设或模板不可用，请刷新配置。',
   TASK_CONFLICT: '任务状态已变化或不可重试，请刷新任务。',

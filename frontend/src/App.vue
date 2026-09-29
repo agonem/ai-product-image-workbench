@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, provide, reactive } from 'vue'
 import BoxFields from './workbench/BoxFields.vue'
+import CutoutPanel from './workbench/CutoutPanel.vue'
 import AccountPanel from './workbench/AccountPanel.vue'
 import ProviderPanel from './workbench/ProviderPanel.vue'
 import SceneWorkspace from './workbench/SceneWorkspace.vue'
@@ -18,7 +19,7 @@ const blocked = computed(() =>
     : !w.draft.product
       ? '先上传或选择商品白底原图。'
       : !w.selectedProduct?.cutout_ready
-        ? '商品边缘待审核。T02 审核能力尚未接入，普通上传暂不能生成。'
+        ? '商品抠图尚未确认：请在商品下方生成抠图候选并确认边缘。'
         : !w.realSceneEnabled && !w.draft.preset
           ? '请选择已配置的输出预设。'
           : '',
@@ -224,7 +225,7 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
                     :value="asset.id"
                   >
                     {{ asset.id }} · {{ asset.width }}×{{ asset.height }} ·
-                    {{ asset.cutout_ready ? '已有审核 alpha' : '边缘待审核' }}
+                    {{ asset.cutout_ready ? '抠图已确认' : '抠图待确认' }}
                   </option>
                 </select></label
               >
@@ -248,6 +249,12 @@ const date = (value: string) => new Date(value).toLocaleString('zh-CN')
                 >支持 PNG/JPEG，实际内容、尺寸与资源预算由 Java
                 校验；带复杂元数据的文件可能被拒绝。</small
               >
+              <CutoutPanel
+                v-if="w.draft.product"
+                :key="w.draft.product"
+                :asset="w.draft.product"
+                label="商品"
+              />
 
               <template v-if="w.feature === 'GIFT'">
                 <label

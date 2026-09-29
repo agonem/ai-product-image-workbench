@@ -4,6 +4,7 @@ import { workbenchKey } from './useWorkbench'
 import SceneCanvas from './SceneCanvas.vue'
 import PrivateImage from './PrivateImage.vue'
 import BoxFields from './BoxFields.vue'
+import CutoutPanel from './CutoutPanel.vue'
 import { statusLabels } from './model'
 const w = inject(workbenchKey)!
 defineProps<{
@@ -34,14 +35,14 @@ async function show(id: string) {
             required
             :disabled="w.busy || w.uncertain"
           >
-            <option value="">选择已审核商品</option>
+            <option value="">选择商品原图</option>
             <option
               v-for="asset in w.assets.filter((a) => a.kind === 'PRODUCT')"
               :key="asset.id"
               :value="asset.id"
             >
               {{ asset.id }} ·
-              {{ asset.cutout_ready ? '已审核 alpha' : '待审核' }}
+              {{ asset.cutout_ready ? '抠图已确认' : '抠图待确认' }}
             </option>
           </select></label
         >
@@ -60,8 +61,14 @@ async function show(id: string) {
             :disabled="w.busy || w.uncertain"
             @change="w.upload($event, 'PRODUCT')"
         /></label>
+        <CutoutPanel
+          v-if="w.draft.product"
+          :key="w.draft.product"
+          :asset="w.draft.product"
+          label="商品"
+        />
         <p class="asset-note">
-          原图保留，模型仅生成背景。新上传素材须先完成人工边缘审核。
+          原图保留，模型仅生成背景。新上传的商品须先确认抠图边缘。
         </p>
         <button
           v-if="w.assetNext !== null"
