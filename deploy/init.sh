@@ -143,6 +143,7 @@ chmod 600 .env
 # Public certificate for colleagues' computers (removes the browser warning once trusted).
 umask 022
 cp secrets/ca.pem workbench-ca.crt
+chmod 644 workbench-ca.crt
 finished=1
 
 echo
