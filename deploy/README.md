@@ -14,7 +14,7 @@
 - 服务器已装 Docker Engine 与 `docker compose` 插件；当前用户在 `docker` 组里（能不加 sudo 运行 `docker ps`）。
 - **构建镜像时**服务器要能访问 Docker Hub、Maven Central、npm、PyPI、Debian 软件源。不能访问时见第 7 节“离线构建”。
 - **运行时** Worker 要能访问 `https://openrouter.ai`（直连或公司代理）。需要代理时，在 `deploy/.env` 里填 `OPENROUTER_PROXY_URL=http://代理地址:端口`（只用于模型调用）。
-- 80、443 端口没有被占用；被占用就改 `.env` 里的 `HTTP_PORT` / `HTTPS_PORT`，访问地址随之带端口。
+- 80、443 端口没有被占用；被占用就换端口（见第 2 节末尾），访问地址随之带端口。
 
 ## 2. 首次安装
 
@@ -30,6 +30,15 @@ cd /opt/workbench/deploy
 docker compose up -d --build              # 首次构建约 5–15 分钟
 ./check.sh                                # 上线检查，不调用模型、不改数据
 ```
+
+**80 或 443 端口已被占用时**（`init.sh` 检测到会直接提示）：初始化时指定其他端口，例如
+
+```bash
+HTTP_PORT=8080 ./init.sh 192.168.1.20 admin                   # 只换 80
+HTTP_PORT=8080 HTTPS_PORT=8443 ./init.sh 192.168.1.20 admin   # 两个都换
+```
+
+已经初始化过的：编辑 `deploy/.env` 里的 `HTTP_PORT=` / `HTTPS_PORT=`，再执行 `docker compose up -d`。HTTPS 不是 443 时访问地址要带端口，如 `https://192.168.1.20:8443/`。查看端口被谁占用：`sudo ss -ltnp | grep ':80 '`。服务器开了防火墙（`sudo ufw status` 显示 active）时放行新端口：`sudo ufw allow 8080/tcp`。
 
 ## 3. 首次登录后（必须做）
 

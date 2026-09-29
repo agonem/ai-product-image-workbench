@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-time preparation on the server: private secrets, internal TLS certificates, first admin.
 # Usage: ./init.sh <server-ip> <admin-username>
+# Other ports: HTTP_PORT=8080 HTTPS_PORT=8443 ./init.sh <server-ip> <admin-username>
 # Nothing is overwritten; everything private goes to ./secrets (mode 0700, files 0600).
 set -euo pipefail
 # Git Bash on Windows would rewrite "/CN=..." subjects as paths; harmless elsewhere.
@@ -21,6 +22,20 @@ if [ -e secrets ] || [ -e .env ]; then
   echo "secrets/ or .env already exists; refusing to overwrite an existing installation." >&2
   exit 1
 fi
+HTTP_PORT="${HTTP_PORT:-80}"
+HTTPS_PORT="${HTTPS_PORT:-443}"
+for port in "$HTTP_PORT" "$HTTPS_PORT"; do
+  if ! [[ "$port" =~ ^[0-9]{1,5}$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo "HTTP_PORT and HTTPS_PORT must be numbers between 1 and 65535." >&2
+    exit 2
+  fi
+  if command -v ss >/dev/null && [ -n "$(ss -ltnH "( sport = :$port )")" ]; then
+    echo "Port $port is already in use on this server. Choose another, for example:" >&2
+    echo "  HTTP_PORT=8080 HTTPS_PORT=8443 ./init.sh $SERVER_IP $ADMIN" >&2
+    exit 2
+  fi
+done
+[ "$HTTP_PORT" != "$HTTPS_PORT" ] || { echo "HTTP_PORT and HTTPS_PORT must differ." >&2; exit 2; }
 PYTHON="${PYTHON:-python3}"
 command -v openssl >/dev/null || { echo "openssl is required" >&2; exit 1; }
 command -v "$PYTHON" >/dev/null || { echo "$PYTHON is required" >&2; exit 1; }
@@ -74,8 +89,8 @@ cat > .env <<EOF
 RUN_UID=$(id -u)
 RUN_GID=$(id -g)
 SERVER_IP=${SERVER_IP}
-HTTPS_PORT=443
-HTTP_PORT=80
+HTTPS_PORT=${HTTPS_PORT}
+HTTP_PORT=${HTTP_PORT}
 OPENROUTER_PROXY_URL=
 EOF
 chmod 600 .env
@@ -84,5 +99,7 @@ umask 022
 cp secrets/ca.pem workbench-ca.crt
 
 echo
-echo "Done. Next: docker compose up -d --build   then open https://${SERVER_IP}/"
+URL="https://${SERVER_IP}/"
+[ "$HTTPS_PORT" = 443 ] || URL="https://${SERVER_IP}:${HTTPS_PORT}/"
+echo "Done. Next: docker compose up -d --build   then open ${URL}"
 echo "Keep ./secrets private and backed up; never commit or share it (except workbench-ca.crt)."
