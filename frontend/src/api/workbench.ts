@@ -24,7 +24,10 @@ const messages: Record<string, string> = {
   CUTOUT_NO_FOREGROUND:
     '没有找到白底之外的商品主体。请确认是白底图，或调小白底容差后重试。',
   INVALID_ASSET: '图片内容或尺寸不符合上传要求，请选择有效的 PNG/JPEG。',
-  INVALID_LAYOUT: '输出预设或模板不可用，请刷新配置。',
+  INVALID_LAYOUT:
+    '尺寸、比例、数量或文字区域不符合要求（卖点图数量须等于所选风格数）。',
+  TEXT_OVERFLOW: '文字放不下：请缩短文字、减小字号或放大文字区域。',
+  PROVIDER_UNAVAILABLE: '生成服务暂不可用，请稍后重试或联系管理员。',
   TASK_CONFLICT: '任务状态已变化或不可重试，请刷新任务。',
   INVALID_CONTRACT: '请求内容不符合接口要求，请检查输入。',
 }
@@ -36,7 +39,7 @@ export async function request<T>(
   let response: Response
   try {
     response = await fetch(
-      (/^\/v[23]\//.test(path) ? '/api' : '/api/v1') + path,
+      (/^\/v[234]\//.test(path) ? '/api' : '/api/v1') + path,
       {
         ...init,
         cache: 'no-store',
@@ -51,7 +54,7 @@ export async function request<T>(
   } catch {
     throw new ApiError(
       0,
-      '连接中断或超时。提交结果可能尚未返回，请使用原请求重发。',
+      '连接中断或超时。提交结果可能尚未返回，请用原请求重发，不会重复创建。',
     )
   }
   if (!response.ok) {

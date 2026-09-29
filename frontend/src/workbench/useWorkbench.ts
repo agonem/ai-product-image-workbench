@@ -1,19 +1,43 @@
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onUnmounted, reactive, ref } from 'vue'
 import type { InjectionKey, UnwrapNestedRefs } from 'vue'
-import { ApiError, checkedTask, json, request } from '../api/workbench'
-import { buildRequest, newDraft, Submission } from './model'
+import { ApiError, json, request } from '../api/workbench'
+import { validateContract } from '../contracts/validate'
+import { buildGeneration, newDraft } from './generation'
+import type { GenerationDraft } from './generation'
+import { Submission } from './model'
 import type {
   Asset,
   Feature,
+  Generation,
   HistoryItem,
   Options,
   Page,
   Project,
   Task,
+  TextSpec,
 } from './model'
 
 export type WorkbenchStore = UnwrapNestedRefs<ReturnType<typeof useWorkbench>>
 export const workbenchKey: InjectionKey<WorkbenchStore> = Symbol('workbench')
+
+const taskFields = [
+  'id',
+  'feature_type',
+  'status',
+  'attempt',
+  'created_at',
+  'artifacts',
+  'error',
+]
+/** Validate the shared task part of any response before trusting it. */
+function checked<T extends Task>(value: T): T {
+  const base = Object.fromEntries(
+    taskFields.map((key) => [key, (value as Record<string, unknown>)[key]]),
+  )
+  if (validateContract('task-response', base).length)
+    throw new ApiError(0, '任务响应格式异常，请刷新查询，避免重复创建任务。')
+  return value
+}
 
 export function useWorkbench() {
   const mode =
@@ -23,9 +47,6 @@ export function useWorkbench() {
     throw new Error('Invalid authentication mode')
   const production = mode === 'production-local'
   const mockProvider = import.meta.env.VITE_ACCEPTANCE_MODE === 'mock-provider'
-  const sceneLabel = mockProvider
-    ? '模拟供应商合成 · 非真实生成'
-    : '真实背景合成 · 待人工审核'
   const authPath = production ? '/local-auth' : '/auth'
   const identity = ref<{
     id: string
@@ -40,8 +61,7 @@ export function useWorkbench() {
     error = ref(''),
     notice = ref('')
   const busy = ref(false),
-    loading = ref(false),
-    feature = ref<Feature>('GIFT')
+    loading = ref(false)
   const projects = ref<Project[]>([]),
     project = ref(''),
     projectName = ref('')
@@ -49,27 +69,20 @@ export function useWorkbench() {
     assets = ref<Asset[]>([]),
     assetNext = ref<number | null>(null)
   const history = ref<HistoryItem[]>([]),
-    historyNext = ref<number | null>(null),
-    selected = ref<Task | null>(null)
-  const preview = ref(''),
-    previewTitle = ref(''),
+    historyNext = ref<number | null>(null)
+  const selected = ref<Generation | null>(null),
     uncertain = ref(false)
-  const drafts = reactive({
+  const drafts = reactive<Record<Feature, GenerationDraft>>({
     GIFT: newDraft(),
     SCENE: newDraft(),
     SELLING_POINT: newDraft(),
   })
-  const draft = computed(() => drafts[feature.value])
-  const realSceneEnabled = computed(
-    () => feature.value === 'SCENE' && options.value?.scene?.enabled === true,
+  const generation = computed(() => options.value?.generation ?? null)
+  const products = computed(() =>
+    assets.value.filter((item) => item.kind === 'PRODUCT'),
   )
-  const selectedRealScene = computed(() =>
-    history.value.some(
-      (item) => item.task.id === selected.value?.id && item.real_scene,
-    ),
-  )
-  const selectedProduct = computed(() =>
-    assets.value.find((a) => a.id === draft.value.product),
+  const gifts = computed(() =>
+    assets.value.filter((item) => item.kind === 'GIFT'),
   )
   const submission = new Submission()
   let epoch = 0,
@@ -77,13 +90,13 @@ export function useWorkbench() {
     refreshSequence = 0,
     timer: ReturnType<typeof setTimeout> | undefined
   let abort = new AbortController()
-  function clearPreview() {
-    if (preview.value) URL.revokeObjectURL(preview.value)
-    preview.value = ''
-    previewTitle.value = ''
-  }
+
   function stopPolling() {
     clearTimeout(timer)
+  }
+  function resetDrafts() {
+    for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const)
+      Object.assign(drafts[key], newDraft())
   }
   function reset() {
     clearTimeout(sessionTimer)
@@ -96,7 +109,6 @@ export function useWorkbench() {
     abort.abort()
     abort = new AbortController()
     stopPolling()
-    clearPreview()
     token.value = ''
     password.value = ''
     projects.value = []
@@ -111,15 +123,14 @@ export function useWorkbench() {
     submission.resolve()
     uncertain.value = false
     notice.value = ''
-    for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const)
-      Object.assign(drafts[key], newDraft())
+    resetDrafts()
   }
   async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     const current = epoch
     try {
       const value = await request<T>(path, token.value, {
         ...init,
-        signal: AbortSignal.any([abort.signal, AbortSignal.timeout(15000)]),
+        signal: AbortSignal.any([abort.signal, AbortSignal.timeout(20000)]),
       })
       if (current !== epoch) throw new Error('STALE')
       return value
@@ -149,6 +160,7 @@ export function useWorkbench() {
       busy.value = false
     }
   }
+
   async function login() {
     await action(async () => {
       const result = await api<{
@@ -173,7 +185,7 @@ export function useWorkbench() {
         )
           throw new Error('生产认证响应无效。')
         identity.value = result.user
-      }
+      } else identity.value = { id: '', username: username.value, role: 'USER' }
       token.value = result.access_token
       if (production) scheduleSession()
       await loadProjects()
@@ -210,8 +222,8 @@ export function useWorkbench() {
       api<Project[]>('/projects'),
       api<Options>('/workbench/options'),
     ])
-    if (config.mode !== mode || config.generation_available !== false)
-      throw new Error('能力配置不符合当前开发工作台版本。')
+    if (config.mode !== mode)
+      throw new Error('能力配置与当前页面模式不符，请联系管理员。')
     projects.value = list
     options.value = config
     if (!list.some((p) => p.id === project.value))
@@ -243,14 +255,12 @@ export function useWorkbench() {
     refreshSequence++
     loading.value = false
     stopPolling()
-    clearPreview()
     selected.value = null
     history.value = []
     assets.value = []
     historyNext.value = null
     assetNext.value = null
-    for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const)
-      Object.assign(drafts[key], newDraft())
+    resetDrafts()
     if (!project.value) return
     const current = projectEpoch,
       id = project.value
@@ -265,20 +275,12 @@ export function useWorkbench() {
       assetNext.value = a.next_offset
       history.value = h.items
       historyNext.value = h.next_offset
+      const product = a.items.find((v) => v.kind === 'PRODUCT')?.id ?? ''
+      const gift = a.items.find((v) => v.kind === 'GIFT')?.id ?? ''
       for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const) {
-        drafts[key].product =
-          a.items.find((v) => v.kind === 'PRODUCT')?.id ?? ''
-        drafts[key].gift = a.items.find((v) => v.kind === 'GIFT')?.id ?? ''
+        drafts[key].product = product
+        drafts[key].gift = gift
       }
-      const capability = options.value?.scene
-      if (capability?.enabled) {
-        drafts.SCENE.product =
-          a.items.find((v) => v.kind === 'PRODUCT' && v.cutout_ready)?.id ?? ''
-        drafts.SCENE.sceneOutput.aspect_ratio =
-          capability.aspect_ratios[0] ?? '1:1'
-        drafts.SCENE.sceneOutput.format = capability.formats[0] ?? 'png'
-      }
-      if (h.items[0]) selectTask(h.items[0].task)
     } catch (cause) {
       if (current === projectEpoch) report(cause)
     } finally {
@@ -302,32 +304,29 @@ export function useWorkbench() {
     })
   }
   async function refreshHistory(more = false) {
-    await action(async () => {
-      if (!project.value || (more && historyNext.value === null)) return
-      const current = projectEpoch
-      const page = await api<Page<HistoryItem>>(
-        `/projects/${project.value}/tasks?offset=${more ? historyNext.value : 0}`,
-      )
-      if (current !== projectEpoch) return
-      history.value = more
-        ? [
-            ...new Map(
-              [...history.value, ...page.items].map((item) => [
-                item.task.id,
-                item,
-              ]),
-            ).values(),
-          ]
-        : page.items
-      historyNext.value = page.next_offset
-      if (selected.value) await refreshTask()
-    })
+    if (!project.value || (more && historyNext.value === null)) return
+    const current = projectEpoch
+    const page = await api<Page<HistoryItem>>(
+      `/projects/${project.value}/tasks?offset=${more ? historyNext.value : 0}`,
+    )
+    if (current !== projectEpoch) return
+    history.value = more
+      ? [
+          ...new Map(
+            [...history.value, ...page.items].map((item) => [
+              item.task.id,
+              item,
+            ]),
+          ).values(),
+        ]
+      : page.items
+    historyNext.value = page.next_offset
   }
-  async function upload(event: Event, kind: 'PRODUCT' | 'GIFT') {
-    const input = event.target as HTMLInputElement,
-      file = input.files?.[0]
-    input.value = ''
-    if (!file) return
+  async function upload(
+    file: File,
+    kind: 'PRODUCT' | 'GIFT',
+  ): Promise<Asset | null> {
+    let created: Asset | null = null
     await action(async () => {
       const item = await api<Asset>(
         `/projects/${project.value}/assets?kind=${kind}`,
@@ -337,94 +336,26 @@ export function useWorkbench() {
           body: file,
         },
       )
-      assets.value.unshift({ ...item, cutout_ready: false })
-      if (kind === 'PRODUCT') draft.value.product = item.id
-      else draft.value.gift = item.id
+      assets.value.unshift(item)
+      created = item
       notice.value =
-        kind === 'PRODUCT'
-          ? '原图已保存。请生成抠图候选并确认边缘后再用于生成。'
-          : '赠品原图已保存。'
+        kind === 'PRODUCT' ? '商品原图已保存。' : '赠品原图已保存。'
     })
+    return created
   }
-  async function showImage(id: string, artifact = false, download = false) {
+  async function download(artifact: string, name: string) {
     await action(async () => {
-      const blob = await api<Blob>(
-        `/${artifact ? 'artifacts' : 'assets'}/${id}/content`,
-      )
+      const blob = await api<Blob>(`/artifacts/${artifact}/content`)
       const url = URL.createObjectURL(blob)
-      if (download) {
-        const link = document.createElement('a')
-        link.href = url
-        const signature = new Uint8Array(await blob.slice(0, 2).arrayBuffer())
-        const extension =
-          signature[0] === 137 && signature[1] === 80 ? 'png' : 'jpeg'
-        link.download = `${selectedRealScene.value ? 'scene-pending' : 'development-test'}-${id}.${extension}`
-        link.click()
-        setTimeout(() => URL.revokeObjectURL(url), 1000)
-      } else {
-        clearPreview()
-        preview.value = url
-        previewTitle.value = artifact
-          ? selectedRealScene.value
-            ? sceneLabel
-            : '开发/测试产物 · 非真实商品成品'
-          : '上传原图 · 非生成预览'
-      }
+      const link = document.createElement('a')
+      const signature = new Uint8Array(await blob.slice(0, 2).arrayBuffer())
+      link.href = url
+      link.download = `${name}.${signature[0] === 137 && signature[1] === 80 ? 'png' : 'jpg'}`
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
     })
   }
-  function installTask(task: Task) {
-    selected.value = checkedTask(task)
-    const item = history.value.find((item) => item.task.id === task.id)
-    if (item) item.task = task
-  }
-  async function submit() {
-    await action(async () => {
-      const pending =
-        submission.pending ??
-        submission.prepare(
-          buildRequest(
-            feature.value,
-            project.value,
-            draft.value,
-            realSceneEnabled.value,
-          ),
-        )
-      try {
-        const task = checkedTask(
-          await api<Task>(pending.body.output ? '/v3/scene-tasks' : '/tasks', {
-            ...json(pending.body),
-            headers: {
-              'Content-Type': 'application/json',
-              'Idempotency-Key': pending.key,
-            },
-          }),
-        )
-        submission.resolve()
-        uncertain.value = false
-        installTask(task)
-        schedule()
-        notice.value = pending.body.output
-          ? '真实场景任务已提交。全部完成后展示；生成结果待人工审核。'
-          : '任务已提交。真实制图未接入，当前仅验证开发任务流程。'
-      } catch (cause) {
-        if (
-          cause instanceof ApiError &&
-          cause.status > 0 &&
-          cause.status < 500
-        ) {
-          submission.resolve()
-          uncertain.value = false
-        } else if (token.value) uncertain.value = true
-        throw cause
-      }
-      // Read fixture labels from the frozen server snapshot, not the current draft.
-      const page = await api<Page<HistoryItem>>(
-        `/projects/${project.value}/tasks`,
-      )
-      history.value = page.items
-      historyNext.value = page.next_offset
-    })
-  }
+
   function schedule() {
     stopPolling()
     if (
@@ -436,11 +367,14 @@ export function useWorkbench() {
         void refreshTask().catch(report)
       }, 2500)
   }
-  function selectTask(task: Task) {
+  async function select(id: string) {
     refreshSequence++
     stopPolling()
-    clearPreview()
-    selected.value = task
+    const current = projectEpoch,
+      sequence = refreshSequence
+    const detail = checked(await api<Generation>(`/v4/generation-tasks/${id}`))
+    if (current !== projectEpoch || sequence !== refreshSequence) return
+    selected.value = detail
     schedule()
   }
   async function refreshTask() {
@@ -450,21 +384,20 @@ export function useWorkbench() {
     if (!id) return
     stopPolling()
     try {
-      const task = checkedTask(await api<Task>(`/tasks/${id}`))
+      const detail = checked(
+        await api<Generation>(`/v4/generation-tasks/${id}`),
+      )
       if (
         current !== projectEpoch ||
         selected.value?.id !== id ||
         sequence !== refreshSequence
       )
         return
-      installTask(task)
+      selected.value = detail
+      if (!['QUEUED', 'RUNNING'].includes(detail.status)) await refreshHistory()
       schedule()
     } catch (cause) {
-      if (
-        current === projectEpoch &&
-        selected.value?.id === id &&
-        sequence === refreshSequence
-      ) {
+      if (current === projectEpoch && selected.value?.id === id) {
         report(cause)
         if (
           cause instanceof ApiError &&
@@ -474,31 +407,63 @@ export function useWorkbench() {
       }
     }
   }
+  async function send(path: string, body: Record<string, unknown>) {
+    const pending = submission.pending ?? submission.prepare(path, body)
+    try {
+      const task = checked(
+        await api<Task>(pending.path, {
+          ...json(pending.body),
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': pending.key,
+          },
+        }),
+      )
+      submission.resolve()
+      uncertain.value = false
+      await refreshHistory()
+      await select(task.id)
+    } catch (cause) {
+      // A definite rejection frees the draft; an unknown outcome keeps the same key.
+      if (cause instanceof ApiError && cause.status > 0 && cause.status < 500) {
+        submission.resolve()
+        uncertain.value = false
+      } else if (token.value) uncertain.value = true
+      throw cause
+    }
+  }
+  async function submit(feature: Feature) {
+    await action(async () => {
+      const body = submission.pending
+        ? submission.pending.body
+        : buildGeneration(feature, project.value, drafts[feature])
+      await send('/v4/generation-tasks', body)
+      notice.value =
+        '已提交，生成完成后在下方查看结果；结果需人工审核后再使用。'
+    })
+  }
+  async function retypeset(task: string, ordinal: number, text: TextSpec) {
+    await action(async () => {
+      await send(`/v4/generation-tasks/${task}/retypeset`, { ordinal, text })
+      notice.value = '已提交文字修改：复用原生成图重新排字，不再调用模型。'
+    })
+  }
   async function retry() {
     await action(async () => {
       const task = selected.value
       if (!task) return
-      refreshSequence++
-      installTask(
-        await api<Task>(
-          `/tasks/${task.id}/retry`,
-          json({ attempt: task.attempt }),
-        ),
+      await api<Task>(
+        `/tasks/${task.id}/retry`,
+        json({ attempt: task.attempt }),
       )
-      schedule()
+      await select(task.id)
     })
   }
-  watch(
-    () => [feature.value, draft.value.product, draft.value.gift],
-    clearPreview,
-  )
+
   onUnmounted(reset)
   return {
     production,
     mockProvider,
-    sceneLabel,
-    realSceneEnabled,
-    selectedRealScene,
     identity,
     api,
     expire,
@@ -509,32 +474,32 @@ export function useWorkbench() {
     notice,
     busy,
     loading,
-    feature,
     projects,
     project,
     projectName,
     options,
+    generation,
     assets,
+    products,
+    gifts,
     assetNext,
     history,
     historyNext,
     selected,
-    preview,
-    previewTitle,
     uncertain,
-    draft,
-    selectedProduct,
+    drafts,
     login,
     logout,
     createProject,
     loadProject,
     moreAssets,
-    refreshHistory,
+    refreshHistory: (more = false) => action(() => refreshHistory(more)),
     upload,
-    showImage,
-    submit,
-    selectTask,
+    download,
+    select: (id: string) => action(() => select(id)),
     refreshTask,
+    submit,
+    retypeset,
     retry,
     reload: () => action(loadProjects),
   }

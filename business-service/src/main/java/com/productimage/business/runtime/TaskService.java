@@ -277,6 +277,19 @@ public final class TaskService {
     result.set("output", snapshot.get("output"));
     result.set("request", Json.parse(row.get("request_snapshot_json").toString()));
     if (snapshot.has("source")) result.set("source", snapshot.get("source"));
+    // Model outputs without text, so the page can preview text edits before a re-typeset.
+    var bases = result.putArray("bases");
+    if ("SUCCEEDED".equals(row.get("status")))
+      for (var base :
+          jdbc.queryForList(
+              "SELECT id,width,height FROM artifacts WHERE task_id=? AND attempt_id=? AND kind='BACKGROUND' ORDER BY ordinal",
+              id,
+              row.get("current_attempt_id")))
+        bases.add(
+            Json.object()
+                .put("id", base.get("id").toString())
+                .put("width", ((Number) base.get("width")).intValue())
+                .put("height", ((Number) base.get("height")).intValue()));
     result.put("review_status", "PENDING");
     return result;
   }
