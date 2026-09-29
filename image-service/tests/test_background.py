@@ -271,3 +271,21 @@ def test_references_require_declared_capability(gap):
             ),
         )
     assert all(call.method == "GET" for call in provider.calls)
+
+
+def test_native_ratio_only_sends_verified_parameters():
+    provider = Provider()
+    provider.parameters = {"aspect_ratio": provider.parameters["aspect_ratio"]}
+    provider.result = fixture_response("JPEG", (120, 80))
+    result = generate(provider, request(resolution=None, output_format=None))
+    body = json.loads(provider.calls[-1].content)
+    assert set(body) == {"model", "prompt", "aspect_ratio", "provider"}
+    assert result.width == 120 and result.height == 80
+
+
+def test_native_ratio_still_requires_route_support():
+    provider = Provider()
+    provider.parameters = {}
+    with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
+        generate(provider, request(resolution=None, output_format=None))
+    assert all(c.method == "GET" for c in provider.calls)

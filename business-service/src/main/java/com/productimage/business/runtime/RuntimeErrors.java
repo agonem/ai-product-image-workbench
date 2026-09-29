@@ -46,11 +46,7 @@ public class RuntimeErrors {
           case "UPLOAD_TYPE_UNSUPPORTED" -> "请上传与声明类型一致的 PNG 或 JPEG";
           case "UPLOAD_CONTENT_REJECTED" -> "图片损坏或含未支持元数据，请使用无附加元数据的 PNG/JPEG";
           case "UPLOAD_BUDGET_EXCEEDED" -> "图片超过开发环境的大小或像素限制";
-          case "PROVIDER_DISABLED" -> "背景生成已被管理员禁用；启用后台配置前无法提交真实场景任务";
-          case "CUTOUT_SERVICE_UNAVAILABLE" -> "抠图服务未配置或暂不可用，请稍后重试或联系管理员";
-          case "CUTOUT_NO_FOREGROUND" -> "没有找到白底之外的商品主体，请确认是白底图或调整容差";
-          case "CUTOUT_BUDGET" -> "图片超过抠图处理的像素预算，请使用较小的原图";
-          case "CUTOUT_BUSY" -> "抠图任务较多，请稍后重试";
+          case "PROVIDER_DISABLED" -> "图片生成已被管理员禁用；管理员启用供应商配置前无法提交生成任务";
           default -> "请求未被接受，请检查输入或服务状态";
         };
     return ResponseEntity.status(status)

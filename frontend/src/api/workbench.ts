@@ -17,12 +17,6 @@ const messages: Record<string, string> = {
     '供应商能力不支持当前参数（模型或比例），请检查配置。',
   UPLOAD_CONTENT_REJECTED:
     '图片内容或尺寸不符合要求，或包含未支持的附加元数据。请使用有效 PNG/JPEG。',
-  CUTOUT_REVIEW_REQUIRED:
-    '商品抠图尚未确认。请先生成抠图候选并确认边缘后再提交。',
-  CUTOUT_SERVICE_UNAVAILABLE:
-    '抠图服务未配置或暂不可用，请稍后重试或联系管理员。',
-  CUTOUT_NO_FOREGROUND:
-    '没有找到白底之外的商品主体。请确认是白底图，或调小白底容差后重试。',
   INVALID_ASSET: '图片内容或尺寸不符合上传要求，请选择有效的 PNG/JPEG。',
   INVALID_LAYOUT:
     '尺寸、比例、数量或文字区域不符合要求（卖点图数量须等于所选风格数）。',
@@ -38,19 +32,16 @@ export async function request<T>(
 ): Promise<T> {
   let response: Response
   try {
-    response = await fetch(
-      (/^\/v[234]\//.test(path) ? '/api' : '/api/v1') + path,
-      {
-        ...init,
-        cache: 'no-store',
-        credentials: 'omit',
-        headers: {
-          ...(token ? { Authorization: 'Bearer ' + token } : {}),
-          ...init.headers,
-        },
-        signal: init.signal ?? AbortSignal.timeout(15000),
+    response = await fetch((/^\/v4\//.test(path) ? '/api' : '/api/v1') + path, {
+      ...init,
+      cache: 'no-store',
+      credentials: 'omit',
+      headers: {
+        ...(token ? { Authorization: 'Bearer ' + token } : {}),
+        ...init.headers,
       },
-    )
+      signal: init.signal ?? AbortSignal.timeout(15000),
+    })
   } catch {
     throw new ApiError(
       0,

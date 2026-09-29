@@ -16,7 +16,6 @@ public class WorkbenchApi {
   private final ProjectAccess access;
   private final ProjectAssets assets;
   private final TaskService tasks;
-  private final ScenePolicy scenes;
   private final GenerationPolicy generation;
 
   public WorkbenchApi(
@@ -25,14 +24,12 @@ public class WorkbenchApi {
       ProjectAccess access,
       ProjectAssets assets,
       TaskService tasks,
-      ScenePolicy scenes,
       GenerationPolicy generation) {
     this.jdbc = jdbc;
     this.users = users;
     this.access = access;
     this.assets = assets;
     this.tasks = tasks;
-    this.scenes = scenes;
     this.generation = generation;
   }
 
@@ -66,7 +63,6 @@ public class WorkbenchApi {
                 "mode",
                 users instanceof ProductionAccounts ? "production-local" : "development-only")
             .put("generation_available", false);
-    result.set("scene", scenes.options());
     result.set("generation", generation.options());
     var templates = result.putArray("templates");
     for (var row :

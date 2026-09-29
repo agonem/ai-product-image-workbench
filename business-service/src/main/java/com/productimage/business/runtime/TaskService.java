@@ -44,10 +44,6 @@ public final class TaskService {
     return create(actor, key, raw, "task-create");
   }
 
-  public JsonNode createSceneV3(String actor, String key, String raw) {
-    return create(actor, key, raw, "scene-v3-create");
-  }
-
   /** v4 whole-image generation for all three entries (ADR-20260929). */
   public JsonNode createGeneration(String actor, String key, String raw) {
     return create(actor, key, raw, "generation-v4-create");
@@ -258,16 +254,6 @@ public final class TaskService {
     return result;
   }
 
-  public JsonNode getScene(String actor, String id) {
-    var row = owned(actor, id, false);
-    var snapshot = Json.parse(row.get("worker_snapshot_json").toString());
-    if (snapshot.path("schema_version").asInt() < 2) throw new Problem(404, "NOT_FOUND");
-    ObjectNode result = (ObjectNode) get(actor, id);
-    result.set("output", snapshot.get("output"));
-    result.put("publication_policy", "ALL_OR_NOTHING").put("review_status", "PENDING");
-    return result;
-  }
-
   /** v4 task with its frozen output and the submitted inputs; results await human review. */
   public JsonNode getGeneration(String actor, String id) {
     var row = owned(actor, id, false);
@@ -307,7 +293,11 @@ public final class TaskService {
             throw new Problem(409, "TASK_CONFLICT");
           }
           if (row.get("worker_snapshot_json") == null) throw new Problem(409, "INVALID_CONTRACT");
-          enqueue(id, current + 1, Json.parse(row.get("worker_snapshot_json").toString()));
+          var snapshot = Json.parse(row.get("worker_snapshot_json").toString());
+          // Scene v2/v3 were replaced by v4; a legacy task stays readable but is not re-run.
+          int version = snapshot.path("schema_version").asInt(1);
+          if (version == 2 || version == 3) throw new Problem(409, "TASK_CONFLICT");
+          enqueue(id, current + 1, snapshot);
           return get(actor, id);
         });
   }
@@ -330,7 +320,7 @@ public final class TaskService {
       case "CUTOUT_REVIEW_REQUIRED" -> "请先审核商品边缘";
       case "INVALID_ASSET", "UNAUTHORIZED_ASSET" -> "输入素材不可用";
       case "INVALID_LAYOUT", "TEXT_OVERFLOW" -> "请检查布局或文字";
-      case "PROVIDER_UNAVAILABLE" -> "背景服务未配置或暂不可用";
+      case "PROVIDER_UNAVAILABLE" -> "生成服务未配置或暂不可用";
       case "OUTPUT_VALIDATION_FAILED" -> "产物校验失败";
       case "INVALID_CONTRACT" -> "任务协议校验失败";
       case "TASK_CONFLICT" -> "任务请求冲突";

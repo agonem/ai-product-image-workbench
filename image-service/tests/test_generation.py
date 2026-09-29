@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 from image_service import typeset
 from image_service.background import BackgroundError, BackgroundResult
 from image_service.contracts import validate_contract
-from image_service.generation import build_prompt, process_generation
+from image_service.generation import build_prompt, fit_background, process_generation
 from image_service.worker import process
 
 PRODUCT, GIFT = (190, 70, 80), (60, 110, 200)
@@ -358,3 +358,31 @@ def test_text_features_name_where_the_products_go(box, zone):
     local = api()
     prompt = build_prompt(request(local, "GIFT", text=dict(TEXT, box=box)), 0)
     assert zone in prompt and "nothing overlaps the text area" in prompt
+
+
+def test_cover_records_geometry():
+    image, record = fit_background(Image.new("RGB", (120, 80)), 80, 80)
+    assert image.size == (80, 80)
+    assert record == {
+        "strategy": "cover-center-v1",
+        "source_size": [120, 80],
+        "resized_size": [120, 80],
+        "crop": [20, 0, 100, 80],
+        "target_size": [80, 80],
+    }
+
+
+def test_lost_lease_stops_before_billable_call():
+    local, adapter = api(), Adapter()
+    with pytest.raises(ValueError):
+        process_generation(local, request(local), "lease", adapter, cancelled=lambda: True)
+    assert adapter.requests == [] and local.posts == [] and local.outputs == {}
+
+
+def test_bad_source_hash_fails_before_provider():
+    local, adapter = api(), Adapter()
+    value = request(local, "GIFT")
+    value["gift_asset"]["sha256"] = "0" * 64
+    with pytest.raises(ValueError):
+        process_generation(local, value, "lease", adapter)
+    assert adapter.requests == [] and local.posts == []

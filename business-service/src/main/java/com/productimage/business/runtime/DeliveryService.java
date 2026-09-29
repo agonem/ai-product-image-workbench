@@ -130,7 +130,7 @@ public final class DeliveryService {
           requireLease(row, token);
           var request = Json.parse(row.get("payload").toString());
           int version = request.path("schema_version").asInt();
-          if ((version != 3 && version != 4)
+          if (version != 4
               || request.has("base_image")
               || ordinal < 0
               || ordinal >= request.path("output").path("count").asInt())
@@ -189,7 +189,8 @@ public final class DeliveryService {
   public JsonNode receipt(String attempt, String token, String raw) {
     JsonNode receipt = Json.parse(raw);
     String type = receipt.path("event_type").asText();
-    if (!type.matches("image\\.task\\.(completed|failed)\\.v[1234]")) {
+    // Scene v2/v3 were replaced by v4: legacy attempts may still report failure, never success.
+    if (!type.matches("image\\.task\\.(completed\\.v[14]|failed\\.v[1234])")) {
       throw new Problem(400, "INVALID_CONTRACT");
     }
     boolean completed = type.contains(".completed.");
@@ -247,8 +248,6 @@ public final class DeliveryService {
             try {
               if (generation)
                 GenerationOutputs.validate(store, prefix(row, token), workerRequest, receipt);
-              else if (scene)
-                SceneOutputs.validate(store, prefix(row, token), workerRequest, receipt);
               else validateArtifacts(row, token, receipt);
             } catch (Problem ex) {
               if (ex.status == 503) throw ex;
@@ -278,13 +277,9 @@ public final class DeliveryService {
                   "UPDATE task_attempts SET status='SUCCEEDED',ended_at=now(),provider_info=?::jsonb WHERE id=?",
                   generation
                       ? Json.object().set("generations", receipt.path("generations")).toString()
-                      : scene
-                          ? Json.object()
-                              .set("background_generations", receipt.path("background_generations"))
-                              .toString()
-                          : receipt.path("background_generation").isNull()
-                              ? null
-                              : receipt.path("background_generation").toString(),
+                      : receipt.path("background_generation").isNull()
+                          ? null
+                          : receipt.path("background_generation").toString(),
                   attempt);
               jdbc.update("UPDATE generation_tasks SET status='SUCCEEDED' WHERE id=?", task);
             } else fail(row, "OUTPUT_VALIDATION_FAILED", true);

@@ -114,22 +114,9 @@ def process(
             receipt = failure(request, "GENERATION_FAILED", True)
             receipt["error"]["safe_message"] = "TEXT_FONT_UNAVAILABLE"
             return receipt
-    if request.get("schema_version") == 2:
-        # Scene v2 was withdrawn: a legacy batch fails visibly and never spends a provider call.
+    if request.get("schema_version") in (2, 3):
+        # Scene v2/v3 were replaced by v4: a legacy batch fails visibly, never spends a call.
         return failure(request, "INVALID_CONTRACT", False)
-    if request.get("schema_version") == 3:
-        if fixture:
-            return failure(request, "INVALID_CONTRACT", False)
-        from image_service.background_config import config_from_mapping, load_config
-        from image_service.openrouter import OpenRouterAdapter
-        from image_service.scene import process_scene
-
-        # A lease-delivered binding wins; without one the explicit worker env applies.
-        config = (
-            config_from_mapping(provider_config) if provider_config is not None else load_config()
-        )
-        with OpenRouterAdapter(config) as adapter:
-            return process_scene(api, request, lease, adapter, cancelled=cancelled)
     if not fixture:
         code = "PROVIDER_UNAVAILABLE" if request["feature_type"] == "SCENE" else "GENERATION_FAILED"
         return failure(request, code)

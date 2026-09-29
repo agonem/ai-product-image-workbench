@@ -1,7 +1,7 @@
 """Internal image-generation adapter boundary; not a Worker contract.
 
-Text-only requests produce backgrounds (scene v3). Since ADR-20260929, v4 requests may carry up to
-four reference images (the product and optionally the gift) for whole-image generation.
+Since ADR-20260929 (v4), requests carry up to four reference images (the product and optionally
+the gift) for whole-image generation; a request without references stays valid for adapter tests.
 """
 
 import re

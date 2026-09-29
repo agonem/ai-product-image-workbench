@@ -1,4 +1,4 @@
-"""Lease-delivered provider configuration for scene Workers."""
+"""Lease-delivered provider configuration for generation Workers."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,7 +35,7 @@ def test_config_from_mapping_rejects_invalid_claim(mapping):
 
 
 class LocalApi:
-    """Minimal Worker transport double; scene processing only needs assets and outputs."""
+    """Minimal Worker transport double; generation only needs assets and outputs."""
 
     def __init__(self):
         self.inputs = {}
@@ -50,18 +50,15 @@ class LocalApi:
         return {"object_key": "outputs/test/x", "sha256": "0" * 64, "width": 4, "height": 4}
 
 
-def scene_request():
+def generation_request():
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "task_id": "task",
         "attempt_id": "attempt",
         "correlation_id": "task",
         "feature_type": "SCENE",
-        "scene_custom_prompt": "empty table",
-        "layout": {"product": {"x": 0.2, "y": 0.2, "width": 0.5, "height": 0.5}},
         "output": {"aspect_ratio": "1:1", "width": 256, "height": 256, "format": "png", "count": 1},
         "product_asset": {"asset_id": "a", "sha256": "0" * 64},
-        "product_alpha_asset": {"asset_id": "b", "sha256": "0" * 64},
     }
 
 
@@ -104,12 +101,12 @@ def worker_stubs(monkeypatch):
                 },
             )
 
-    def fake_scene(api, request, lease, adapter, *, cancelled=None):
+    def fake_generation(api, request, lease, adapter, *, cancelled=None):
         captured["adapter"] = adapter
-        return {"schema_version": 3, "event_type": "image.task.completed.v3", "artifacts": []}
+        return {"schema_version": 4, "event_type": "image.task.completed.v4", "artifacts": []}
 
     monkeypatch.setattr("image_service.openrouter.OpenRouterAdapter", RecordingAdapter)
-    monkeypatch.setattr("image_service.scene.process_scene", fake_scene)
+    monkeypatch.setattr("image_service.generation.process_generation", fake_generation)
     return captured
 
 
@@ -122,7 +119,7 @@ def test_worker_prefers_leased_config_over_environment(worker_stubs, monkeypatch
     monkeypatch.setattr("image_service.background_config.load_config", forbidden)
     process(
         LocalApi(),
-        scene_request(),
+        generation_request(),
         "lease",
         False,
         provider_config={
@@ -145,7 +142,7 @@ def test_worker_without_lease_config_uses_environment(worker_stubs, monkeypatch)
 
     sentinel = OpenRouterConfig(api_key="k", model="vendor/env", provider_tag="openai")
     monkeypatch.setattr("image_service.background_config.load_config", lambda: sentinel)
-    process(LocalApi(), scene_request(), "lease", False)
+    process(LocalApi(), generation_request(), "lease", False)
     assert worker_stubs["config"] is sentinel
 
 
@@ -155,7 +152,7 @@ def test_worker_rejects_invalid_leased_config(worker_stubs):
     with pytest.raises(BackgroundError) as error:
         process(
             LocalApi(),
-            scene_request(),
+            generation_request(),
             "lease",
             False,
             provider_config={"api_key": "k", "model": "no-slash", "provider_tag": "openai"},

@@ -83,11 +83,6 @@ def main() -> None:
                 "DB_TEST_PASSWORD": password,
             }
         )
-        if "--t09-only" in sys.argv or "--t09-real" in sys.argv:
-            from check_t09 import run_scene_checks
-
-            run_scene_checks(env, work / "t09", real="--t09-real" in sys.argv)
-            return
         if "--core-only" in sys.argv:
             from check_core import run_core_checks
 

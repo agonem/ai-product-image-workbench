@@ -10,14 +10,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 final class SnapshotBuilder {
   private final JdbcTemplate jdbc;
   private final LocalObjectStore store;
-  private final ScenePolicy scenes;
   private final GenerationPolicy generation;
 
-  SnapshotBuilder(
-      JdbcTemplate jdbc, LocalObjectStore store, ScenePolicy scenes, GenerationPolicy generation) {
+  SnapshotBuilder(JdbcTemplate jdbc, LocalObjectStore store, GenerationPolicy generation) {
     this.jdbc = jdbc;
     this.store = store;
-    this.scenes = scenes;
     this.generation = generation;
   }
 
@@ -120,25 +117,14 @@ final class SnapshotBuilder {
         if (request.has(key)) worker.set(key, request.get(key));
       }
     }
-    if (request.has("output")) {
-      scenes.validate(request.get("output"));
-      int version = request.path("output").has("width") ? 3 : 2;
-      worker.put("schema_version", version);
-      worker.set("output", request.get("output"));
-      snapshot
-          .putObject("output_preset")
-          .put("id", "scene_v" + version)
-          .set("config", request.get("output"));
-    } else {
-      var presets =
-          jdbc.queryForList(
-              "SELECT config_json FROM output_presets WHERE id=?",
-              request.path("output_preset_id").asText());
-      if (presets.isEmpty()) throw new Problem(422, "INVALID_LAYOUT");
-      var preset = snapshot.putObject("output_preset");
-      preset.set("id", request.get("output_preset_id"));
-      preset.set("config", Json.parse(presets.getFirst().get("config_json").toString()));
-    }
+    var presets =
+        jdbc.queryForList(
+            "SELECT config_json FROM output_presets WHERE id=?",
+            request.path("output_preset_id").asText());
+    if (presets.isEmpty()) throw new Problem(422, "INVALID_LAYOUT");
+    var preset = snapshot.putObject("output_preset");
+    preset.set("id", request.get("output_preset_id"));
+    preset.set("config", Json.parse(presets.getFirst().get("config_json").toString()));
     worker.set("template_snapshot", snapshot);
     return worker;
   }

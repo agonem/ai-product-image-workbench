@@ -1,8 +1,8 @@
 # 母婴商品图工作台
 
-**当前进度只看 [docs/08 当前状态与剩余任务](docs/08-当前状态与剩余任务.md)。** 2026-09-28 用户决定收缩范围（ADR-20260928）：删除网页付费试生成、供应商检查中继和场景 v2，从 [01 产品设计](docs/01-产品设计与开发方案.md) 的核心要求继续。
+**当前进度只看 [docs/08 当前状态与剩余任务](docs/08-当前状态与剩余任务.md)。** 现行方案为 ADR-20260929（见 [04](docs/04-待决策事项.md)）：商品白底图（赠品入口另加赠品图）作为参考图发给生成模型，模型输出整张图；不抠图、不拼接；营销文字与卖点由程序按人工原文叠加，可免费重排。
 
-已有：Vue 3 + TypeScript 前端、Java Spring Boot 业务服务（任务/outbox/幂等重试/私有存储/生产本地账号与项目隔离）、Python 独立 Worker。场景图 v3 可真实生成背景并在本地合成原图商品层（新图待人工审核）。赠品图、卖点图、网页内抠图确认、删除功能尚未完成，按 docs/08 第 5 节顺序推进。商品保真、三个独立入口、仅生成不发布等边界继续有效；拼多多平台规则未核实。
+已有：Vue 3 + TypeScript 前端（首页三张功能卡、赠品+文字主图/场景主图/卖点主图三个独立工作台、素材、任务记录、我的作品、账号与安全）、Java Spring Boot 业务服务（v4 生成任务、outbox/幂等重试/私有存储/生产本地账号与项目隔离/加密的供应商配置）、Python 独立 Worker（参考图生成、本地导出、文字叠加）。新结果一律待人工审核；删除功能与模板管理在第二期。仅生成与下载，不自动上架；拼多多平台规则未核实。
 
 ## 快速运行
 
@@ -31,11 +31,9 @@ python scripts/dev.py image
 python scripts/dev.py frontend
 ```
 
-网页内“生成抠图候选”需要图像服务（`dev.py image`）在运行：Java 与图像服务配置相同的 `IMAGE_SERVICE_TOKEN`，Java 另配 `IMAGE_SERVICE_URL`（见 `.env.example`、[02 §15](docs/02-接口与数据契约.md)）；未配置时页面明确提示抠图服务不可用。
-
 打开 [本地工作台](http://127.0.0.1:5173)，显示明确的开发环境登录页。默认 Java 健康模式无登录/业务能力；实际使用须先按 [T04 指南](docs/13-T04开发账号与上传.md) 配置私有本地账号、数据库及 `dev-local`，再启动 business/frontend（任务执行另启 worker）。Ctrl+C 停止服务。配置覆盖、原生命令及 Windows JDK 说明见 [T01 开发指南](docs/07-开发环境与版本选择.md)。
 
-T06 提供三独立入口、原图上传/查看、任务提交、状态/重试、项目历史；真实生成尚未接入，普通上传仍受 alpha 审核阻塞。完整页面验收使用隔离数据库和随机开发账号：
+开发环境（dev-local）没有供应商配置，提交的生成任务会明确失败（`PROVIDER_UNAVAILABLE`），不会调用任何模型。完整页面验收使用隔离数据库和随机开发账号：
 
 ```text
 npm --prefix frontend exec -- playwright install chromium
@@ -46,7 +44,7 @@ python scripts/check_db.py --t06-only
 
 ## 目录
 
-场景图（v3）：Java 端 `SCENE_ENABLED` 等部署配置、Worker 私有 OpenRouter 配置与真实调用证据见 [history/27](docs/history/27-场景导出与管理设置实施.md) 和 [history/26](docs/history/26-T09场景链路与能力阻塞.md)；模拟供应商链路 `python scripts/check_db.py --t09-only` 不计真实生成。
+三入口生成（v4）：契约见 [02 §16](docs/02-接口与数据契约.md)，验收见 [03 ACC-V4](docs/03-验收标准与测试样本.md)。`python scripts/check_db.py --core-only`（需 `BUSINESS_TEST_JAR`）用模拟模型跑通 API 与真实 Chromium 页面，零付费；真实调用只经用户授权的 `scripts/v4_real_calibration.py`。场景 v2/v3 与抠图已按 ADR-20260929 删除，历史数据只读。
 
 T02-SYN 提供离线合成素材分割/alpha/变换与合成实验，可在 `image-service/` 运行 `uv run --frozen python -m image_service.poc_demo --output ../.artifacts/t02-my-review`。目录必须尚不存在。对照与参数标记为合成测试、待人工确认，不接 Worker，不代表真实商品生成。依赖与结果见 [T02 合成预研](docs/history/20-T02-合成素材预研.md)。
 

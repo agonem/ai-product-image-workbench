@@ -8,6 +8,7 @@ A re-typeset request reuses a stored model output and never calls the model.
 
 import hashlib
 import io
+import math
 import time
 import uuid
 
@@ -16,7 +17,32 @@ from PIL import Image
 from image_service import typeset
 from image_service.background import BackgroundRequest
 from image_service.poc import budget
-from image_service.scene import encode, fit_background
+
+
+def encode(image, fmt):
+    output = io.BytesIO()
+    image = image.convert("RGB") if fmt == "jpeg" else image
+    image.save(
+        output, format=fmt.upper(), **({"quality": 95, "subsampling": 0} if fmt == "jpeg" else {})
+    )
+    return output.getvalue()
+
+
+def fit_background(image, width, height):
+    """Deterministic cover-centre crop to the exact export size; the geometry is recorded."""
+    budget((width, height))
+    scale = max(width / image.width, height / image.height)
+    size = (math.ceil(image.width * scale), math.ceil(image.height * scale))
+    left, top = (size[0] - width) // 2, (size[1] - height) // 2
+    crop = (left, top, left + width, top + height)
+    return image.resize(size, Image.Resampling.LANCZOS).crop(crop), {
+        "strategy": "cover-center-v1",
+        "source_size": list(image.size),
+        "resized_size": list(size),
+        "crop": list(crop),
+        "target_size": [width, height],
+    }
+
 
 REFERENCE_SIDE = 1536  # references are downscaled for transfer only; outputs are unaffected
 PRESERVE = (

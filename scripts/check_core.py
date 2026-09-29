@@ -189,7 +189,7 @@ class Core:
 
 
 def api_checks(core, admin, alice, bob, project):
-    """V4-A1..A10 at the API boundary; every model call is the mock."""
+    """V4-A1..A11 at the API boundary; every model call is the mock."""
     run, evidence, uploads = core.run, {}, {}
     for kind, shape in (("PRODUCT", PRODUCT_RGB), ("GIFT", GIFT_RGB)):
         data = synthetic_png(shape=shape)
@@ -382,6 +382,35 @@ def api_checks(core, admin, alice, bob, project):
     attempt = run.sql(f"SELECT current_attempt_id FROM generation_tasks WHERE id='{state['id']}'")
     assert core.fences(attempt) == "0"
 
+    # A11: withdrawn routes are gone; a legacy scene v3 task stays readable but never re-runs.
+    for method, path, body in (
+        ("POST", "/api/v3/scene-tasks", {}),
+        ("GET", f"/api/v3/scene-tasks/{selling_task}", None),
+        ("POST", f"/api/v1/assets/{product}/cutouts", {"tolerance": 8}),
+        ("GET", f"/api/v1/assets/{product}/cutouts", None),
+        ("POST", f"/api/v1/assets/{product}/review", {"decision": "APPROVED"}),
+    ):
+        assert run.http(method, path, alice, body)[0] == 404, (method, path)
+    # Snapshots are immutable, so the legacy row is a copy of the A10 task marked as v3.
+    legacy, legacy_attempt = "legacyv3task", "legacyv3attempt"
+    run.sql(
+        "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,"
+        "status,created_by,idempotency_key,request_sha256,request_snapshot_json,"
+        "template_snapshot_json,worker_snapshot_json,provider_config_version) "
+        f"SELECT '{legacy}',project_id,product_asset_id,gift_asset_id,feature_type,'FAILED',"
+        "created_by,'legacy-v3',request_sha256,request_snapshot_json,template_snapshot_json,"
+        "jsonb_set(worker_snapshot_json,'{schema_version}','3'),provider_config_version "
+        f"FROM generation_tasks WHERE id='{state['id']}'; "
+        "INSERT INTO task_attempts(id,task_id,attempt_no,status,started_at,ended_at,error_code,"
+        f"retryable) VALUES ('{legacy_attempt}','{legacy}',1,'FAILED',now(),now(),"
+        "'PROVIDER_UNAVAILABLE',true); "
+        f"UPDATE generation_tasks SET current_attempt_id='{legacy_attempt}' WHERE id='{legacy}'"
+    )
+    assert run.http("GET", f"/api/v1/tasks/{legacy}", alice)[1]["status"] == "FAILED"
+    before = run.sql("SELECT count(*) FROM outbox_events")
+    assert run.http("POST", f"/api/v1/tasks/{legacy}/retry", alice, {"attempt": 1})[0] == 409
+    assert run.sql("SELECT count(*) FROM outbox_events") == before
+
     for kind, (asset, data) in uploads.items():
         assert run.http("GET", f"/api/v1/assets/{asset}/content", alice)[1] == data, kind
     return evidence
@@ -491,7 +520,11 @@ def run_core_checks(env, work):
         alice, bob = run.login("alice"), run.login("bob")
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
-        print("PASS V4-A1..A10: three entries, references, text, retypeset, isolation", flush=True)
+        print(
+            "PASS V4-A1..A11: three entries, references, text, retypeset, isolation, "
+            "withdrawn routes",
+            flush=True,
+        )
         if browser_checks(core, stack):
             print("PASS V4-B: rebuilt page flows with the mock model", flush=True)
         for log in work.glob("*.log"):

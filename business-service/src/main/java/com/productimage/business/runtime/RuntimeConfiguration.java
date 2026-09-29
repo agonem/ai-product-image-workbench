@@ -71,28 +71,14 @@ public class RuntimeConfiguration {
   }
 
   @Bean
-  CutoutService cutoutService(
-      JdbcTemplate jdbc,
-      PlatformTransactionManager manager,
-      LocalObjectStore store,
-      Environment env) {
-    return new CutoutService(jdbc, new TransactionTemplate(manager), store, env);
-  }
-
-  @Bean
-  ScenePolicy scenePolicy(Environment env) {
-    return new ScenePolicy(env);
-  }
-
-  @Bean
   GenerationPolicy generationPolicy(Environment env) {
     return new GenerationPolicy(env);
   }
 
   @Bean
   SnapshotBuilder snapshotBuilder(
-      JdbcTemplate jdbc, LocalObjectStore store, ScenePolicy scenes, GenerationPolicy generation) {
-    return new SnapshotBuilder(jdbc, store, scenes, generation);
+      JdbcTemplate jdbc, LocalObjectStore store, GenerationPolicy generation) {
+    return new SnapshotBuilder(jdbc, store, generation);
   }
 
   @Bean
