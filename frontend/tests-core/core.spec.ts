@@ -267,12 +267,31 @@ test('V4-B6: history, works and admin-only settings', async ({
   const admin = await browser.newPage()
   await login(admin, 'admin')
   await admin.getByRole('link', { name: '模型配置' }).click()
-  await admin.getByRole('button', { name: '供应商配置' }).click()
   await expect(admin.getByTestId('provider-state')).toContainText('已启用')
   await expect(
     admin.getByTestId('provider-version-row').filter({ hasText: 'mock-model' }),
   ).toContainText('****')
   await expect(admin.getByText('付费')).toHaveCount(0)
+  // Third-party endpoints: plain http only to intranet addresses, with a warning.
+  await admin.getByLabel('接口类型').selectOption('openai-compatible')
+  await admin.getByLabel('模型名称').fill('gpt-image-2')
+  await admin.getByLabel('接口地址').fill('http://8.8.8.8/v1')
+  await expect(admin.getByRole('note')).toContainText('明文传输')
+  await admin.getByLabel('API Key（保存后不可查看）').fill('mock-relay-key')
+  await admin.getByRole('button', { name: '保存配置' }).click()
+  await expect(admin.getByRole('alert')).toContainText('只允许内网 IP')
+  await admin.getByLabel('接口地址').fill('http://10.0.0.5:3000/v1')
+  await admin.getByLabel('API Key（保存后不可查看）').fill('mock-relay-key')
+  await admin.getByRole('button', { name: '保存配置' }).click()
+  await expect(admin.getByRole('status')).toContainText('已保存并设为当前配置')
+  await expect(admin.getByTestId('provider-state')).toContainText(
+    'OpenAI 格式（第三方） · gpt-image-2',
+  )
+  await expect(
+    admin
+      .getByTestId('provider-version-row')
+      .filter({ hasText: 'http://10.0.0.5:3000/v1' }),
+  ).toContainText('当前配置')
   await admin.screenshot({
     path: join(artifacts, 'settings-admin.png'),
     fullPage: true,

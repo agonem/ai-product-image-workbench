@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/** Production administrator management of the OpenRouter background configuration. */
+/** Production administrator management of the generation model configuration. */
 @RestController
 @Profile("prod-local")
 public class ProviderConfigApi {

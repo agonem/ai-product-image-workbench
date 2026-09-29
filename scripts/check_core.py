@@ -12,6 +12,8 @@ import socket
 import ssl
 import struct
 import subprocess
+import threading
+import time
 import uuid
 import zlib
 from contextlib import ExitStack
@@ -189,7 +191,7 @@ class Core:
 
 
 def api_checks(core, admin, alice, bob, project):
-    """V4-A1..A11 at the API boundary; every model call is the mock."""
+    """V4-A1..A12 at the API boundary; every model call is the mock."""
     run, evidence, uploads = core.run, {}, {}
     for kind, shape in (("PRODUCT", PRODUCT_RGB), ("GIFT", GIFT_RGB)):
         data = synthetic_png(shape=shape)
@@ -411,9 +413,51 @@ def api_checks(core, admin, alice, bob, project):
     assert run.http("POST", f"/api/v1/tasks/{legacy}/retry", alice, {"attempt": 1})[0] == 409
     assert run.sql("SELECT count(*) FROM outbox_events") == before
 
+    # A12: provider types take only their own fields; http only to intranet addresses; a task
+    # created after switching delivers the chosen type to the Worker (recorded by the mock).
+    configs = "/api/v1/admin/provider-configs"
+    for bad in (
+        {"provider": "openai", "model": "gpt-image-2", "provider_tag": "x"},
+        {"provider": "openai-compatible", "model": "gpt-image-2", "base_url": "http://8.8.8.8/v1"},
+        {"provider": "gemini-compatible", "model": "gemini-2.5-flash-image"},
+        {"provider": "unknown", "model": "m"},
+    ):
+        body = {**bad, "api_key": "mock-key", "enabled": True}
+        assert run.http("POST", configs, admin, body)[0] == 400, bad
+    relay_key = "mock-" + secrets.token_urlsafe(24)
+    relay = {
+        "provider": "gemini-compatible",
+        "model": "gemini-2.5-flash-image",
+        "base_url": "http://10.0.0.9:3000",
+        "api_key": relay_key,
+        "enabled": True,
+    }
+    status, created, _ = run.http("POST", configs, admin, relay)
+    assert status == 201 and created["base_url"] == relay["base_url"], (status, created)
+    listing = run.http("GET", configs, admin)[1]
+    assert relay_key not in json.dumps(created) + json.dumps(listing)
+    active = next(item for item in listing["items"] if item.get("active"))
+    assert listing["enabled"] and active["provider"] == "gemini-compatible"
+    assert run.http("GET", configs, alice)[0] == 403
+    state = core.generate(alice, dict(scene, scene_preset="outdoor"), "v4-relay")
+    assert state["status"] == "SUCCEEDED", state
+    _, gens = core.generations(state["id"])
+    assert gens[0]["provenance"]["provider"] == "mock-acceptance-only:gemini-compatible"
+    evidence["provider_types"] = {"task": state["id"], "provider": "gemini-compatible"}
+
     for kind, (asset, data) in uploads.items():
         assert run.http("GET", f"/api/v1/assets/{asset}/content", alice)[1] == data, kind
     return evidence
+
+
+def watch_exit(process, path):
+    """Diagnostics: record when and how a page server exits during the page tests."""
+
+    def watch():
+        code = process.wait()
+        path.write_text(f"{time.strftime('%H:%M:%S')} exit code {code}\n", encoding="utf-8")
+
+    threading.Thread(target=watch, daemon=True).start()
 
 
 def browser_checks(core, stack):
@@ -466,6 +510,7 @@ def browser_checks(core, stack):
     )
     stack.callback(stop, vite)
     wait_ready(page_env["T06_BASE_URL"], vite, log_path)
+    watch_exit(vite, work / "vite-exit.log")
     worker, worker_log = core.worker(once=False)
     stack.callback(worker_log.close)
     stack.callback(stop, worker)
@@ -521,8 +566,8 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A11: three entries, references, text, retypeset, isolation, "
-            "withdrawn routes",
+            "PASS V4-A1..A12: three entries, references, text, retypeset, isolation, "
+            "withdrawn routes, provider types",
             flush=True,
         )
         if browser_checks(core, stack):

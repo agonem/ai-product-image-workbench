@@ -90,9 +90,8 @@ def process(
     if request.get("schema_version") == 4:
         if fixture:
             return failure(request, "INVALID_CONTRACT", False)
-        from image_service import generation, typeset
+        from image_service import generation, providers, typeset
         from image_service.background_config import config_from_mapping, load_config
-        from image_service.openrouter import OpenRouterAdapter
 
         try:
             if "base_image" in request:
@@ -103,7 +102,8 @@ def process(
                 if provider_config is not None
                 else load_config()
             )
-            with OpenRouterAdapter(config) as adapter:
+            # The admin-chosen provider type selects OpenRouter, OpenAI or Gemini formats.
+            with providers.model_adapter(config) as adapter:
                 return generation.process_generation(
                     api, request, lease, adapter, cancelled=cancelled
                 )

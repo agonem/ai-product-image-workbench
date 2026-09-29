@@ -14,7 +14,7 @@ from pathlib import Path
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "image-service"))
-from image_service import background_config, openrouter, worker  # noqa: E402
+from image_service import background_config, providers, worker  # noqa: E402
 from image_service.background import BackgroundError, BackgroundResult  # noqa: E402
 
 CALLS = {"count": 0}
@@ -23,7 +23,8 @@ CALLS = {"count": 0}
 class MockModel:
     def __init__(self, config=None):
         self.model = config.model if config is not None else "mock/model"
-        self.tag = config.provider_tag if config is not None else "mock"
+        self.tag = (config.provider_tag if config is not None else None) or "mock"
+        self.provider = config.provider if config is not None else "openrouter"
 
     def __enter__(self):
         return self
@@ -56,7 +57,7 @@ class MockModel:
             *size,
             {
                 "schema_version": 1,
-                "provider": "mock-acceptance-only",
+                "provider": "mock-acceptance-only:" + self.provider,
                 "provider_tag": self.tag,
                 "model": self.model,
                 "prompt": request.prompt,
@@ -77,5 +78,6 @@ class MockModel:
 
 if __name__ == "__main__":
     background_config.load_config = lambda: None
-    openrouter.OpenRouterAdapter = MockModel
+    # Every provider type (OpenRouter, OpenAI, Gemini, third-party) is served by the mock.
+    providers.model_adapter = MockModel
     worker.main()

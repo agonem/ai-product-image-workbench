@@ -137,7 +137,7 @@ RUN_GID=$(id -g)
 SERVER_IP=${SERVER_IP}
 HTTPS_PORT=${HTTPS_PORT}
 HTTP_PORT=${HTTP_PORT}
-OPENROUTER_PROXY_URL=
+MODEL_PROXY_URL=
 EOF
 chmod 600 .env
 # Public certificate for colleagues' computers (removes the browser warning once trusted).

@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(7, flyway.migrate().migrationsExecuted);
+    assertEquals(8, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -141,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(6, upgrade.migrate().migrationsExecuted);
+      assertEquals(7, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(5, current.migrate().migrationsExecuted);
+      assertEquals(6, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -389,10 +389,14 @@ class DatabaseMigrationIT {
     rejects("23514", "UPDATE provider_config_versions SET api_key_cipher='plain' WHERE id='cfg'");
     rejects(
         "23503",
-        "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','missing',true)");
+        "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('active','missing',true)");
     sql(
+        "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('active','cfg',true)");
+    sql("UPDATE provider_config_state SET enabled=false WHERE provider='active'");
+    // One active configuration for the deployment: no second state row.
+    rejects(
+        "23514",
         "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
-    sql("UPDATE provider_config_state SET enabled=false WHERE provider='openrouter'");
     seedTaskAndAttempt();
     rejects("23514", "UPDATE generation_tasks SET provider_config_version='cfg' WHERE id='t'");
     rejects(
@@ -404,6 +408,71 @@ class DatabaseMigrationIT {
         task("bound", "u", "SCENE", "cfgkey", "a".repeat(64))
             .replace("request_snapshot_json)", "request_snapshot_json,provider_config_version)")
             .replace("'{}')", "'{}','cfg')"));
+  }
+
+  @Test
+  void providerFormatsCarryOnlyTheirOwnFields() throws SQLException {
+    String insert =
+        "INSERT INTO provider_config_versions(id,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,created_by) VALUES ";
+    sql(insert + "('o','openai','gpt-image-2',NULL,NULL,'c','****','u')");
+    sql(insert + "('g','gemini','gemini-2.5-flash-image',NULL,NULL,'c','****','u')");
+    sql(
+        insert
+            + "('oc','openai-compatible','gpt-image-2',NULL,'http://10.2.2.110:3000/v1','c','****','u')");
+    sql(
+        insert
+            + "('gc','gemini-compatible','gemini-2.5-flash-image',NULL,'https://relay.example.com','c','****','u')");
+    rejects("23514", insert + "('x1','other','m',NULL,NULL,'c','****','u')");
+    rejects("23514", insert + "('x2','openai','gpt-image-2','tag',NULL,'c','****','u')");
+    rejects("23514", insert + "('x3','openrouter','test/model',NULL,NULL,'c','****','u')");
+    rejects("23514", insert + "('x4','openrouter','no-slash','tag',NULL,'c','****','u')");
+    rejects("23514", insert + "('x5','openai-compatible','m',NULL,NULL,'c','****','u')");
+    rejects("23514", insert + "('x6','openai','m',NULL,'https://a.example','c','****','u')");
+    rejects(
+        "23514", insert + "('x7','gemini-compatible','m',NULL,'ftp://a.example','c','****','u')");
+    rejects(
+        "23514", "UPDATE provider_config_versions SET base_url='https://b.example' WHERE id='oc'");
+  }
+
+  @Test
+  void v8KeepsTheActiveOpenRouterConfiguration() throws SQLException {
+    String upgradeSchema = "upgrade_" + UUID.randomUUID().toString().replace("-", "");
+    var v7 =
+        Flyway.configure()
+            .dataSource(url, user, password)
+            .schemas(upgradeSchema)
+            .target("7")
+            .load();
+    assertEquals(7, v7.migrate().migrationsExecuted);
+    try (var connection = DriverManager.getConnection(url, user, password);
+        var query = connection.createStatement()) {
+      connection.setSchema(upgradeSchema);
+      query.execute("INSERT INTO users(id,status) VALUES ('admin','ACTIVE')");
+      query.execute(
+          "INSERT INTO provider_config_versions(id,provider,model,provider_tag,api_key_cipher,api_key_mask,created_by) VALUES ('cfg','openrouter','openai/gpt-image-2','openai','c','****','admin')");
+      query.execute(
+          "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
+      var upgrade =
+          Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
+      assertEquals(1, upgrade.migrate().migrationsExecuted);
+      try (var rows =
+          query.executeQuery(
+              "SELECT provider,active_version_id,enabled FROM provider_config_state")) {
+        assertTrue(rows.next());
+        assertEquals("active", rows.getString(1));
+        assertEquals("cfg", rows.getString(2));
+        assertTrue(rows.getBoolean(3));
+        assertFalse(rows.next());
+      }
+      try (var rows =
+          query.executeQuery(
+              "SELECT provider,provider_tag,base_url FROM provider_config_versions")) {
+        assertTrue(rows.next());
+        assertEquals("openrouter", rows.getString(1));
+        assertEquals("openai", rows.getString(2));
+        assertEquals(null, rows.getString(3));
+      }
+    }
   }
 
   @Test

@@ -11,7 +11,11 @@ import java.util.HashSet;
 final class GenerationOutputs {
   // The mock value exists only for isolated acceptance workers and is stored as such.
   private static final java.util.Set<String> MODEL_SOURCES =
-      java.util.Set.of("openrouter-images-api", "mock-acceptance-only");
+      java.util.Set.of(
+          "openrouter-images-api",
+          "openai-images-api",
+          "gemini-generate-content",
+          "mock-acceptance-only");
 
   private GenerationOutputs() {}
 

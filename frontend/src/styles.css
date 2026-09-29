@@ -130,6 +130,11 @@ small {
   color: var(--danger);
   border-color: #f4ccc9;
 }
+.message.warn {
+  background: #fff7e6;
+  color: #8a5a12;
+  border-color: #f3dfb3;
+}
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);

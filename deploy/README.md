@@ -15,7 +15,7 @@
 
 - 服务器已装 Docker Engine 与 `docker compose` 插件；当前用户在 `docker` 组里（能不加 sudo 运行 `docker ps`）。
 - **构建镜像时**服务器要能访问 Docker Hub、Maven Central、npm、PyPI、Debian 软件源。不能访问时见第 7 节“离线构建”。
-- **运行时** Worker 要能访问 `https://openrouter.ai`（直连或公司代理）。需要代理时，在 `deploy/.env` 里填 `OPENROUTER_PROXY_URL=http://代理地址:端口`（只用于模型调用）。
+- **运行时** Worker 要能访问所选的模型接口：OpenRouter、OpenAI、Gemini 官方地址，或内网/外网的第三方中转。访问公网接口需要代理时，在 `deploy/.env` 里填 `MODEL_PROXY_URL=http://代理地址:端口`（只用于模型调用，内网 http 中转不走代理；旧名 `OPENROUTER_PROXY_URL` 仍有效）。
 - 80、443 端口没有被占用；被占用就换端口（见第 2 节末尾），访问地址随之带端口。
 
 ## 2. 首次安装
@@ -46,7 +46,11 @@ HTTP_PORT=8080 HTTPS_PORT=8443 ./init.sh 192.168.1.20 admin   # 两个都换
 
 1. 浏览器打开 `https://服务器IP/`，用管理员登录。
 2. 删除引导文件：`rm secrets/bootstrap/admin.json`（账号已写入数据库，之后不再读取）。
-3. 右上角“账号与安全 → 供应商配置”：模型 `openai/gpt-image-2`，provider_tag `openai`，填 OpenRouter API Key，勾选“保存后立即启用”。密钥加密保存，页面只显示掩码。
+3. 左侧栏“模型配置”（仅管理员）：选择接口类型并填写——
+   - OpenRouter：模型 `openai/gpt-image-2`，provider_tag `openai`；
+   - OpenAI 官方：模型如 `gpt-image-2`；Gemini 官方：模型如 `gemini-2.5-flash-image`；
+   - OpenAI 格式 / Gemini 格式第三方：再填接口地址，如 `http://10.2.2.110:3000/v1`（http 只允许内网地址，密钥会在内网明文传输）。
+   填 API Key，勾选“保存后立即启用”。密钥加密保存，页面只显示掩码；同一时间只有一个配置生效，新建即切换。
 4. “账号与安全 → 账号管理”：给运营同事创建账号（普通用户）。
 5. 上线冒烟：三个入口各生成 1 张（会产生真实费用，约每张 0.015 美元），点“对照原图”检查商品，再下载。
 

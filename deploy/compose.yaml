@@ -69,7 +69,9 @@ services:
       GENERATION_TEXT_FONT: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
       # Face 2 of the Noto CJK collection is Simplified Chinese (face 0 is Japanese).
       GENERATION_TEXT_FONT_INDEX: "2"
-      # Optional: only when this server reaches https://openrouter.ai through a proxy.
+      # Optional proxy for public model endpoints (OpenRouter, OpenAI, Gemini, https relays);
+      # intranet http relays are always reached directly. OPENROUTER_PROXY_URL is the old name.
+      MODEL_PROXY_URL: ${MODEL_PROXY_URL:-}
       OPENROUTER_PROXY_URL: ${OPENROUTER_PROXY_URL:-}
     secrets: [worker_token, ca.pem]
     volumes:

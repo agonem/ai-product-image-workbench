@@ -61,9 +61,15 @@
               "output_source": {
                 "enum": [
                   "openrouter-images-api",
+                  "openai-images-api",
+                  "gemini-generate-content",
                   "retypeset",
                   "mock-acceptance-only"
                 ]
+              },
+              "endpoint": {
+                "type": "string",
+                "pattern": "^https?://[^/?#@ ]{1,300}$"
               },
               "provider": {
                 "type": "string",
