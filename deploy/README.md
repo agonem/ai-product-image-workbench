@@ -1,4 +1,6 @@
-# 内网部署说明（Ubuntu 24.04 + Docker）
+# 内网部署说明（Ubuntu + Docker）
+
+已在测试服务器 10.2.2.110（Ubuntu 20.04、OpenSSL 1.1.1、Docker Compose v2.35，经镜像加速拉取 Docker Hub 镜像）实际部署通过；Ubuntu 24.04 同样适用。
 
 一台服务器，同事在浏览器里用 `https://服务器IP/` 访问。只开放 80（自动跳转）和 443 端口；数据库、Java 接口和 Worker 只在 Docker 内部网络里互通。
 
