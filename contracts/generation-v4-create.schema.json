@@ -204,6 +204,10 @@
               }
             }
           ]
+        },
+        "model_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id",
+          "description": "Chosen model (ADR-20260929-C); omitted means the admin default."
         }
       },
       "required": [
@@ -281,6 +285,10 @@
           "minLength": 1,
           "maxLength": 500,
           "pattern": "[^\\s]"
+        },
+        "model_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id",
+          "description": "Chosen model (ADR-20260929-C); omitted means the admin default."
         }
       },
       "required": [
@@ -455,6 +463,10 @@
               }
             }
           ]
+        },
+        "model_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id",
+          "description": "Chosen model (ADR-20260929-C); omitted means the admin default."
         }
       },
       "required": [

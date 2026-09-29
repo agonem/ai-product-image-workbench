@@ -125,11 +125,11 @@ public final class TaskService {
                   key);
           if (!existing.isEmpty()) return existing(actor, existing.getFirst(), hash);
           ObjectNode worker = build.get();
-          // Model tasks freeze the admin binding (or reject when an admin actively disabled
-          // it); retries reuse the frozen column. Text-only re-renders call no model.
+          // Model tasks freeze the chosen (or default) model; retries reuse the frozen column.
+          // Text-only re-renders call no model.
           String configVersion =
               worker.path("schema_version").asInt() >= 2 && !worker.has("base_image")
-                  ? configs.sceneBinding()
+                  ? configs.binding(request.get("model_id"))
                   : null;
           String id = Json.id();
           int inserted =

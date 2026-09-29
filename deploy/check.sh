@@ -50,19 +50,18 @@ if docker compose logs --since "$ready_at" worker | grep -q worker_retry; then
 fi
 echo "ok   worker is polling the business service"
 
-# Public model endpoints (no key needed to connect). Only warn: an intranet relay may be all
-# that is configured, and only the endpoint in use has to be reachable.
+# Public model endpoints, direct (no key needed to connect). Only warn: only the endpoint in use
+# has to be reachable, and a model marked "use proxy" goes through the proxy set in the pages.
 docker compose exec -T -w /app/image-service worker /app/image-service/.venv/bin/python -c '
 import httpx
-from image_service.egress import proxy_for
 for url in ("https://openrouter.ai/api/v1/models", "https://api.openai.com/v1/models",
             "https://generativelanguage.googleapis.com/v1beta/models"):
     host = url.split("/")[2]
     try:
-        status = httpx.get(url, proxy=proxy_for(url), trust_env=False, timeout=20).status_code
+        status = httpx.get(url, trust_env=False, timeout=20).status_code
         print("ok   worker reaches", host, "(HTTP %d)" % status)
     except httpx.HTTPError as error:
         print("WARN worker cannot reach", host, "(" + type(error).__name__ + ");",
-              "set MODEL_PROXY_URL in .env if this provider is used through a proxy")' || true
+              "directly; set the proxy in the model settings page and tick use proxy")' || true
 
 echo "PASS: deployment checks. Next: log in, configure the provider, generate one image per entry."

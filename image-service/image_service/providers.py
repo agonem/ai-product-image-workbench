@@ -28,7 +28,7 @@ from image_service.background import (
     BackgroundRequest,
     BackgroundResult,
 )
-from image_service.egress import proxy_for
+from image_service.egress import route
 
 OFFICIAL_ROOTS = {
     "openai": "https://api.openai.com/v1",
@@ -90,7 +90,7 @@ class _Adapter:
             timeout=TIMEOUT,
             follow_redirects=False,
             trust_env=False,
-            proxy=proxy_for(self.root),
+            proxy=route(config, self.root),
             transport=transport,
         )
 

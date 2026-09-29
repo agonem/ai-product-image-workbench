@@ -1,6 +1,7 @@
 package com.productimage.business.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -8,7 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 
 class ProviderConfigValidationTest {
-  private static void accepts(String json) {
+  private static final String COMMON =
+      "\"name\":\"主力\",\"api_key\":\"sk-x\",\"enabled\":true,\"use_proxy\":false";
+
+  private static void accepts(String fields) {
+    String json = "{" + fields + "," + COMMON + "}";
     assertDoesNotThrow(() -> ProviderConfigService.validate(Json.parse(json)), json);
   }
 
@@ -17,48 +22,51 @@ class ProviderConfigValidationTest {
   }
 
   @Test
-  void eachProviderTypeTakesExactlyItsOwnFields() {
+  void onlyOpenRouterOpenAiAndGeminiWithTheirOwnFields() {
     accepts(
-        "{\"provider\":\"openrouter\",\"model\":\"openai/gpt-image-2\",\"provider_tag\":\"openai\",\"api_key\":\"sk-x\",\"enabled\":true}");
-    accepts(
-        "{\"provider\":\"openai\",\"model\":\"gpt-image-2\",\"api_key\":\"sk-x\",\"enabled\":true}");
-    accepts(
-        "{\"provider\":\"gemini\",\"model\":\"gemini-2.5-flash-image\",\"api_key\":\"k\",\"enabled\":false}");
-    accepts(
-        "{\"provider\":\"openai-compatible\",\"model\":\"gpt-image-2\",\"base_url\":\"http://10.2.2.110:3000/v1\",\"api_key\":\"k\",\"enabled\":true}");
-    accepts(
-        "{\"provider\":\"gemini-compatible\",\"model\":\"gemini-2.5-flash-image\",\"base_url\":\"https://relay.example.com\",\"api_key\":\"k\",\"enabled\":true}");
-    // Wrong or missing fields for the chosen type.
+        "\"provider\":\"openrouter\",\"model\":\"openai/gpt-image-2\",\"provider_tag\":\"openai\"");
+    accepts("\"provider\":\"openai\",\"model\":\"gpt-image-2\"");
+    accepts("\"provider\":\"gemini\",\"model\":\"gemini-2.5-flash-image\"");
     rejects(
-        "{\"provider\":\"openai\",\"model\":\"gpt-image-2\",\"provider_tag\":\"x\",\"api_key\":\"k\",\"enabled\":true}");
+        "{\"provider\":\"openai\",\"model\":\"gpt-image-2\",\"provider_tag\":\"x\","
+            + COMMON
+            + "}");
+    rejects("{\"provider\":\"openrouter\",\"model\":\"openai/gpt-image-2\"," + COMMON + "}");
     rejects(
-        "{\"provider\":\"openai\",\"model\":\"gpt-image-2\",\"base_url\":\"https://a.b\",\"api_key\":\"k\",\"enabled\":true}");
+        "{\"provider\":\"openrouter\",\"model\":\"no-slash\",\"provider_tag\":\"t\","
+            + COMMON
+            + "}");
+    // Third-party formats are not offered for now (ADR-20260929-C).
     rejects(
-        "{\"provider\":\"openai-compatible\",\"model\":\"gpt-image-2\",\"api_key\":\"k\",\"enabled\":true}");
+        "{\"provider\":\"openai-compatible\",\"model\":\"m\",\"base_url\":\"https://a.example\","
+            + COMMON
+            + "}");
+    rejects("{\"provider\":\"other\",\"model\":\"m\"," + COMMON + "}");
+    rejects("{\"provider\":\"openai\",\"model\":\"gpt image\"," + COMMON + "}");
     rejects(
-        "{\"provider\":\"openrouter\",\"model\":\"no-slash\",\"provider_tag\":\"t\",\"api_key\":\"k\",\"enabled\":true}");
-    rejects("{\"provider\":\"other\",\"model\":\"m\",\"api_key\":\"k\",\"enabled\":true}");
-    rejects("{\"provider\":\"openai\",\"model\":\"gpt image\",\"api_key\":\"k\",\"enabled\":true}");
+        "{\"provider\":\"openai\",\"model\":\"m\",\"name\":\" \",\"api_key\":\"k\",\"enabled\":true,\"use_proxy\":false}");
     rejects(
-        "{\"provider\":\"openai\",\"model\":\"gpt-image-2\",\"api_key\":\"k k\",\"enabled\":true}");
+        "{\"provider\":\"openai\",\"model\":\"m\",\"name\":\""
+            + "名".repeat(41)
+            + "\",\"api_key\":\"k\",\"enabled\":true,\"use_proxy\":false}");
     rejects(
-        "{\"provider\":\"openai\",\"model\":\"gpt-image-2\",\"api_key\":\"k\",\"enabled\":\"yes\"}");
+        "{\"provider\":\"openai\",\"model\":\"m\",\"name\":\"n\",\"api_key\":\"k k\",\"enabled\":true,\"use_proxy\":false}");
+    rejects(
+        "{\"provider\":\"openai\",\"model\":\"m\",\"name\":\"n\",\"api_key\":\"k\",\"enabled\":true}");
   }
 
   @Test
-  void httpIsOnlyAllowedForPrivateIpv4Addresses() {
-    assertTrue(ProviderConfigService.validBaseUrl("https://api.example.com/v1"));
-    assertTrue(ProviderConfigService.validBaseUrl("http://10.2.2.110:3000"));
-    assertTrue(ProviderConfigService.validBaseUrl("http://172.16.0.5/v1beta"));
-    assertTrue(ProviderConfigService.validBaseUrl("http://192.168.1.20:8080/v1"));
-    assertFalse(ProviderConfigService.validBaseUrl("http://8.8.8.8/v1"));
-    assertFalse(ProviderConfigService.validBaseUrl("http://172.32.0.1/v1"));
-    assertFalse(ProviderConfigService.validBaseUrl("http://relay.internal/v1"));
-    assertFalse(ProviderConfigService.validBaseUrl("http://127.0.0.1:3000"));
-    assertFalse(ProviderConfigService.validBaseUrl("http://10.0.0.300/v1"));
-    assertFalse(ProviderConfigService.validBaseUrl("https://user:pass@api.example.com"));
-    assertFalse(ProviderConfigService.validBaseUrl("https://api.example.com/v1?key=x"));
-    assertFalse(ProviderConfigService.validBaseUrl("ftp://10.0.0.1"));
-    assertFalse(ProviderConfigService.validBaseUrl("https://" + "a".repeat(300) + ".com"));
+  void proxyUrlsAllowCredentialsButNoPath() {
+    assertTrue(ProviderConfigService.validProxy("http://proxy.company:3128"));
+    assertTrue(ProviderConfigService.validProxy("https://user:secret@10.0.0.8:8443/"));
+    assertFalse(ProviderConfigService.validProxy("socks5://proxy:1080"));
+    assertFalse(ProviderConfigService.validProxy("http://proxy:3128/path"));
+    assertFalse(ProviderConfigService.validProxy("http://proxy:3128?x=1"));
+    assertFalse(ProviderConfigService.validProxy("http://"));
+    assertFalse(ProviderConfigService.validProxy("http://" + "a".repeat(300)));
+    assertEquals(
+        "https://****@10.0.0.8:8443",
+        ProviderConfigService.proxyMask("https://user:secret@10.0.0.8:8443/"));
+    assertEquals("http://proxy.company", ProviderConfigService.proxyMask("http://proxy.company"));
   }
 }

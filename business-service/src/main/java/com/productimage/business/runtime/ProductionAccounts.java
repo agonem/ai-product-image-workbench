@@ -23,7 +23,8 @@ public final class ProductionAccounts implements UserAuthenticator {
   ProductionAccounts(Environment env, JdbcTemplate jdbc, TransactionTemplate tx) {
     this.jdbc = jdbc;
     this.tx = tx;
-    seconds = limit(env, "PROD_SESSION_SECONDS", 900, 60, 86400);
+    // Default working day (8 h, user decision); 60 s - 24 h configurable.
+    seconds = limit(env, "PROD_SESSION_SECONDS", 28800, 60, 86400);
     loginLimit = limit(env, "PROD_LOGIN_LIMIT", 60, 1, 600);
     tx.executeWithoutResult(
         status -> {

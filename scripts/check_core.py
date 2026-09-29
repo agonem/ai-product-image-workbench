@@ -414,37 +414,84 @@ def api_checks(core, admin, alice, bob, project):
     assert run.http("POST", f"/api/v1/tasks/{legacy}/retry", alice, {"attempt": 1})[0] == 409
     assert run.sql("SELECT count(*) FROM outbox_events") == before
 
-    # A12: provider types take only their own fields; http only to intranet addresses; a task
-    # created after switching delivers the chosen type to the Worker (recorded by the mock).
+    # A12: model catalog (ADR-20260929-C). Only OpenRouter / OpenAI / Gemini with their own fields;
+    # several enabled models; a task binds the chosen model or the default; a disabled model is
+    # refused and the default cannot be disabled; a new key retires the old row but keeps the name,
+    # the default and every frozen task binding; the proxy is masked and only models marked "use
+    # proxy" receive it (the mock records the route it was given).
     configs = "/api/v1/admin/provider-configs"
+    common = {"api_key": "mock-key", "enabled": True, "use_proxy": False}
     for bad in (
-        {"provider": "openai", "model": "gpt-image-2", "provider_tag": "x"},
-        {"provider": "openai-compatible", "model": "gpt-image-2", "base_url": "http://8.8.8.8/v1"},
-        {"provider": "gemini-compatible", "model": "gemini-2.5-flash-image"},
-        {"provider": "unknown", "model": "m"},
+        {"name": "x", "provider": "openai", "model": "gpt-image-2", "provider_tag": "x"},
+        {"name": "x", "provider": "openai-compatible", "model": "m", "base_url": "https://a.test"},
+        {"name": " ", "provider": "gemini", "model": "gemini-2.5-flash-image"},
+        {"name": "x", "provider": "unknown", "model": "m"},
     ):
-        body = {**bad, "api_key": "mock-key", "enabled": True}
-        assert run.http("POST", configs, admin, body)[0] == 400, bad
-    relay_key = "mock-" + secrets.token_urlsafe(24)
-    relay = {
-        "provider": "gemini-compatible",
-        "model": "gemini-2.5-flash-image",
-        "base_url": "http://10.0.0.9:3000",
-        "api_key": relay_key,
-        "enabled": True,
-    }
-    status, created, _ = run.http("POST", configs, admin, relay)
-    assert status == 201 and created["base_url"] == relay["base_url"], (status, created)
+        assert run.http("POST", configs, admin, {**bad, **common})[0] == 400, bad
+    gemini_key = "mock-" + secrets.token_urlsafe(24)
+    status, gemini, _ = run.http(
+        "POST",
+        configs,
+        admin,
+        {
+            "name": "Gemini 测试",
+            "provider": "gemini",
+            "model": "gemini-2.5-flash-image",
+            "api_key": gemini_key,
+            "enabled": True,
+            "use_proxy": True,
+        },
+    )
+    assert status == 201 and not gemini["default"], (status, gemini)
     listing = run.http("GET", configs, admin)[1]
-    assert relay_key not in json.dumps(created) + json.dumps(listing)
-    active = next(item for item in listing["items"] if item.get("active"))
-    assert listing["enabled"] and active["provider"] == "gemini-compatible"
+    assert gemini_key not in json.dumps(listing)
+    default = next(item for item in listing["items"] if item["default"])
     assert run.http("GET", configs, alice)[0] == 403
-    state = core.generate(alice, dict(scene, scene_preset="outdoor"), "v4-relay")
-    assert state["status"] == "SUCCEEDED", state
-    _, gens = core.generations(state["id"])
-    assert gens[0]["provenance"]["provider"] == "mock-acceptance-only:gemini-compatible"
-    evidence["provider_types"] = {"task": state["id"], "provider": "gemini-compatible"}
+    choices = run.http("GET", "/api/v1/workbench/options", alice)[1]["models"]
+    assert {m["id"] for m in choices} == {default["id"], gemini["id"]}
+    assert "key" not in json.dumps(choices)
+    proxy = "/api/v1/admin/network-proxy"
+    assert run.http("PUT", proxy, admin, {"proxy_url": "http://proxy.internal:3128/x"})[0] == 400
+    body = {"proxy_url": "http://user:secret@proxy.internal:3128"}
+    assert run.http("PUT", proxy, admin, body)[0] == 204
+    shown = run.http("GET", proxy, admin)[1]
+    assert shown["configured"] and shown["mask"] == "http://****@proxy.internal:3128", shown
+    assert "secret" not in json.dumps(run.http("GET", configs, admin)[1])
+    chosen = core.generate(
+        alice, dict(scene, scene_preset="outdoor", model_id=gemini["id"]), "v4-gemini"
+    )
+    assert chosen["status"] == "SUCCEEDED", chosen
+    assert core.generations(chosen["id"])[1][0]["provenance"]["provider"] == (
+        "mock-acceptance-only:gemini:proxy"
+    )
+    fallback = core.generate(alice, dict(scene, scene_preset="bedroom"), "v4-default")
+    assert core.generations(fallback["id"])[1][0]["provenance"]["provider"] == (
+        "mock-acceptance-only:openrouter:direct"
+    )
+    assert (
+        run.http("POST", f"{configs}/{gemini['id']}/settings", admin, {"enabled": False})[0] == 204
+    )
+    refused = core.post(alice, "/api/v4/generation-tasks", dict(scene, model_id=gemini["id"]))
+    assert refused[0] == 422 and refused[1]["code"] == "MODEL_UNAVAILABLE", refused
+    status, body, _ = run.http(
+        "POST", f"{configs}/{default['id']}/settings", admin, {"enabled": False}
+    )
+    assert status == 409 and body["code"] == "DEFAULT_MODEL", (status, body)
+    status, rotated, _ = run.http(
+        "POST",
+        f"{configs}/{default['id']}/key",
+        admin,
+        {"api_key": "mock-" + secrets.token_urlsafe(20)},
+    )
+    assert status == 201 and rotated["default"] and rotated["name"] == default["name"], rotated
+    assert default["id"] not in {item["id"] for item in run.http("GET", configs, admin)[1]["items"]}
+    frozen = run.sql(
+        f"SELECT provider_config_version FROM generation_tasks WHERE id='{fallback['id']}'"
+    )
+    assert frozen == default["id"]
+    assert run.http("DELETE", proxy, admin)[0] == 204
+    assert run.http("GET", proxy, admin)[1] == {"configured": False}
+    evidence["models"] = {"chosen": chosen["id"], "default": fallback["id"]}
 
     for kind, (asset, data) in uploads.items():
         assert run.http("GET", f"/api/v1/assets/{asset}/content", alice)[1] == data, kind
@@ -598,11 +645,13 @@ def run_core_checks(env, work):
         # A frozen admin binding proves the lease-delivered configuration reaches the model.
         mock_key = "mock-" + secrets.token_urlsafe(24)
         config = {
+            "name": "模拟主力",
             "provider": "openrouter",
             "model": "test/mock-model",
             "provider_tag": "mock",
             "api_key": mock_key,
             "enabled": True,
+            "use_proxy": False,
         }
         assert run.http("POST", "/api/v1/admin/provider-configs", admin, config)[0] == 201
         alice, bob = run.login("alice"), run.login("bob")
@@ -610,7 +659,7 @@ def run_core_checks(env, work):
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
             "PASS V4-A1..A13: three entries, references, text, retypeset, isolation, "
-            "withdrawn routes, provider types, owner deletion",
+            "withdrawn routes, model catalog and proxy, owner deletion",
             flush=True,
         )
         if browser_checks(core, stack):

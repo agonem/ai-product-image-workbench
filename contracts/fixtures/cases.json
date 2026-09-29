@@ -2081,6 +2081,88 @@
     }
   },
   {
+    "name": "generation-with-chosen-model",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "gift_position": "BOTTOM_RIGHT",
+      "background": {
+        "mode": "SOLID",
+        "color": "#FFFFFF"
+      },
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "model_id": "3f1c2b9e-0d4a-4c7e-9b11-2a6f5e8d0c47"
+    }
+  },
+  {
+    "name": "generation-model-id-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "gift_position": "BOTTOM_RIGHT",
+      "background": {
+        "mode": "SOLID",
+        "color": "#FFFFFF"
+      },
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "model_id": "bad id!"
+    }
+  },
+  {
     "name": "v4-gift-minimal",
     "contract": "generation-v4-create",
     "valid": true,

@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(9, flyway.migrate().migrationsExecuted);
+    assertEquals(10, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -141,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(8, upgrade.migrate().migrationsExecuted);
+      assertEquals(9, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(7, current.migrate().migrationsExecuted);
+      assertEquals(8, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -384,19 +384,21 @@ class DatabaseMigrationIT {
   @Test
   void providerConfigVersionsAreImmutableAndTaskBound() throws SQLException {
     sql(
-        "INSERT INTO provider_config_versions(id,provider,model,provider_tag,api_key_cipher,api_key_mask,created_by) VALUES ('cfg','openrouter','test/model','openai','cipher','****st','u')");
+        "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,api_key_cipher,api_key_mask,created_by) VALUES ('cfg','主力','openrouter','test/model','openai','cipher','****st','u')");
     rejects("23514", "UPDATE provider_config_versions SET model='other/model' WHERE id='cfg'");
     rejects("23514", "UPDATE provider_config_versions SET api_key_cipher='plain' WHERE id='cfg'");
     rejects(
         "23503",
-        "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('active','missing',true)");
-    sql(
-        "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('active','cfg',true)");
-    sql("UPDATE provider_config_state SET enabled=false WHERE provider='active'");
-    // One active configuration for the deployment: no second state row.
+        "INSERT INTO provider_config_state(provider,active_version_id) VALUES ('active','missing')");
+    sql("INSERT INTO provider_config_state(provider,active_version_id) VALUES ('active','cfg')");
+    // One default pointer for the deployment: no second state row.
     rejects(
         "23514",
-        "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
+        "INSERT INTO provider_config_state(provider,active_version_id) VALUES ('openrouter','cfg')");
+    // Name, enabled and proxy routing are editable; a retired row can never be enabled.
+    sql("UPDATE provider_config_versions SET name='备用',enabled=true,use_proxy=true WHERE id='cfg'");
+    rejects("23514", "UPDATE provider_config_versions SET retired=true WHERE id='cfg'");
+    rejects("23514", "UPDATE provider_config_versions SET name=' ' WHERE id='cfg'");
     seedTaskAndAttempt();
     rejects("23514", "UPDATE generation_tasks SET provider_config_version='cfg' WHERE id='t'");
     rejects(
@@ -413,29 +415,30 @@ class DatabaseMigrationIT {
   @Test
   void providerFormatsCarryOnlyTheirOwnFields() throws SQLException {
     String insert =
-        "INSERT INTO provider_config_versions(id,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,created_by) VALUES ";
-    sql(insert + "('o','openai','gpt-image-2',NULL,NULL,'c','****','u')");
-    sql(insert + "('g','gemini','gemini-2.5-flash-image',NULL,NULL,'c','****','u')");
+        "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,created_by) VALUES ";
+    sql(insert + "('o','n','openai','gpt-image-2',NULL,NULL,'c','****','u')");
+    sql(insert + "('g','n','gemini','gemini-2.5-flash-image',NULL,NULL,'c','****','u')");
     sql(
         insert
-            + "('oc','openai-compatible','gpt-image-2',NULL,'http://10.2.2.110:3000/v1','c','****','u')");
+            + "('oc','n','openai-compatible','gpt-image-2',NULL,'http://10.2.2.110:3000/v1','c','****','u')");
     sql(
         insert
-            + "('gc','gemini-compatible','gemini-2.5-flash-image',NULL,'https://relay.example.com','c','****','u')");
-    rejects("23514", insert + "('x1','other','m',NULL,NULL,'c','****','u')");
-    rejects("23514", insert + "('x2','openai','gpt-image-2','tag',NULL,'c','****','u')");
-    rejects("23514", insert + "('x3','openrouter','test/model',NULL,NULL,'c','****','u')");
-    rejects("23514", insert + "('x4','openrouter','no-slash','tag',NULL,'c','****','u')");
-    rejects("23514", insert + "('x5','openai-compatible','m',NULL,NULL,'c','****','u')");
-    rejects("23514", insert + "('x6','openai','m',NULL,'https://a.example','c','****','u')");
+            + "('gc','n','gemini-compatible','gemini-2.5-flash-image',NULL,'https://relay.example.com','c','****','u')");
+    rejects("23514", insert + "('x1','n','other','m',NULL,NULL,'c','****','u')");
+    rejects("23514", insert + "('x2','n','openai','gpt-image-2','tag',NULL,'c','****','u')");
+    rejects("23514", insert + "('x3','n','openrouter','test/model',NULL,NULL,'c','****','u')");
+    rejects("23514", insert + "('x4','n','openrouter','no-slash','tag',NULL,'c','****','u')");
+    rejects("23514", insert + "('x5','n','openai-compatible','m',NULL,NULL,'c','****','u')");
+    rejects("23514", insert + "('x6','n','openai','m',NULL,'https://a.example','c','****','u')");
     rejects(
-        "23514", insert + "('x7','gemini-compatible','m',NULL,'ftp://a.example','c','****','u')");
+        "23514",
+        insert + "('x7','n','gemini-compatible','m',NULL,'ftp://a.example','c','****','u')");
     rejects(
         "23514", "UPDATE provider_config_versions SET base_url='https://b.example' WHERE id='oc'");
   }
 
   @Test
-  void v8KeepsTheActiveOpenRouterConfiguration() throws SQLException {
+  void upgradesKeepTheActiveOpenRouterConfiguration() throws SQLException {
     String upgradeSchema = "upgrade_" + UUID.randomUUID().toString().replace("-", "");
     var v7 =
         Flyway.configure()
@@ -454,23 +457,26 @@ class DatabaseMigrationIT {
           "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(2, upgrade.migrate().migrationsExecuted);
+      assertEquals(3, upgrade.migrate().migrationsExecuted);
       try (var rows =
-          query.executeQuery(
-              "SELECT provider,active_version_id,enabled FROM provider_config_state")) {
+          query.executeQuery("SELECT provider,active_version_id FROM provider_config_state")) {
         assertTrue(rows.next());
         assertEquals("active", rows.getString(1));
         assertEquals("cfg", rows.getString(2));
-        assertTrue(rows.getBoolean(3));
         assertFalse(rows.next());
       }
+      // V10: the previously active, enabled row becomes a named, enabled default model.
       try (var rows =
           query.executeQuery(
-              "SELECT provider,provider_tag,base_url FROM provider_config_versions")) {
+              "SELECT provider,provider_tag,base_url,name,enabled,retired,use_proxy FROM provider_config_versions")) {
         assertTrue(rows.next());
         assertEquals("openrouter", rows.getString(1));
         assertEquals("openai", rows.getString(2));
         assertEquals(null, rows.getString(3));
+        assertEquals("openai/gpt-image-2", rows.getString(4));
+        assertTrue(rows.getBoolean(5));
+        assertFalse(rows.getBoolean(6));
+        assertFalse(rows.getBoolean(7));
       }
     }
   }
@@ -490,6 +496,16 @@ class DatabaseMigrationIT {
     rejects("23514", "DELETE FROM deletions WHERE target_id='product'");
     // The original row itself stays for history.
     assertEquals(2, count("assets"));
+  }
+
+  @Test
+  void proxySettingIsASingleEncryptedRow() throws SQLException {
+    sql(
+        "INSERT INTO network_settings(id,proxy_cipher,proxy_mask,updated_by) VALUES ('proxy','c','http://proxy:3128','u')");
+    rejects(
+        "23514",
+        "INSERT INTO network_settings(id,proxy_cipher,proxy_mask,updated_by) VALUES ('other','c','m','u')");
+    rejects("23503", "UPDATE network_settings SET updated_by='nobody' WHERE id='proxy'");
   }
 
   @Test

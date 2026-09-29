@@ -124,11 +124,13 @@ def rehearse(env, work):
         # The generated master key encrypts a stored provider key (mock value, never used).
         mock = "mock-" + secrets.token_urlsafe(24)
         config = {
+            "name": "rehearsal",
             "provider": "openrouter",
             "model": "test/mock-model",
             "provider_tag": "mock",
             "api_key": mock,
             "enabled": False,
+            "use_proxy": False,
         }
         status, saved = call(run.port, ca, "POST", "/api/v1/admin/provider-configs", config, admin)
         assert status == 201 and mock not in json.dumps(saved), status

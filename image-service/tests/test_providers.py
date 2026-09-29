@@ -257,3 +257,32 @@ def test_adapter_follows_the_provider_type(monkeypatch):
     assert providers.model_adapter(ModelConfig("k", "a/b", "t")) == "openrouter"
     assert isinstance(providers.model_adapter(RELAY), providers.OpenAIImagesAdapter)
     assert isinstance(providers.model_adapter(GEMINI), providers.GeminiAdapter)
+
+
+def test_leased_models_use_only_their_own_proxy_setting(monkeypatch):
+    from image_service.egress import route
+
+    monkeypatch.setenv("MODEL_PROXY_URL", "http://env-proxy.internal:3128")
+    direct = config_from_mapping({"provider": "gemini", "api_key": "k", "model": "m"})
+    proxied = config_from_mapping(
+        {
+            "provider": "gemini",
+            "api_key": "k",
+            "model": "m",
+            "proxy_url": "http://user:pass@proxy.company:3128",
+        }
+    )
+    assert route(direct, "https://generativelanguage.googleapis.com") is None
+    assert route(proxied, "https://generativelanguage.googleapis.com") == (
+        "http://user:pass@proxy.company:3128"
+    )
+    assert "pass" not in repr(proxied)
+    # Environment configuration (development only) still honours MODEL_PROXY_URL.
+    assert route(ModelConfig("k", "a/b", "t"), "https://openrouter.ai") == (
+        "http://env-proxy.internal:3128"
+    )
+    for bad in ("ftp://proxy:21", "http://proxy:3128/path", "http://", "http://proxy:99999"):
+        with pytest.raises(BackgroundError, match="CONFIGURATION"):
+            config_from_mapping(
+                {"provider": "openai", "api_key": "k", "model": "m", "proxy_url": bad}
+            )

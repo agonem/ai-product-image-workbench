@@ -7,7 +7,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from image_service.background import BackgroundError
-from image_service.egress import private_http_host
+from image_service.egress import private_http_host, valid_proxy
 
 PROVIDERS = ("openrouter", "openai", "gemini", "openai-compatible", "gemini-compatible")
 
@@ -21,6 +21,9 @@ class ModelConfig:
     provider_tag: str | None = None
     provider: str = "openrouter"
     base_url: str | None = None
+    # None: environment configuration (MODEL_PROXY_URL applies); "": leased model, direct;
+    # otherwise the leased model's proxy URL (may contain credentials, never logged).
+    proxy: str | None = field(default=None, repr=False)
 
 
 # Older name kept for existing imports; environment configuration is always OpenRouter.
@@ -78,6 +81,7 @@ def config_from_mapping(mapping):
         model = str(mapping["model"]).strip()
         tag = mapping.get("provider_tag")
         base = mapping.get("base_url")
+        proxy = mapping.get("proxy_url", "")
         if (
             provider not in PROVIDERS
             or not re.fullmatch(r"[\x21-\x7e]{1,4096}", key)
@@ -89,11 +93,12 @@ def config_from_mapping(mapping):
                 and not re.fullmatch(r"[a-zA-Z0-9_-]+/[a-zA-Z0-9_.:-]+", model)
             )
             or provider.endswith("-compatible") != (isinstance(base, str) and valid_base_url(base))
+            or (proxy != "" and not valid_proxy(proxy))
         ):
             raise ValueError()
     except (KeyError, TypeError, ValueError, AttributeError):
         raise BackgroundError("CONFIGURATION") from None
-    return ModelConfig(key, model, tag, provider, base)
+    return ModelConfig(key, model, tag, provider, base, proxy)
 
 
 def private_environment():

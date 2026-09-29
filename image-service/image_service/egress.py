@@ -24,6 +24,34 @@ def private_http_host(url):
     )
 
 
+def valid_proxy(value):
+    """http(s) proxy: optional credentials, host and port only. Same rule as Java."""
+    if not isinstance(value, str) or len(value) > 300:
+        return False
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018 - raises ValueError for an invalid port
+    except ValueError:
+        return False
+    return (
+        parts.scheme in ("http", "https")
+        and bool(parts.hostname)
+        and parts.path in ("", "/")
+        and not parts.query
+        and not parts.fragment
+        and all(33 <= ord(c) <= 126 for c in value)
+    )
+
+
+def route(config, url):
+    """Proxy for one model call. A leased model carries its own setting ("" = direct); only the
+    development-only environment configuration falls back to MODEL_PROXY_URL."""
+    explicit = getattr(config, "proxy", None)
+    if explicit is not None:
+        return explicit or None
+    return proxy_for(url)
+
+
 def proxy_for(url):
     """Proxy for a model endpoint: MODEL_PROXY_URL (or the older OPENROUTER_PROXY_URL)."""
     if private_http_host(url):

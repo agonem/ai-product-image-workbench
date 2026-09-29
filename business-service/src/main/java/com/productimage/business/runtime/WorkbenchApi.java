@@ -17,6 +17,7 @@ public class WorkbenchApi {
   private final ProjectAssets assets;
   private final TaskService tasks;
   private final GenerationPolicy generation;
+  private final ProviderConfigService configs;
 
   public WorkbenchApi(
       JdbcTemplate jdbc,
@@ -24,13 +25,15 @@ public class WorkbenchApi {
       ProjectAccess access,
       ProjectAssets assets,
       TaskService tasks,
-      GenerationPolicy generation) {
+      GenerationPolicy generation,
+      ProviderConfigService configs) {
     this.jdbc = jdbc;
     this.users = users;
     this.access = access;
     this.assets = assets;
     this.tasks = tasks;
     this.generation = generation;
+    this.configs = configs;
   }
 
   private String actor(HttpServletRequest request) {
@@ -64,6 +67,8 @@ public class WorkbenchApi {
                 users instanceof ProductionAccounts ? "production-local" : "development-only")
             .put("generation_available", false);
     result.set("generation", generation.options());
+    // Models the operator can pick on the generation pages (names only, no keys).
+    result.set("models", configs.choices());
     var templates = result.putArray("templates");
     for (var row :
         jdbc.queryForList(

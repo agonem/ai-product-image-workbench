@@ -45,7 +45,7 @@ services:
       PROVIDER_MASTER_KEY_FILE: /run/secrets/provider_master_key
       # Read only while the account table is empty (first start); delete the file afterwards.
       PROD_BOOTSTRAP_FILE: /run/bootstrap/admin.json
-      PROD_SESSION_SECONDS: ${PROD_SESSION_SECONDS:-900}
+      PROD_SESSION_SECONDS: ${PROD_SESSION_SECONDS:-28800}
       GENERATION_MAX_COUNT: ${GENERATION_MAX_COUNT:-4}
     secrets: [db_password, worker_token, keystore_password, business.p12, provider_master_key]
     volumes:
@@ -69,10 +69,8 @@ services:
       GENERATION_TEXT_FONT: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
       # Face 2 of the Noto CJK collection is Simplified Chinese (face 0 is Japanese).
       GENERATION_TEXT_FONT_INDEX: "2"
-      # Optional proxy for public model endpoints (OpenRouter, OpenAI, Gemini, https relays);
-      # intranet http relays are always reached directly. OPENROUTER_PROXY_URL is the old name.
-      MODEL_PROXY_URL: ${MODEL_PROXY_URL:-}
-      OPENROUTER_PROXY_URL: ${OPENROUTER_PROXY_URL:-}
+      # The outbound proxy is set in the admin pages and delivered per model with the lease
+      # (ADR-20260929-C); ambient proxy variables are ignored by the model clients.
     secrets: [worker_token, ca.pem]
     volumes:
       - ./data/journal:/data/journal

@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.sql.Timestamp;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -15,21 +14,18 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * Admin-managed model configuration (OpenRouter, official OpenAI / Gemini, or third-party endpoints
- * in either format). Versions are append-only; new tasks bind the single active enabled version,
- * retries keep their frozen binding, and the key is never echoed or logged.
+ * Admin-managed model catalog (ADR-20260929-C): OpenRouter, official OpenAI and official Gemini.
+ * Several models can be enabled; operators choose one per task and the admin marks a default. A
+ * row's identity and secret never change: rotating a key adds a row and retires the old one, so
+ * queued and retried tasks keep their frozen binding. Keys and the proxy URL are encrypted under
+ * the external master key and are never echoed or logged.
  */
 public final class ProviderConfigService {
-  static final Set<String> PROVIDERS =
-      Set.of("openrouter", "openai", "gemini", "openai-compatible", "gemini-compatible");
-  private static final Map<String, Set<String>> FIELDS =
-      Map.of(
-          "openrouter", Set.of("provider", "model", "provider_tag", "api_key", "enabled"),
-          "openai", Set.of("provider", "model", "api_key", "enabled"),
-          "gemini", Set.of("provider", "model", "api_key", "enabled"),
-          "openai-compatible", Set.of("provider", "model", "base_url", "api_key", "enabled"),
-          "gemini-compatible", Set.of("provider", "model", "base_url", "api_key", "enabled"));
-
+  static final Set<String> PROVIDERS = Set.of("openrouter", "openai", "gemini");
+  private static final Set<String> BASE =
+      Set.of("name", "provider", "model", "api_key", "enabled", "use_proxy");
+  private static final Map<String, Set<String>> SETTINGS =
+      Map.of("name", Set.of(), "enabled", Set.of(), "use_proxy", Set.of());
   private final JdbcTemplate jdbc;
   private final TransactionTemplate tx;
   private final byte[] master;
@@ -48,21 +44,37 @@ public final class ProviderConfigService {
                 env.getProperty("PROVIDER_MASTER_KEY_FILE", ""));
   }
 
-  /**
-   * Binding for new scene tasks. No state row keeps the explicit worker environment path; an
-   * existing but disabled state rejects creation instead of silently falling back to environment
-   * credentials, and queued or retrying tasks always keep their frozen binding.
-   */
-  String sceneBinding() {
+  private String defaultId() {
     var rows =
         jdbc.queryForList(
-            "SELECT active_version_id,enabled FROM provider_config_state WHERE provider='active'");
-    if (rows.isEmpty()) return null;
-    if (!Boolean.TRUE.equals(rows.getFirst().get("enabled")))
-      throw new Problem(503, "PROVIDER_DISABLED");
-    Object version = rows.getFirst().get("active_version_id");
-    if (version == null) throw new Problem(503, "PROVIDER_UNAVAILABLE");
-    return version.toString();
+            "SELECT active_version_id FROM provider_config_state WHERE provider='active'");
+    return rows.isEmpty() || rows.getFirst().get("active_version_id") == null
+        ? null
+        : rows.getFirst().get("active_version_id").toString();
+  }
+
+  /**
+   * Model bound to a new generation task. An explicit choice must be an enabled model; without one
+   * the admin's default applies. A deployment that never configured a model keeps the explicit
+   * Worker environment path (development only); otherwise nothing falls back silently.
+   */
+  String binding(JsonNode requested) {
+    if (requested != null && requested.isTextual()) {
+      var chosen =
+          jdbc.queryForList(
+              "SELECT id FROM provider_config_versions WHERE id=? AND enabled AND NOT retired",
+              requested.asText());
+      if (chosen.isEmpty()) throw new Problem(422, "MODEL_UNAVAILABLE");
+      return requested.asText();
+    }
+    if (jdbc.queryForObject("SELECT count(*) FROM provider_config_versions", Long.class) == 0)
+      return null;
+    var fallback =
+        jdbc.queryForList(
+            "SELECT v.id FROM provider_config_state s JOIN provider_config_versions v ON v.id=s.active_version_id "
+                + "WHERE s.provider='active' AND v.enabled AND NOT v.retired");
+    if (fallback.isEmpty()) throw new Problem(503, "PROVIDER_DISABLED");
+    return fallback.getFirst().get("id").toString();
   }
 
   /** Leased workers receive the decrypted binding; failures must not fall back silently. */
@@ -70,7 +82,7 @@ public final class ProviderConfigService {
     if (master == null) throw new Problem(503, "PROVIDER_UNAVAILABLE");
     var rows =
         jdbc.queryForList(
-            "SELECT provider,model,provider_tag,base_url,api_key_cipher FROM provider_config_versions WHERE id=?",
+            "SELECT provider,model,provider_tag,base_url,api_key_cipher,use_proxy FROM provider_config_versions WHERE id=?",
             versionId);
     if (rows.isEmpty()) throw new Problem(503, "PROVIDER_UNAVAILABLE");
     var row = rows.getFirst();
@@ -81,8 +93,16 @@ public final class ProviderConfigService {
               .put("model", row.get("model").toString());
       optional(config, "provider_tag", row.get("provider_tag"));
       optional(config, "base_url", row.get("base_url"));
-      return config.put(
-          "api_key", ProviderCrypto.decrypt(master, row.get("api_key_cipher").toString()));
+      config.put("api_key", ProviderCrypto.decrypt(master, row.get("api_key_cipher").toString()));
+      // Only models marked "use proxy" leave through it; without a saved proxy they go direct.
+      if (Boolean.TRUE.equals(row.get("use_proxy"))) {
+        var proxy = jdbc.queryForList("SELECT proxy_cipher FROM network_settings WHERE id='proxy'");
+        if (!proxy.isEmpty())
+          config.put(
+              "proxy_url",
+              ProviderCrypto.decrypt(master, proxy.getFirst().get("proxy_cipher").toString()));
+      }
+      return config;
     } catch (IllegalStateException ex) {
       throw new Problem(503, "PROVIDER_UNAVAILABLE");
     }
@@ -92,30 +112,11 @@ public final class ProviderConfigService {
     if (value != null) target.put(field, value.toString());
   }
 
-  /**
-   * Third-party base URL: https anywhere, or http only to a literal private IPv4 address (intranet
-   * relays; the key then crosses the LAN unencrypted). No credentials, query or fragment.
-   */
-  static boolean validBaseUrl(String value) {
-    if (value.length() > 300 || !value.matches("https?://[\\x21-\\x7e]+")) return false;
-    try {
-      var uri = new URI(value);
-      String host = uri.getHost();
-      if (host == null
-          || uri.getRawUserInfo() != null
-          || uri.getRawQuery() != null
-          || uri.getRawFragment() != null
-          || uri.getPort() > 65535) return false;
-      if (uri.getScheme().equals("https")) return true;
-      if (!host.matches("\\d{1,3}(\\.\\d{1,3}){3}")) return false;
-      int[] ip = Arrays.stream(host.split("\\.")).mapToInt(Integer::parseInt).toArray();
-      if (Arrays.stream(ip).anyMatch(part -> part > 255)) return false;
-      return ip[0] == 10
-          || (ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31)
-          || (ip[0] == 192 && ip[1] == 168);
-    } catch (URISyntaxException ex) {
-      return false;
-    }
+  private static boolean validName(JsonNode name) {
+    return name.isTextual()
+        && !name.asText().isBlank()
+        && name.asText().strip().length() <= 40
+        && name.asText().codePoints().noneMatch(Character::isISOControl);
   }
 
   /** Exactly the fields of the chosen provider type, each in its allowed shape. */
@@ -123,104 +124,288 @@ public final class ProviderConfigService {
     String provider = body.path("provider").asText();
     if (!body.isObject() || !PROVIDERS.contains(provider))
       throw new Problem(400, "INVALID_CONTRACT");
+    var expected = new HashSet<>(BASE);
+    if (provider.equals("openrouter")) expected.add("provider_tag");
     var names = new HashSet<String>();
     body.fieldNames().forEachRemaining(names::add);
     String model = body.path("model").asText();
-    if (!names.equals(FIELDS.get(provider))
+    if (!names.equals(expected)
+        || !validName(body.path("name"))
         || !body.path("enabled").isBoolean()
+        || !body.path("use_proxy").isBoolean()
         || !body.path("model").isTextual()
         || !body.path("api_key").isTextual()
         || !model.matches("[A-Za-z0-9][A-Za-z0-9_./:-]{0,199}")
         || (provider.equals("openrouter") && !model.matches("[a-zA-Z0-9_-]+/[a-zA-Z0-9_.:-]+"))
         || (body.has("provider_tag")
             && !body.path("provider_tag").asText().matches("[a-zA-Z0-9_./-]{1,100}"))
-        || (body.has("base_url") && !validBaseUrl(body.path("base_url").asText()))
-        || !body.path("api_key").asText().matches("[\\x21-\\x7e]{1,4096}"))
-      throw new Problem(400, "INVALID_CONTRACT");
+        || !validKey(body.path("api_key"))) throw new Problem(400, "INVALID_CONTRACT");
   }
+
+  private static boolean validKey(JsonNode key) {
+    return key.isTextual() && key.asText().matches("[\\x21-\\x7e]{1,4096}");
+  }
+
+  /**
+   * Outbound proxy: http or https, optional credentials, host and port only (no path, query or
+   * fragment). Credentials are allowed because company proxies often need them.
+   */
+  static boolean validProxy(String value) {
+    if (value.length() > 300 || !value.matches("https?://[\\x21-\\x7e]+")) return false;
+    try {
+      var uri = new URI(value);
+      return uri.getHost() != null
+          && uri.getPort() <= 65535
+          && (uri.getRawPath() == null
+              || uri.getRawPath().isEmpty()
+              || uri.getRawPath().equals("/"))
+          && uri.getRawQuery() == null
+          && uri.getRawFragment() == null;
+    } catch (URISyntaxException ex) {
+      return false;
+    }
+  }
+
+  /** Masked form shown to administrators: scheme, host and port; credentials hidden. */
+  static String proxyMask(String value) {
+    try {
+      var uri = new URI(value);
+      return uri.getScheme()
+          + "://"
+          + (uri.getRawUserInfo() != null ? "****@" : "")
+          + uri.getHost()
+          + (uri.getPort() > 0 ? ":" + uri.getPort() : "");
+    } catch (URISyntaxException ex) {
+      throw new Problem(400, "INVALID_CONTRACT");
+    }
+  }
+
+  private ObjectNode item(Map<String, Object> row, String defaultId) {
+    var item =
+        Json.object()
+            .put("id", row.get("id").toString())
+            .put("name", row.get("name").toString())
+            .put("provider", row.get("provider").toString())
+            .put("model", row.get("model").toString());
+    optional(item, "provider_tag", row.get("provider_tag"));
+    return item.put("api_key_mask", row.get("api_key_mask").toString())
+        .put("enabled", Boolean.TRUE.equals(row.get("enabled")))
+        .put("use_proxy", Boolean.TRUE.equals(row.get("use_proxy")))
+        .put("default", row.get("id").toString().equals(defaultId))
+        .put("created_at", ((Timestamp) row.get("created_at")).toInstant().toString());
+  }
+
+  private static final String COLUMNS =
+      "id,name,provider,model,provider_tag,api_key_mask,enabled,use_proxy,created_at";
 
   public JsonNode list() {
     var result = Json.object();
-    var state =
-        jdbc.queryForList(
-            "SELECT active_version_id,enabled FROM provider_config_state WHERE provider='active'");
-    boolean enabled = !state.isEmpty() && Boolean.TRUE.equals(state.getFirst().get("enabled"));
-    String active =
-        state.isEmpty() || state.getFirst().get("active_version_id") == null
-            ? null
-            : state.getFirst().get("active_version_id").toString();
-    result.put("enabled", enabled);
-    if (active == null) result.putNull("active_version_id");
-    else result.put("active_version_id", active);
+    String defaultId = defaultId();
+    if (defaultId == null) result.putNull("default_id");
+    else result.put("default_id", defaultId);
     var items = result.putArray("items");
     for (var row :
         jdbc.queryForList(
-            "SELECT id,provider,model,provider_tag,base_url,api_key_mask,created_at FROM provider_config_versions ORDER BY created_at,id")) {
-      var item =
+            "SELECT "
+                + COLUMNS
+                + " FROM provider_config_versions WHERE NOT retired ORDER BY created_at,id"))
+      items.add(item(row, defaultId));
+    result.set("proxy", proxy());
+    return result;
+  }
+
+  /** Enabled models for the generation pages: names only, never keys or routing details. */
+  public JsonNode choices() {
+    var result = Json.MAPPER.createArrayNode();
+    String defaultId = defaultId();
+    for (var row :
+        jdbc.queryForList(
+            "SELECT id,name,provider,model FROM provider_config_versions WHERE enabled AND NOT retired ORDER BY created_at,id"))
+      result.add(
           Json.object()
               .put("id", row.get("id").toString())
+              .put("name", row.get("name").toString())
               .put("provider", row.get("provider").toString())
-              .put("model", row.get("model").toString());
-      optional(item, "provider_tag", row.get("provider_tag"));
-      optional(item, "base_url", row.get("base_url"));
-      item.put("api_key_mask", row.get("api_key_mask").toString())
-          .put("created_at", ((Timestamp) row.get("created_at")).toInstant().toString());
-      if (row.get("id").toString().equals(active)) item.put("active", true);
-      items.add(item);
-    }
+              .put("model", row.get("model").toString())
+              .put("default", row.get("id").toString().equals(defaultId)));
     return result;
+  }
+
+  private void requireMaster() {
+    if (master == null) throw new Problem(503, "PROVIDER_UNAVAILABLE");
+  }
+
+  private Map<String, Object> live(String id, boolean lock) {
+    var rows =
+        jdbc.queryForList(
+            "SELECT * FROM provider_config_versions WHERE id=? AND NOT retired"
+                + (lock ? " FOR UPDATE" : ""),
+            id);
+    if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
+    return rows.getFirst();
+  }
+
+  private void pointDefault(String id) {
+    jdbc.update(
+        "INSERT INTO provider_config_state(provider,active_version_id) VALUES ('active',?) "
+            + "ON CONFLICT(provider) DO UPDATE SET active_version_id=EXCLUDED.active_version_id,updated_at=now()",
+        id);
   }
 
   public JsonNode create(String actor, JsonNode body) {
     validate(body);
-    String provider = body.path("provider").asText();
-    String model = body.path("model").asText();
-    String tag = body.has("provider_tag") ? body.path("provider_tag").asText() : null;
-    String base = body.has("base_url") ? body.path("base_url").asText() : null;
+    requireMaster();
     String key = body.path("api_key").asText();
-    if (master == null) throw new Problem(503, "PROVIDER_UNAVAILABLE");
     return tx.execute(
         status -> {
           String id = UUID.randomUUID().toString();
           jdbc.update(
-              "INSERT INTO provider_config_versions(id,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,created_by) VALUES (?,?,?,?,?,?,?,?)",
+              "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,api_key_cipher,api_key_mask,enabled,use_proxy,created_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
               id,
-              provider,
-              model,
-              tag,
-              base,
+              body.path("name").asText().strip(),
+              body.path("provider").asText(),
+              body.path("model").asText(),
+              body.has("provider_tag") ? body.path("provider_tag").asText() : null,
               ProviderCrypto.encrypt(master, key),
               ProviderCrypto.mask(key),
+              body.path("enabled").asBoolean(),
+              body.path("use_proxy").asBoolean(),
               actor);
-          jdbc.update(
-              "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('active',?,?) "
-                  + "ON CONFLICT(provider) DO UPDATE SET active_version_id=EXCLUDED.active_version_id,enabled=EXCLUDED.enabled,updated_at=now()",
-              id,
-              body.path("enabled").asBoolean());
+          // The first usable model becomes the default so generation works right away.
+          if (body.path("enabled").asBoolean()) {
+            String current = defaultId();
+            boolean usable =
+                current != null
+                    && jdbc.queryForObject(
+                            "SELECT count(*) FROM provider_config_versions WHERE id=? AND enabled AND NOT retired",
+                            Long.class,
+                            current)
+                        > 0;
+            if (!usable) pointDefault(id);
+          }
           audit(actor, "PROVIDER_CONFIG_CREATED", id);
-          var created = Json.object().put("id", id).put("provider", provider).put("model", model);
-          optional(created, "provider_tag", tag);
-          optional(created, "base_url", base);
-          return created
-              .put("api_key_mask", ProviderCrypto.mask(key))
-              .put("enabled", body.path("enabled").asBoolean());
+          return item(
+              jdbc.queryForMap(
+                  "SELECT " + COLUMNS + " FROM provider_config_versions WHERE id=?", id),
+              defaultId());
         });
   }
 
-  public void status(String actor, String id, JsonNode body) {
-    if (body.size() != 1 || !body.path("enabled").isBoolean())
+  /** Rename, enable or disable, or route through the proxy. The default cannot be disabled. */
+  public void update(String actor, String id, JsonNode body) {
+    if (!body.isObject() || body.isEmpty()) throw new Problem(400, "INVALID_CONTRACT");
+    body.fieldNames()
+        .forEachRemaining(
+            field -> {
+              if (!SETTINGS.containsKey(field)) throw new Problem(400, "INVALID_CONTRACT");
+            });
+    if ((body.has("name") && !validName(body.get("name")))
+        || (body.has("enabled") && !body.get("enabled").isBoolean())
+        || (body.has("use_proxy") && !body.get("use_proxy").isBoolean()))
       throw new Problem(400, "INVALID_CONTRACT");
     tx.executeWithoutResult(
         status -> {
-          var rows =
-              jdbc.queryForList(
-                  "SELECT active_version_id FROM provider_config_state WHERE provider='active' FOR UPDATE");
-          if (rows.isEmpty() || !id.equals(rows.getFirst().get("active_version_id").toString()))
-            throw new Problem(400, "INVALID_CONTRACT");
+          live(id, true);
+          if (body.has("enabled") && !body.get("enabled").asBoolean() && id.equals(defaultId()))
+            throw new Problem(409, "DEFAULT_MODEL");
+          if (body.has("name"))
+            jdbc.update(
+                "UPDATE provider_config_versions SET name=? WHERE id=?",
+                body.get("name").asText().strip(),
+                id);
+          if (body.has("enabled"))
+            jdbc.update(
+                "UPDATE provider_config_versions SET enabled=? WHERE id=?",
+                body.get("enabled").asBoolean(),
+                id);
+          if (body.has("use_proxy"))
+            jdbc.update(
+                "UPDATE provider_config_versions SET use_proxy=? WHERE id=?",
+                body.get("use_proxy").asBoolean(),
+                id);
+          audit(actor, "PROVIDER_CONFIG_UPDATED", id);
+        });
+  }
+
+  public void makeDefault(String actor, String id) {
+    tx.executeWithoutResult(
+        status -> {
+          if (!Boolean.TRUE.equals(live(id, true).get("enabled")))
+            throw new Problem(409, "MODEL_UNAVAILABLE");
+          pointDefault(id);
+          audit(actor, "PROVIDER_CONFIG_DEFAULT", id);
+        });
+  }
+
+  /** New key: a new row replaces the old one (retired), keeping name, model and settings. */
+  public JsonNode rotate(String actor, String id, JsonNode body) {
+    if (!body.isObject() || body.size() != 1 || !validKey(body.path("api_key")))
+      throw new Problem(400, "INVALID_CONTRACT");
+    requireMaster();
+    String key = body.path("api_key").asText();
+    return tx.execute(
+        status -> {
+          var old = live(id, true);
+          String next = UUID.randomUUID().toString();
           jdbc.update(
-              "UPDATE provider_config_state SET enabled=?,updated_at=now() WHERE provider='active'",
-              body.path("enabled").asBoolean());
-          audit(actor, "PROVIDER_CONFIG_STATUS", id);
+              "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,enabled,use_proxy,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              next,
+              old.get("name"),
+              old.get("provider"),
+              old.get("model"),
+              old.get("provider_tag"),
+              old.get("base_url"),
+              ProviderCrypto.encrypt(master, key),
+              ProviderCrypto.mask(key),
+              old.get("enabled"),
+              old.get("use_proxy"),
+              actor);
+          jdbc.update(
+              "UPDATE provider_config_versions SET retired=true,enabled=false WHERE id=?", id);
+          if (id.equals(defaultId())) pointDefault(next);
+          audit(actor, "PROVIDER_CONFIG_ROTATED", next);
+          return item(
+              jdbc.queryForMap(
+                  "SELECT " + COLUMNS + " FROM provider_config_versions WHERE id=?", next),
+              defaultId());
+        });
+  }
+
+  public JsonNode proxy() {
+    var rows =
+        jdbc.queryForList("SELECT proxy_mask,updated_at FROM network_settings WHERE id='proxy'");
+    if (rows.isEmpty()) return Json.object().put("configured", false);
+    return Json.object()
+        .put("configured", true)
+        .put("mask", rows.getFirst().get("proxy_mask").toString())
+        .put("updated_at", ((Timestamp) rows.getFirst().get("updated_at")).toInstant().toString());
+  }
+
+  public void setProxy(String actor, JsonNode body) {
+    if (!body.isObject()
+        || body.size() != 1
+        || !body.path("proxy_url").isTextual()
+        || !validProxy(body.path("proxy_url").asText())) throw new Problem(400, "INVALID_CONTRACT");
+    requireMaster();
+    String url = body.path("proxy_url").asText();
+    tx.executeWithoutResult(
+        status -> {
+          jdbc.update(
+              "INSERT INTO network_settings(id,proxy_cipher,proxy_mask,updated_by) VALUES ('proxy',?,?,?) "
+                  + "ON CONFLICT(id) DO UPDATE SET proxy_cipher=EXCLUDED.proxy_cipher,proxy_mask=EXCLUDED.proxy_mask,"
+                  + "updated_by=EXCLUDED.updated_by,updated_at=now()",
+              ProviderCrypto.encrypt(master, url),
+              proxyMask(url),
+              actor);
+          audit(actor, "NETWORK_PROXY_SET", "proxy");
+        });
+  }
+
+  public void clearProxy(String actor) {
+    tx.executeWithoutResult(
+        status -> {
+          jdbc.update("DELETE FROM network_settings WHERE id='proxy'");
+          audit(actor, "NETWORK_PROXY_CLEARED", "proxy");
         });
   }
 

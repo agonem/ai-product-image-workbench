@@ -15,7 +15,7 @@ from image_service.background import (
     BackgroundRequest,
     BackgroundResult,
 )
-from image_service.egress import proxy_for
+from image_service.egress import route
 
 MAX_RESPONSE = 16 * 1024 * 1024
 MAX_IMAGE = 10 * 1024 * 1024
@@ -31,7 +31,7 @@ class OpenRouterAdapter:
             timeout=httpx.Timeout(180, connect=10),
             follow_redirects=False,
             trust_env=False,
-            proxy=proxy_for("https://openrouter.ai"),
+            proxy=route(config, "https://openrouter.ai"),
             transport=transport,
         )
 

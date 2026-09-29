@@ -25,6 +25,7 @@ class MockModel:
         self.model = config.model if config is not None else "mock/model"
         self.tag = (config.provider_tag if config is not None else None) or "mock"
         self.provider = config.provider if config is not None else "openrouter"
+        self.route = "proxy" if getattr(config, "proxy", None) else "direct"
 
     def __enter__(self):
         return self
@@ -57,7 +58,7 @@ class MockModel:
             *size,
             {
                 "schema_version": 1,
-                "provider": "mock-acceptance-only:" + self.provider,
+                "provider": f"mock-acceptance-only:{self.provider}:{self.route}",
                 "provider_tag": self.tag,
                 "model": self.model,
                 "prompt": request.prompt,
