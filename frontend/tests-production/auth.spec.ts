@@ -10,7 +10,7 @@ async function login(page: Page, username: string, secret = password) {
   // Each login starts from an empty cookie jar, like a fresh browser.
   await page.context().clearCookies()
   await page.goto('/')
-  await page.getByLabel('本地账号', { exact: true }).fill(username)
+  await page.getByLabel('账号', { exact: true }).fill(username)
   await page.getByLabel('密码', { exact: true }).fill(secret)
   const response = page.waitForResponse((r) =>
     r.url().endsWith('/api/v1/local-auth/login'),
@@ -22,7 +22,15 @@ async function login(page: Page, username: string, secret = password) {
 async function settings(page: Page) {
   await page.getByRole('link', { name: '账号与安全', exact: true }).click()
   await expect(
-    page.getByRole('button', { name: '本人改密', exact: true }),
+    page.getByRole('heading', { name: '修改密码', exact: true }),
+  ).toBeVisible()
+}
+/** Open (or reload) the admin account list: switching tabs remounts it. */
+async function accounts(page: Page) {
+  await page.getByRole('button', { name: '我的账号', exact: true }).click()
+  await page.getByRole('button', { name: '账号管理', exact: true }).click()
+  await expect(
+    page.getByRole('heading', { name: '账号管理', exact: true }),
   ).toBeVisible()
 }
 
@@ -70,10 +78,10 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   await expect(
     page.getByRole('button', { name: '账号管理', exact: true }),
   ).toHaveCount(0)
-  await expect(page.getByTestId('provider-state')).toHaveCount(0)
-  await page.getByRole('button', { name: '本人改密', exact: true }).click()
+  await expect(page.getByRole('link', { name: '模型配置' })).toHaveCount(0)
   await page.getByLabel('当前密码', { exact: true }).fill(password)
   await page.getByLabel('新密码', { exact: true }).fill(changed)
+  await page.getByLabel('确认新密码', { exact: true }).fill(changed)
   await page.getByRole('button', { name: '保存新密码' }).click()
   await expect(
     page.getByRole('heading', { name: '生产账号登录' }),
@@ -95,10 +103,7 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   ])
     expect(await apiStatus(admin, adminToken, path)).toBe(404)
   await settings(admin)
-  await admin.getByRole('button', { name: '账号管理', exact: true }).click()
-  await expect(
-    admin.getByRole('heading', { name: '账号管理', exact: true }),
-  ).toBeVisible()
+  await accounts(admin)
   const alice = admin.getByTestId('account-row').filter({ hasText: 'alice' })
   await alice.getByRole('button', { name: '重置密码' }).click()
   await admin.getByLabel('重置后的密码').fill(password)
@@ -112,6 +117,7 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   expect(await apiStatus(second, resetToken, '/local-auth/me')).toBe(401)
   await second.close()
 
+  await admin.getByRole('button', { name: '新建账号', exact: true }).click()
   await admin.getByLabel('新账号名称').fill('created')
   await admin.getByLabel('初始密码').fill(password)
   await admin.getByRole('button', { name: '创建账号', exact: true }).click()
@@ -120,17 +126,17 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
     .filter({ hasText: 'created' })
   await expect(created).toBeVisible()
   await created.getByRole('button', { name: '停用', exact: true }).click()
-  await expect(created).toContainText('DISABLED')
+  await expect(created).toContainText('已停用')
   await login(page, 'created')
   await expect(page.getByRole('alert')).toBeVisible()
   await created.getByRole('button', { name: '启用', exact: true }).click()
-  await expect(created).toContainText('ACTIVE')
+  await expect(created).toContainText('已启用')
   await admin
     .getByTestId('account-row')
     .filter({ hasText: 'admin' })
     .getByRole('button', { name: '停用', exact: true })
     .click()
-  await expect(admin.getByRole('alert')).toContainText('管理员')
+  await expect(admin.locator('.banner[role="alert"]')).toContainText('管理员')
 
   const expiryToken = await login(page, 'alice')
   expect(await apiStatus(page, expiryToken, '/local-auth/me')).toBe(200)
@@ -157,14 +163,14 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   ).toBeVisible()
   await login(admin, 'admin')
   await settings(admin)
-  await admin.getByRole('button', { name: '账号管理', exact: true }).click()
+  await accounts(admin)
   await admin.screenshot({
     path: `${process.env.T06_ARTIFACTS}/accounts.png`,
     fullPage: true,
   })
   // Synthetic identities in the disposable schema exercise the second account page.
   expect(await synchronize('seed', {})).toEqual({ account_count: 104 })
-  await admin.getByRole('button', { name: '账号管理', exact: true }).click()
+  await accounts(admin)
   await expect(admin.getByTestId('account-row')).toHaveCount(100)
   await admin.getByRole('button', { name: '加载更多账号' }).click()
   await expect(admin.getByTestId('account-row')).toHaveCount(104)

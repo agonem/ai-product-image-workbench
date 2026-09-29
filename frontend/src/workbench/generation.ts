@@ -14,10 +14,7 @@ export const features: {
     route: 'gift',
     no: '01',
     name: '赠品+文字主图',
-    lines: [
-      '在商品主图中添加赠品和营销文字',
-      '支持调整赠品位置、文字内容与样式',
-    ],
+    lines: ['商品与赠品同框，叠加营销文字', '赠品位置可选，文字可拖动调整'],
     tone: 'gift',
   },
   {
@@ -25,7 +22,7 @@ export const features: {
     route: 'scene',
     no: '02',
     name: '场景主图',
-    lines: ['将商品放入不同场景，生成多种风格', '支持预设场景和自定义描述'],
+    lines: ['把商品放进真实使用场景', '支持预设场景与补充描述'],
     tone: 'scene',
   },
   {
@@ -33,7 +30,7 @@ export const features: {
     route: 'selling',
     no: '03',
     name: '卖点主图',
-    lines: ['基于同一商品生成不同卖点主图', '支持多种风格，每种风格一张'],
+    lines: ['按原文排版标题与卖点', '每种风格生成一张，互不重复'],
     tone: 'selling',
   },
 ]
@@ -44,13 +41,13 @@ export const featureName = (id: Feature) =>
 
 // Convenience sizes only; none is claimed to be a marketplace rule (D-01).
 export const canvasSizes = [
-  { label: '800 × 800（1:1）', ratio: '1:1', width: 800, height: 800 },
-  { label: '750 × 1000（3:4）', ratio: '3:4', width: 750, height: 1000 },
-  { label: '1000 × 750（4:3）', ratio: '4:3', width: 1000, height: 750 },
-  { label: '800 × 1200（2:3）', ratio: '2:3', width: 800, height: 1200 },
-  { label: '1200 × 800（3:2）', ratio: '3:2', width: 1200, height: 800 },
-  { label: '720 × 1280（9:16）', ratio: '9:16', width: 720, height: 1280 },
-  { label: '1280 × 720（16:9）', ratio: '16:9', width: 1280, height: 720 },
+  { label: '800 × 800', ratio: '1:1', width: 800, height: 800 },
+  { label: '750 × 1000', ratio: '3:4', width: 750, height: 1000 },
+  { label: '1000 × 750', ratio: '4:3', width: 1000, height: 750 },
+  { label: '720 × 1280', ratio: '9:16', width: 720, height: 1280 },
+  { label: '1280 × 720', ratio: '16:9', width: 1280, height: 720 },
+  { label: '800 × 1200', ratio: '2:3', width: 800, height: 1200 },
+  { label: '1200 × 800', ratio: '3:2', width: 1200, height: 800 },
 ]
 export const giftPositions = [
   { id: 'BOTTOM_RIGHT', name: '右下' },
@@ -58,43 +55,79 @@ export const giftPositions = [
   { id: 'RIGHT', name: '右侧' },
   { id: 'LEFT', name: '左侧' },
 ]
-export const swatches = [
-  '#FFFFFF',
-  '#FFF6EC',
-  '#FDE8EA',
-  '#EAF3FF',
-  '#EAF6EC',
-  '#F4F0E8',
+export const backgrounds = [
+  { color: '#FFFFFF', name: '纯白' },
+  { color: '#FFF6EC', name: '奶油' },
+  { color: '#FDE8EA', name: '柔粉' },
+  { color: '#EAF3FF', name: '天蓝' },
+  { color: '#EAF6EC', name: '薄荷' },
+  { color: '#F4F0E8', name: '燕麦' },
 ]
+export const textColors = [
+  { color: '#4A2E1F', name: '深棕' },
+  { color: '#1E3A5F', name: '深蓝' },
+  { color: '#C8573A', name: '橙红' },
+  { color: '#FFFFFF', name: '白色' },
+]
+/** Title size as a share of the output width, so a level looks alike at every size. */
+export const textLevels = [
+  { name: '小', share: 0.055 },
+  { name: '中', share: 0.07 },
+  { name: '大', share: 0.09 },
+]
+export type TextPosition = 'TL' | 'TC' | 'TR'
+export const textPositions: { id: TextPosition; name: string }[] = [
+  { id: 'TL', name: '左上' },
+  { id: 'TC', name: '居中' },
+  { id: 'TR', name: '右上' },
+]
+const alignOf = { TL: 'left', TC: 'center', TR: 'right' } as const
+const round = (value: number) => Math.round(value * 1000) / 1000
+
+/** Starting text area for a position; the box stays draggable afterwards. */
+export function presetBox(feature: Feature, position: TextPosition): Box {
+  const selling = feature === 'SELLING_POINT'
+  if (position === 'TC')
+    return selling
+      ? { x: 0.2, y: 0.05, width: 0.6, height: 0.36 }
+      : { x: 0.21, y: 0.05, width: 0.58, height: 0.34 }
+  const width = selling ? 0.42 : 0.46
+  const x = position === 'TL' ? (selling ? 0.06 : 0.05) : 1 - width - 0.05
+  return selling
+    ? { x: round(x), y: 0.1, width, height: 0.6 }
+    : { x: round(x), y: 0.06, width, height: 0.44 }
+}
 
 export interface GenerationDraft {
   product: string
   gift: string
+  /** Chosen model id; empty means the admin's default (or none configured). */
+  model: string
   size: number
-  format: 'png' | 'jpeg'
   count: number
   giftPosition: string
-  backgroundMode: 'SOLID' | 'GRADIENT' | 'CUSTOM'
+  backgroundMode: 'SOLID' | 'CUSTOM'
   backgroundColor: string
   backgroundPrompt: string
   scenePreset: string
   scenePrompt: string
-  stylePrompt: string
   styles: string[]
   title: string
   points: string
   textColor: string
-  textSize: number
+  textLevel: number
+  /** Last chosen preset; empty once the box was dragged or resized. */
+  textPosition: TextPosition | ''
   textAlign: 'left' | 'center' | 'right'
   textBox: Box
 }
 
-export function newDraft(): GenerationDraft {
+export function newDraft(feature: Feature = 'GIFT'): GenerationDraft {
   return {
     product: '',
     gift: '',
+    model: '',
     size: 0,
-    format: 'png',
     count: 1,
     giftPosition: 'BOTTOM_RIGHT',
     backgroundMode: 'SOLID',
@@ -102,16 +135,25 @@ export function newDraft(): GenerationDraft {
     backgroundPrompt: '',
     scenePreset: 'nursery',
     scenePrompt: '',
-    stylePrompt: '',
     styles: ['warm'],
     title: '',
     points: '',
     textColor: '#4A2E1F',
-    textSize: 56,
+    textLevel: 1,
+    textPosition: 'TL',
     textAlign: 'left',
-    // Initial position only (top-left, like the reference); draggable on the canvas.
-    textBox: { x: 0.05, y: 0.05, width: 0.46, height: 0.5 },
+    textBox: presetBox(feature, 'TL'),
   }
+}
+
+export function placeText(
+  feature: Feature,
+  draft: GenerationDraft,
+  position: TextPosition,
+) {
+  draft.textPosition = position
+  draft.textAlign = alignOf[position]
+  draft.textBox = presetBox(feature, position)
 }
 
 /** Manual text is used verbatim; blank lines are dropped, nothing is rewritten. */
@@ -119,7 +161,15 @@ export function pointLines(draft: GenerationDraft) {
   return draft.points.split('\n').filter((line) => line.trim())
 }
 
-export function textSpec(draft: GenerationDraft): TextSpec | null {
+export function titleSize(draft: GenerationDraft, width: number) {
+  const share = (textLevels[draft.textLevel] ?? textLevels[1]!).share
+  return Math.min(240, Math.max(12, Math.round(share * width)))
+}
+
+export function textSpec(
+  draft: GenerationDraft,
+  width = canvasSizes[draft.size]!.width,
+): TextSpec | null {
   const points = pointLines(draft)
   const title = draft.title.trim() ? draft.title : undefined
   if (!title && !points.length) return null
@@ -127,10 +177,45 @@ export function textSpec(draft: GenerationDraft): TextSpec | null {
     ...(title ? { title } : {}),
     ...(points.length ? { points } : {}),
     color: draft.textColor,
-    size: draft.textSize,
+    size: titleSize(draft, width),
     align: draft.textAlign,
     box: { ...draft.textBox },
   }
+}
+
+/** Continue editing from exactly what was rendered for a result. */
+export function adoptText(
+  feature: Feature,
+  draft: GenerationDraft,
+  text: TextSpec,
+  width: number,
+) {
+  const share = text.size / Math.max(1, width)
+  let level = 0
+  textLevels.forEach((item, index) => {
+    if (
+      Math.abs(item.share - share) < Math.abs(textLevels[level]!.share - share)
+    )
+      level = index
+  })
+  const match = textPositions.find((item) => {
+    const box = presetBox(feature, item.id)
+    return (
+      alignOf[item.id] === text.align &&
+      (['x', 'y', 'width', 'height'] as const).every(
+        (key) => Math.abs(box[key] - text.box[key]) < 0.001,
+      )
+    )
+  })
+  Object.assign(draft, {
+    title: text.title ?? '',
+    points: (text.points ?? []).join('\n'),
+    textColor: text.color,
+    textLevel: level,
+    textPosition: match?.id ?? '',
+    textAlign: text.align,
+    textBox: { ...text.box },
+  })
 }
 
 export function buildGeneration(
@@ -138,11 +223,11 @@ export function buildGeneration(
   project: string,
   draft: GenerationDraft,
 ): Record<string, unknown> {
-  if (!draft.product) throw new Error('请先上传或选择商品白底图。')
+  if (!draft.product) throw new Error('请先选择或上传商品图。')
   if (feature === 'GIFT' && !draft.gift)
-    throw new Error('请先上传或选择赠品图。')
+    throw new Error('请先选择或上传赠品图。')
   if (feature === 'SCENE' && !draft.scenePreset && !draft.scenePrompt.trim())
-    throw new Error('请选择场景预设或填写场景描述。')
+    throw new Error('请选择场景或填写场景描述。')
   if (feature === 'SELLING_POINT') {
     if (!draft.styles.length) throw new Error('请至少选择一种风格。')
     if (!pointLines(draft).length)
@@ -160,19 +245,20 @@ export function buildGeneration(
       aspect_ratio: size.ratio,
       width: size.width,
       height: size.height,
-      format: draft.format,
+      // The pages offer PNG only (ADR-20260929-C); the contract still accepts JPEG.
+      format: 'png',
       count: feature === 'SELLING_POINT' ? draft.styles.length : draft.count,
     },
   }
-  if (draft.stylePrompt.trim()) value.style_prompt = draft.stylePrompt
-  const text = textSpec(draft)
+  if (draft.model) value.model_id = draft.model
+  const text = textSpec(draft, size.width)
   if (feature === 'GIFT') {
     value.gift_asset_id = draft.gift
     value.gift_position = draft.giftPosition
     value.background =
       draft.backgroundMode === 'CUSTOM'
         ? { mode: 'CUSTOM', prompt: draft.backgroundPrompt }
-        : { mode: draft.backgroundMode, color: draft.backgroundColor }
+        : { mode: 'SOLID', color: draft.backgroundColor }
     if (text) value.text = text
   } else if (feature === 'SCENE') {
     if (draft.scenePreset) value.scene_preset = draft.scenePreset
@@ -183,7 +269,7 @@ export function buildGeneration(
   }
   if (validateContract('generation-v4-create', value).length)
     throw new Error(
-      '请检查输入：标题不超过 60 字、卖点每条不超过 20 字且最多 6 条、自定义描述不超过 300 字。',
+      '请检查输入：标题不超过 60 字、卖点每条不超过 20 字且最多 6 条、描述不超过 300 字。',
     )
   return value
 }

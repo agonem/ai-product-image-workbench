@@ -12,7 +12,7 @@ const messages: Record<string, string> = {
   FORBIDDEN: '当前账号没有账号管理权限。',
   ACCOUNT_CONFLICT: '账号名称已存在，请使用其他名称。',
   LAST_ADMIN_REQUIRED: '必须保留至少一个启用的管理员账号。',
-  PROVIDER_DISABLED: '图片生成已被管理员禁用，请联系管理员或等待启用。',
+  PROVIDER_DISABLED: '默认模型未启用，请选择其他模型或联系管理员。',
   UNSUPPORTED_CAPABILITY:
     '供应商能力不支持当前参数（模型或比例），请检查配置。',
   UPLOAD_CONTENT_REJECTED:
@@ -26,6 +26,8 @@ const messages: Record<string, string> = {
   ASSET_IN_USE: '这张原图正在生成中使用，完成后再删除。',
   ASSET_DELETED: '原图已删除，不能再用于生成或重试。',
   INVALID_CONTRACT: '请求内容不符合接口要求，请检查输入。',
+  MODEL_UNAVAILABLE: '所选模型已停用或不存在，请重新选择模型。',
+  DEFAULT_MODEL: '默认模型不能停用，请先把其他模型设为默认。',
 }
 export async function request<T>(
   path: string,

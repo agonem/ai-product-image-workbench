@@ -1,4 +1,4 @@
-import { computed, onUnmounted, reactive, ref } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import type { InjectionKey, UnwrapNestedRefs } from 'vue'
 import { ApiError, json, request } from '../api/workbench'
 import { validateContract } from '../contracts/validate'
@@ -84,11 +84,15 @@ export function useWorkbench() {
   const selected = ref<Generation | null>(null),
     uncertain = ref(false)
   const drafts = reactive<Record<Feature, GenerationDraft>>({
-    GIFT: newDraft(),
-    SCENE: newDraft(),
-    SELLING_POINT: newDraft(),
+    GIFT: newDraft('GIFT'),
+    SCENE: newDraft('SCENE'),
+    SELLING_POINT: newDraft('SELLING_POINT'),
   })
   const generation = computed(() => options.value?.generation ?? null)
+  const models = computed(() => options.value?.models ?? [])
+  const defaultModel = computed(
+    () => models.value.find((item) => item.default)?.id ?? '',
+  )
   const products = computed(() =>
     assets.value.filter((item) => item.kind === 'PRODUCT'),
   )
@@ -102,12 +106,37 @@ export function useWorkbench() {
     timer: ReturnType<typeof setTimeout> | undefined
   let abort = new AbortController()
 
+  // Confirmations fade on their own; errors stay until dismissed or the next action.
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined
+  watch(notice, (value) => {
+    clearTimeout(noticeTimer)
+    if (value) noticeTimer = setTimeout(() => (notice.value = ''), 6000)
+  })
+
   function stopPolling() {
     clearTimeout(timer)
   }
   function resetDrafts() {
     for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const)
-      Object.assign(drafts[key], newDraft())
+      Object.assign(drafts[key], newDraft(key), { model: defaultModel.value })
+  }
+  /** Keep each draft on a model that still exists; otherwise fall back to the default. */
+  function syncModels() {
+    const ids = new Set(models.value.map((item) => item.id))
+    for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const)
+      if (!ids.has(drafts[key].model)) drafts[key].model = defaultModel.value
+  }
+  /** Models can change while signed in (the admin adds or disables one). */
+  async function refreshOptions() {
+    if (!signedIn.value) return
+    try {
+      const config = await api<Options>('/workbench/options')
+      if (config.mode !== mode) return
+      options.value = config
+      syncModels()
+    } catch (cause) {
+      report(cause)
+    }
   }
   function reset() {
     clearTimeout(sessionTimer)
@@ -268,6 +297,7 @@ export function useWorkbench() {
     if (config.mode !== mode)
       throw new Error('能力配置与当前页面模式不符，请联系管理员。')
     options.value = config
+    syncModels()
     // The list is newest first; the oldest project is the account's working project.
     const chosen =
       list.at(-1) ??
@@ -495,14 +525,13 @@ export function useWorkbench() {
         ? submission.pending.body
         : buildGeneration(feature, project.value, drafts[feature])
       await send('/v4/generation-tasks', body)
-      notice.value =
-        '已提交，生成完成后在下方查看结果；结果需人工审核后再使用。'
+      notice.value = '已提交生成任务，完成后显示在画布中。'
     })
   }
   async function retypeset(task: string, ordinal: number, text: TextSpec) {
     await action(async () => {
       await send(`/v4/generation-tasks/${task}/retypeset`, { ordinal, text })
-      notice.value = '已提交文字修改：复用原生成图重新排字，不再调用模型。'
+      notice.value = '已提交文字修改：只重排文字，不重新生成。'
     })
   }
   async function retry() {
@@ -517,7 +546,10 @@ export function useWorkbench() {
     })
   }
 
-  onUnmounted(reset)
+  onUnmounted(() => {
+    clearTimeout(noticeTimer)
+    reset()
+  })
   void restore()
   return {
     production,
@@ -537,6 +569,10 @@ export function useWorkbench() {
     project,
     options,
     generation,
+    models,
+    defaultModel,
+    refreshOptions,
+    dismissError: () => (error.value = ''),
     assets,
     products,
     gifts,

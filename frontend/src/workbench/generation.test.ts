@@ -1,11 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildGeneration, newDraft, textSpec } from './generation.ts'
+import {
+  adoptText,
+  buildGeneration,
+  newDraft,
+  placeText,
+  presetBox,
+  textSpec,
+} from './generation.ts'
 import { Submission } from './model.ts'
 
 const ready = () => ({ ...newDraft(), product: 'product', gift: 'gift' })
 
-test('V4: each entry sends only its own fields and defaults to one image', () => {
+test('V4: each entry sends only its own fields and defaults to one PNG image', () => {
   const gift = buildGeneration('GIFT', 'p', ready())
   const scene = buildGeneration('SCENE', 'p', ready())
   assert.equal(gift.gift_asset_id, 'gift')
@@ -22,6 +29,15 @@ test('V4: each entry sends only its own fields and defaults to one image', () =>
     count: 1,
   })
   assert.equal('styles' in scene, false)
+  // No model chosen: the admin's default applies on the server.
+  assert.equal('model_id' in scene, false)
+  assert.equal('style_prompt' in scene, false)
+})
+
+test('ADR-20260929-C: a chosen model travels with the task', () => {
+  const draft = ready()
+  draft.model = 'model-2'
+  assert.equal(buildGeneration('SCENE', 'p', draft).model_id, 'model-2')
 })
 
 test('V4: manual text is verbatim and selling points map one image per style', () => {
@@ -44,8 +60,60 @@ test('V4: manual text is verbatim and selling points map one image per style', (
   assert.equal('title' in textSpec(draft)!, false)
 })
 
+test('text presets set box and alignment; size levels scale with the width', () => {
+  const draft = ready()
+  draft.title = '标题'
+  placeText('GIFT', draft, 'TR')
+  let text = textSpec(draft, 800)!
+  assert.equal(text.align, 'right')
+  assert.ok(Math.abs(text.box.x + text.box.width - 0.95) < 1e-9)
+  assert.equal(text.size, 56)
+  assert.equal(textSpec(draft, 1280)!.size, 90)
+  draft.textLevel = 2
+  assert.equal(textSpec(draft, 800)!.size, 72)
+  placeText('SELLING_POINT', draft, 'TC')
+  text = textSpec(draft, 800)!
+  assert.equal(text.align, 'center')
+  assert.deepEqual(text.box, presetBox('SELLING_POINT', 'TC'))
+})
+
+test('editing a result starts from what was rendered', () => {
+  const draft = ready()
+  adoptText(
+    'GIFT',
+    draft,
+    {
+      title: '旧标题',
+      points: ['一', '二'],
+      color: '#1E3A5F',
+      size: 72,
+      align: 'right',
+      box: presetBox('GIFT', 'TR'),
+    },
+    800,
+  )
+  assert.equal(draft.points, '一\n二')
+  assert.equal(draft.textLevel, 2)
+  assert.equal(draft.textPosition, 'TR')
+  adoptText(
+    'GIFT',
+    draft,
+    {
+      title: '拖过',
+      color: '#1E3A5F',
+      size: 44,
+      align: 'left',
+      box: { x: 0.2, y: 0.3, width: 0.4, height: 0.3 },
+    },
+    800,
+  )
+  assert.equal(draft.textPosition, '')
+  assert.equal(draft.textLevel, 0)
+  assert.equal(textSpec(draft, 800)!.box.x, 0.2)
+})
+
 test('V4: missing inputs and out-of-canvas text are explained before sending', () => {
-  assert.throws(() => buildGeneration('SCENE', 'p', newDraft()), /商品白底图/)
+  assert.throws(() => buildGeneration('SCENE', 'p', newDraft()), /商品图/)
   assert.throws(
     () => buildGeneration('GIFT', 'p', { ...ready(), gift: '' }),
     /赠品图/,

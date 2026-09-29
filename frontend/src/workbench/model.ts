@@ -78,10 +78,19 @@ export interface GenerationOptions {
   scene_presets: { id: string; name: string }[]
   styles: Style[]
 }
+/** An enabled model the admin added; operators pick one per task (ADR-20260929-C). */
+export interface ModelChoice {
+  id: string
+  name: string
+  provider: 'openrouter' | 'openai' | 'gemini' | string
+  model: string
+  default: boolean
+}
 export interface Options {
   mode: 'development-only' | 'production-local'
   generation_available: false
   generation?: GenerationOptions
+  models?: ModelChoice[]
 }
 
 // An ambiguous network result must retain exactly the same request and key.
@@ -105,5 +114,11 @@ export const statusLabels: Record<Task['status'], string> = {
   QUEUED: '排队中',
   RUNNING: '生成中',
   FAILED: '生成失败',
-  SUCCEEDED: '已完成 · 待人工审核',
+  SUCCEEDED: '已完成',
+}
+
+export const providerNames: Record<string, string> = {
+  openrouter: 'OpenRouter',
+  openai: 'OpenAI 官方',
+  gemini: 'Gemini 官方',
 }

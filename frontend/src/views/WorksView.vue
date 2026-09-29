@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue'
 import CompareDialog from '../components/CompareDialog.vue'
+import EmptyState from '../components/EmptyState.vue'
+import LineIcon from '../components/LineIcon.vue'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import { featureName, features } from '../workbench/generation'
 import type { Feature } from '../workbench/model'
@@ -13,6 +15,13 @@ function remove(artifact: string) {
   if (confirm('确定删除这张生成结果？删除后不可恢复，也不能再免费改字。'))
     void w.deleteArtifact(artifact)
 }
+const time = (value: string) =>
+  new Date(value).toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 const works = computed(() =>
   w.history
     .filter(
@@ -29,16 +38,20 @@ const works = computed(() =>
 
 <template>
   <main class="page">
-    <div class="workspace-head">
-      <h1 class="page-title">我的作品</h1>
-      <div class="chips" role="group" aria-label="按功能筛选">
-        <button class="chip" :aria-pressed="filter === ''" @click="filter = ''">
+    <div class="page-head">
+      <h1>我的作品</h1>
+      <div class="seg" role="group" aria-label="按功能筛选">
+        <button
+          type="button"
+          :aria-pressed="filter === ''"
+          @click="filter = ''"
+        >
           全部
         </button>
         <button
           v-for="item in features"
           :key="item.id"
-          class="chip"
+          type="button"
           :aria-pressed="filter === item.id"
           @click="filter = item.id"
         >
@@ -46,63 +59,75 @@ const works = computed(() =>
         </button>
       </div>
     </div>
-    <section class="panel">
-      <div v-if="works.length" class="result-strip">
-        <article
-          v-for="item in works"
-          :key="item.artifact.id"
-          class="result-card"
-          data-testid="result-card"
-          :data-task="item.task.id"
-        >
-          <figure>
-            <PrivateImage
-              :path="`/artifacts/${item.artifact.id}/content`"
-              :alt="`${featureName(item.task.feature_type)}作品`"
-              :api="w.api"
-            />
-          </figure>
-          <div class="meta">
-            <span>{{ featureName(item.task.feature_type) }}</span>
-            <span class="status-tag" data-status="SUCCEEDED">待人工审核</span>
-            <div class="actions">
+    <section class="card">
+      <div class="card-body">
+        <div v-if="works.length" class="image-grid">
+          <article
+            v-for="item in works"
+            :key="item.artifact.id"
+            class="image-card lift"
+            data-testid="result-card"
+            :data-task="item.task.id"
+          >
+            <figure>
+              <PrivateImage
+                :path="`/artifacts/${item.artifact.id}/content`"
+                :alt="`${featureName(item.task.feature_type)}作品`"
+                :api="w.api"
+              />
+            </figure>
+            <div class="caption">
+              <span>{{ featureName(item.task.feature_type) }}</span>
+              <span class="spacer"></span>
+              <span class="muted num">{{ time(item.task.created_at) }}</span>
+            </div>
+            <div class="hover-actions">
               <button
-                class="text-button"
+                type="button"
+                title="对照原图"
+                aria-label="对照原图"
                 @click="
                   comparing = { task: item.task.id, artifact: item.artifact.id }
                 "
               >
-                对照原图
+                <LineIcon name="cmp" :size="14" />
               </button>
               <button
-                class="text-button"
+                type="button"
+                title="下载"
+                aria-label="下载"
                 :disabled="w.busy"
                 @click="
                   w.download(item.artifact.id, `work-${item.artifact.id}`)
                 "
               >
-                下载
+                <LineIcon name="dl" :size="14" />
               </button>
               <button
-                class="text-button danger"
+                type="button"
+                class="danger"
+                title="删除"
+                aria-label="删除"
                 :disabled="w.busy"
                 @click="remove(item.artifact.id)"
               >
-                删除
+                <LineIcon name="del" :size="14" />
               </button>
             </div>
-          </div>
-        </article>
+          </article>
+        </div>
+        <EmptyState v-else>还没有已完成的作品。</EmptyState>
       </div>
-      <p v-else class="empty">还没有已完成的作品。</p>
-      <button
-        v-if="w.historyNext !== null"
-        class="secondary"
-        :disabled="w.busy"
-        @click="w.refreshHistory(true)"
-      >
-        加载更多
-      </button>
+      <div v-if="w.historyNext !== null" class="card-foot">
+        <button
+          type="button"
+          class="btn sm"
+          :disabled="w.busy"
+          @click="w.refreshHistory(true)"
+        >
+          加载更多
+        </button>
+      </div>
     </section>
     <CompareDialog
       v-if="comparing"

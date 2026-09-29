@@ -1,42 +1,43 @@
 <script setup lang="ts">
 import { inject } from 'vue'
+import LineIcon from '../components/LineIcon.vue'
 import { workbenchKey } from '../workbench/useWorkbench'
 
 const w = inject(workbenchKey)!
 </script>
 
 <template>
-  <main class="login-layout">
-    <section class="login-intro">
-      <h1>母婴商品图工作台</h1>
-      <p>上传商品白底图，一键生成赠品主图、场景主图和卖点主图。</p>
-      <ul>
-        <li>商品原图永久保留，生成结果需人工核对后再使用</li>
-        <li>营销文字与卖点按你输入的原文排版，不做改写</li>
-        <li>只生成和下载，不会自动发布到任何平台</li>
-      </ul>
-    </section>
-    <form class="panel login-card" @submit.prevent="w.login">
-      <h2>{{ w.production ? '生产账号登录' : '开发账号登录' }}</h2>
-      <p v-if="w.production">
-        <small
-          >使用管理员分配的本地账号。账号无默认密码；忘记密码请联系管理员。</small
-        >
+  <main class="login">
+    <form class="card login-card" @submit.prevent="w.login">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">母</span>
+        <strong>母婴商品图工作台</strong>
+      </div>
+      <div>
+        <h2>{{ w.production ? '生产账号登录' : '开发账号登录' }}</h2>
+        <p class="hint">
+          {{
+            w.production
+              ? '使用管理员分配的账号登录；忘记密码请联系管理员。'
+              : '仅用于本机开发环境（dev-local），不能用于生产。'
+          }}
+        </p>
+      </div>
+      <p v-if="w.error" class="banner error" role="alert">
+        <LineIcon name="alert" :size="14" />{{ w.error }}
       </p>
-      <p v-else>
-        <small>仅用于本机开发环境（dev-local），不能用于生产。</small>
-      </p>
-      <p v-if="w.error" class="message error" role="alert">{{ w.error }}</p>
-      <label
-        >本地账号<input
+      <label class="form-row"
+        ><span>账号</span
+        ><input
           v-model="w.username"
           name="username"
           autocomplete="username"
           required
           :disabled="w.busy"
       /></label>
-      <label
-        >密码<input
+      <label class="form-row"
+        ><span>密码</span
+        ><input
           v-model="w.password"
           name="password"
           type="password"
@@ -44,14 +45,13 @@ const w = inject(workbenchKey)!
           required
           :disabled="w.busy"
       /></label>
-      <button :disabled="w.busy">
+      <button class="btn primary" :disabled="w.busy">
+        <span v-if="w.busy" class="spinner"></span>
         {{
           w.busy ? '登录中…' : w.production ? '登录生产账号' : '登录开发环境'
         }}
       </button>
-      <small
-        >登录后在有效期内保持登录，刷新页面不会退出；到期或点击退出后需重新登录。</small
-      >
+      <p class="hint">有效期内刷新页面不会退出；点击退出后需重新登录。</p>
     </form>
   </main>
 </template>

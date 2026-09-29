@@ -1,40 +1,30 @@
 <script setup lang="ts">
-import { onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { json } from '../api/workbench'
+import LineIcon from '../components/LineIcon.vue'
+import ModalDialog from '../components/ModalDialog.vue'
 
+// Admin-only account management: list, create, enable/disable, reset password.
 const props = defineProps<{
-  role: 'ADMIN' | 'USER'
   api: <T>(path: string, init?: RequestInit) => Promise<T>
 }>()
-const emit = defineEmits<{ changed: [] }>()
 type Account = { id: string; username: string; role: string; status: string }
-const view = ref<'closed' | 'password' | 'accounts'>('closed')
 const busy = ref(false),
   error = ref(''),
   notice = ref('')
-const current = ref(''),
-  next = ref(''),
+const accounts = ref<Account[]>([]),
+  after = ref<string | null>(null)
+const creating = ref(false),
   name = ref(''),
   initial = ref(''),
   newRole = ref('USER')
-const accounts = ref<Account[]>([]),
-  after = ref<string | null>(null)
 const target = ref<Account | null>(null),
   replacement = ref('')
 let alive = true
-function setView(value: 'closed' | 'password' | 'accounts') {
-  view.value = value
-  current.value = next.value = initial.value = replacement.value = ''
-  target.value = null
-  error.value = notice.value = ''
-}
-function selectReset(account: Account | null) {
-  target.value = account
-  replacement.value = ''
-}
+onMounted(() => void action(() => load()))
 onUnmounted(() => {
   alive = false
-  current.value = next.value = initial.value = replacement.value = ''
+  initial.value = replacement.value = ''
   accounts.value = []
 })
 async function action(fn: () => Promise<void>) {
@@ -49,11 +39,10 @@ async function action(fn: () => Promise<void>) {
       error.value = cause.message
   } finally {
     busy.value = false
-    current.value = next.value = initial.value = replacement.value = ''
+    initial.value = replacement.value = ''
   }
 }
 async function load(more = false) {
-  if (!alive || props.role !== 'ADMIN') return
   const result = await props.api<{
     items: Account[]
     next_after: string | null
@@ -65,20 +54,10 @@ async function load(more = false) {
   accounts.value = more ? [...accounts.value, ...result.items] : result.items
   after.value = result.next_after
 }
-function openAccounts() {
-  if (props.role !== 'ADMIN') return
-  view.value = 'accounts'
-  target.value = null
-  void action(() => load())
-}
-async function changePassword() {
-  await action(async () => {
-    await props.api(
-      '/local-auth/password',
-      json({ current_password: current.value, new_password: next.value }),
-    )
-    emit('changed')
-  })
+function openCreate() {
+  name.value = initial.value = ''
+  newRole.value = 'USER'
+  creating.value = true
 }
 async function create() {
   await action(async () => {
@@ -90,6 +69,7 @@ async function create() {
         role: newRole.value,
       }),
     )
+    creating.value = false
     name.value = ''
     await load()
     notice.value = '账号已创建。'
@@ -102,7 +82,7 @@ async function status(account: Account) {
       json({ status: account.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' }),
     )
     await load()
-    notice.value = '状态已更新；该账号原有会话已撤销。'
+    notice.value = '状态已更新；该账号原有登录已失效。'
   })
 }
 async function resetPassword() {
@@ -114,160 +94,206 @@ async function resetPassword() {
       json({ new_password: replacement.value }),
     )
     target.value = null
-    notice.value = '密码已重置；该账号所有会话已撤销。'
+    notice.value = '密码已重置；该账号所有登录已失效。'
+    // Resetting one's own password ends this session too.
     await props.api('/local-auth/me')
   })
 }
 </script>
 
 <template>
-  <section class="account-section" aria-label="本地账号设置">
-    <nav class="account-nav">
-      <button class="secondary" :disabled="busy" @click="setView('password')">
-        本人改密
-      </button>
+  <section class="card" aria-label="账号管理">
+    <div class="card-head">
+      <h2><LineIcon name="user" />账号管理</h2>
+      <span class="muted num">{{ accounts.length }} 个账号</span>
+      <span class="spacer"></span>
       <button
-        v-if="role === 'ADMIN'"
-        class="secondary"
+        type="button"
+        class="btn primary sm"
         :disabled="busy"
-        @click="openAccounts"
+        @click="openCreate"
       >
-        账号管理
+        <LineIcon name="plus" :size="14" />新建账号
       </button>
+    </div>
+    <div class="card-body">
+      <p v-if="error && !creating && !target" class="banner error" role="alert">
+        <LineIcon name="alert" :size="14" />{{ error }}
+      </p>
+      <p v-if="notice" class="banner ok" role="status">
+        <LineIcon name="check" :size="14" />{{ notice }}
+      </p>
+      <p class="hint">
+        停用、启用和重置密码都会让该账号已有的登录失效；至少保留一个启用的管理员。账号管理不授予查看他人素材或任务的权限。
+      </p>
+    </div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>账号</th>
+            <th>角色</th>
+            <th>状态</th>
+            <th style="text-align: right">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="account in accounts"
+            :key="account.id"
+            data-testid="account-row"
+          >
+            <td>
+              <span class="name"
+                ><span class="avatar sm" aria-hidden="true">{{
+                  account.username.slice(0, 1).toUpperCase()
+                }}</span
+                >{{ account.username }}</span
+              >
+            </td>
+            <td>{{ account.role === 'ADMIN' ? '管理员' : '普通用户' }}</td>
+            <td>
+              <span
+                class="tag"
+                :class="account.status === 'ACTIVE' ? 'ok' : 'danger'"
+                ><span class="dot"></span
+                >{{ account.status === 'ACTIVE' ? '已启用' : '已停用' }}</span
+              >
+            </td>
+            <td>
+              <div class="actions">
+                <button
+                  type="button"
+                  class="link-btn"
+                  :class="{ danger: account.status === 'ACTIVE' }"
+                  :disabled="busy"
+                  @click="status(account)"
+                >
+                  {{ account.status === 'ACTIVE' ? '停用' : '启用' }}
+                </button>
+                <button
+                  type="button"
+                  class="link-btn"
+                  :disabled="busy"
+                  @click="((target = account), (replacement = ''))"
+                >
+                  重置密码
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div v-if="after" class="card-foot">
       <button
-        v-if="view !== 'closed'"
-        class="text-button"
+        type="button"
+        class="btn sm"
         :disabled="busy"
-        @click="setView('closed')"
+        @click="action(() => load(true))"
       >
-        收起账号设置
+        加载更多账号
       </button>
-    </nav>
-    <div v-if="view !== 'closed'" class="panel account-panel">
-      <p v-if="error" class="message error" role="alert">{{ error }}</p>
-      <p v-if="notice" class="message" role="status">{{ notice }}</p>
-      <form
-        v-if="view === 'password'"
-        class="fields"
-        @submit.prevent="changePassword"
-      >
-        <h2>修改本人密码</h2>
-        <p>修改后所有会话失效，需用新密码重新登录。新密码为 6–15 个字符。</p>
-        <label
-          >当前密码<input
-            v-model="current"
-            type="password"
-            autocomplete="current-password"
+    </div>
+
+    <ModalDialog v-if="creating" title="新建账号" @close="creating = false">
+      <form id="create-account" class="form-grid" @submit.prevent="create">
+        <p v-if="error" class="banner error" role="alert">
+          <LineIcon name="alert" :size="14" />{{ error }}
+        </p>
+        <label class="form-row"
+          ><span>新账号名称</span
+          ><input
+            aria-label="新账号名称"
+            aria-describedby="account-name-hint"
+            v-model="name"
+            pattern="[a-z0-9][a-z0-9_\-]{0,63}"
+            maxlength="64"
+            autocomplete="off"
             required
             :disabled="busy"
-        /></label>
-        <label
-          >新密码<input
-            v-model="next"
+          /><small id="account-name-hint"
+            >小写字母、数字、下划线或短横线。</small
+          ></label
+        >
+        <label class="form-row"
+          ><span>初始密码</span
+          ><input
+            aria-label="初始密码"
+            aria-describedby="initial-password-hint"
+            v-model="initial"
             type="password"
             autocomplete="new-password"
             minlength="6"
             maxlength="15"
             required
             :disabled="busy"
-        /></label>
-        <button :disabled="busy">保存新密码</button>
-      </form>
-      <template v-if="view === 'accounts' && role === 'ADMIN'">
-        <h2>账号管理</h2>
-        <p>
-          管理账号不会授予跨项目读取素材或任务的权限。图片删除规则独立于账号管理，删除操作尚未开放。
-        </p>
-        <form class="account-create" @submit.prevent="create">
-          <label
-            >新账号名称<input
-              v-model="name"
-              pattern="[a-z0-9][a-z0-9_-]{0,63}"
-              maxlength="64"
-              autocomplete="off"
-              required
-              :disabled="busy"
-          /></label>
-          <label
-            >初始密码<input
-              v-model="initial"
-              type="password"
-              autocomplete="new-password"
-              minlength="6"
-              maxlength="15"
-              required
-              :disabled="busy"
-          /></label>
-          <label
-            >账号角色<select v-model="newRole" :disabled="busy">
-              <option value="USER">普通用户</option>
-              <option value="ADMIN">管理员</option>
-            </select></label
-          >
-          <button :disabled="busy">创建账号</button>
-        </form>
-        <p>
-          停用、启用和重置都会撤销目标账号已有会话；至少保留一个启用的管理员。
-        </p>
-        <ul class="account-list">
-          <li
-            v-for="account in accounts"
-            :key="account.id"
-            data-testid="account-row"
-          >
-            <span
-              ><strong>{{ account.username }}</strong> · {{ account.role }} ·
-              {{ account.status }}</span
-            >
-            <div>
-              <button
-                class="secondary"
-                :disabled="busy"
-                @click="status(account)"
-              >
-                {{ account.status === 'ACTIVE' ? '停用' : '启用' }}
-              </button>
-              <button
-                class="text-button"
-                :disabled="busy"
-                @click="selectReset(account)"
-              >
-                重置密码
-              </button>
-            </div>
-          </li>
-        </ul>
-        <button
-          v-if="after"
-          class="secondary"
-          :disabled="busy"
-          @click="action(() => load(true))"
+          /><small id="initial-password-hint">6–15 个字符。</small></label
         >
-          加载更多账号
+        <label class="form-row"
+          ><span>账号角色</span
+          ><select v-model="newRole" :disabled="busy">
+            <option value="USER">普通用户</option>
+            <option value="ADMIN">管理员</option>
+          </select></label
+        >
+      </form>
+      <template #footer>
+        <button type="button" class="btn" @click="creating = false">
+          取消
         </button>
-        <form v-if="target" class="fields" @submit.prevent="resetPassword">
-          <h3>重置 {{ target.username }} 的密码</h3>
-          <label
-            >重置后的密码<input
-              v-model="replacement"
-              type="password"
-              autocomplete="new-password"
-              minlength="6"
-              maxlength="15"
-              required
-              :disabled="busy"
-          /></label>
-          <button :disabled="busy">确认重置</button
-          ><button
-            type="button"
-            class="secondary"
-            :disabled="busy"
-            @click="selectReset(null)"
-          >
-            取消重置
-          </button>
-        </form>
+        <button
+          type="submit"
+          form="create-account"
+          class="btn primary"
+          :disabled="busy"
+        >
+          创建账号
+        </button>
       </template>
-    </div>
+    </ModalDialog>
+
+    <ModalDialog
+      v-if="target"
+      :title="`重置 ${target.username} 的密码`"
+      @close="target = null"
+    >
+      <form
+        id="reset-password"
+        class="form-grid"
+        @submit.prevent="resetPassword"
+      >
+        <p v-if="error" class="banner error" role="alert">
+          <LineIcon name="alert" :size="14" />{{ error }}
+        </p>
+        <label class="form-row"
+          ><span>重置后的密码</span
+          ><input
+            aria-label="重置后的密码"
+            aria-describedby="reset-password-hint"
+            v-model="replacement"
+            type="password"
+            autocomplete="new-password"
+            minlength="6"
+            maxlength="15"
+            required
+            :disabled="busy"
+          /><small id="reset-password-hint"
+            >6–15 个字符；重置后该账号需要用新密码重新登录。</small
+          ></label
+        >
+      </form>
+      <template #footer>
+        <button type="button" class="btn" @click="target = null">取消</button>
+        <button
+          type="submit"
+          form="reset-password"
+          class="btn primary"
+          :disabled="busy"
+        >
+          确认重置
+        </button>
+      </template>
+    </ModalDialog>
   </section>
 </template>

@@ -6,7 +6,7 @@ const withText = !!process.env.CORE_FONT
 
 async function login(page: Page, name = 'alice') {
   await page.goto('/')
-  await page.getByLabel('本地账号', { exact: true }).fill(name)
+  await page.getByLabel('账号', { exact: true }).fill(name)
   await page.getByLabel('密码', { exact: true }).fill(process.env.T06_PASSWORD!)
   await page.getByRole('button', { name: '登录生产账号' }).click()
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
@@ -26,19 +26,31 @@ async function noHorizontalScroll(page: Page) {
   ).toBe(true)
 }
 /** Click generate and return the new task id plus the request body that was sent. */
-async function submitAndTrack(page: Page, match = generationPost) {
+async function submitAndTrack(
+  page: Page,
+  click: () => Promise<void>,
+  match = generationPost,
+) {
   const sent = page.waitForRequest(match)
   const answered = page.waitForResponse(
     (r) => match(r.request()) && r.status() === 202,
   )
+  await click()
   const body = (await sent).postDataJSON()
   const task = await (await answered).json()
   return { body, id: task.id as string }
 }
+const toast = (page: Page) => page.locator('.toasts [role="status"]')
+const alert = (page: Page) => page.locator('.toasts [role="alert"]')
 function done(page: Page, task: string) {
-  return page
-    .locator(`[data-task="${task}"]`)
-    .filter({ hasText: '已完成 · 待人工审核' })
+  return page.locator(
+    `[data-testid="result-card"][data-task="${task}"][data-status="SUCCEEDED"]`,
+  )
+}
+/** Open a collapsed parameter group (its header also shows the current summary). */
+async function section(page: Page, title: string) {
+  const head = page.getByRole('button', { name: new RegExp(`^${title}`) })
+  if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
 }
 function watchErrors(page: Page) {
   const errors: string[] = []
@@ -59,6 +71,9 @@ test('V4-B1: home shows three independent entries and navigation', async ({
       page.getByRole('button', { name: `${name} 立即生成` }),
     ).toBeVisible()
   await expect(page.getByText('模拟模型验收模式')).toBeVisible()
+  // Removed on request: review reminders and the session clock are not shown in the chrome.
+  await expect(page.getByText('待人工审核')).toHaveCount(0)
+  await expect(page.getByText('有效至')).toHaveCount(0)
   expect(
     await page.evaluate(() => localStorage.length + sessionStorage.length),
   ).toBe(0)
@@ -81,40 +96,62 @@ test('V4-B1: home shows three independent entries and navigation', async ({
   expect(errors).toEqual([])
 })
 
-test('V4-B2: scene - upload, preset, one image by default, compare, download', async ({
+test('V4-B2: scene - upload, preset, model and size, compare, download', async ({
   page,
 }) => {
   const errors = watchErrors(page)
   await login(page)
   await page.getByRole('button', { name: '场景主图 立即生成' }).click()
-  await expect(page.getByRole('heading', { name: '场景主图' })).toBeVisible()
+  // Before generating the canvas shows the composition guide only.
+  await expect(page.getByTestId('design-stage')).toContainText('商品')
+  await page.screenshot({ path: join(artifacts, 'scene-empty.png') })
   await page
-    .getByLabel('上传产品主图（白底图）')
+    .getByLabel('上传商品图')
     .setInputFiles(process.env.CORE_PRODUCT_FILE!)
-  await expect(page.getByRole('status').first()).toContainText('商品原图已保存')
+  await expect(toast(page)).toContainText('商品原图已保存')
+  await expect(
+    page.getByRole('button', { name: /^商品图（已选择/ }).locator('img'),
+  ).toBeVisible()
   await page.getByRole('button', { name: '木质桌面' }).click()
-  const tracked = submitAndTrack(page)
-  await page.getByRole('button', { name: /生成图片/ }).click()
-  const { body, id } = await tracked
+  await section(page, '输出设置')
+  // The admin's default model is preselected; only its name and provider are shown.
+  await expect(
+    page.getByRole('button', { name: /^模型：模拟主力/ }),
+  ).toContainText('OpenRouter')
+  await page.getByRole('button', { name: /^尺寸：/ }).click()
+  await page.getByRole('option', { name: /750 × 1000/ }).click()
+  await expect(page.getByRole('button', { name: /^输出设置/ })).toContainText(
+    '模拟主力 · 750 × 1000 · 1 张',
+  )
+  const { body, id } = await submitAndTrack(page, () =>
+    page.getByTestId('generate').click(),
+  )
   expect(body.feature_type).toBe('SCENE')
   expect(body.scene_preset).toBe('wood_table')
-  expect(body.output.count).toBe(1)
-  expect(body).not.toHaveProperty('text')
-  const card = done(page, id).first()
-  await expect(card).toBeVisible({ timeout: 60000 })
-  await expect(page.getByTestId('design-stage').locator('img')).toBeVisible()
-  await card.getByRole('button', { name: '对照原图' }).click()
-  const dialog = page.getByRole('dialog', { name: '原图对照' })
-  await expect(dialog.getByAltText('商品原图')).toBeVisible()
-  await expect(dialog.getByAltText('生成结果')).toBeVisible()
-  await dialog.getByRole('button', { name: '关闭' }).click()
-  const download = page.waitForEvent('download')
-  await card.getByRole('button', { name: '下载' }).click()
-  expect((await download).suggestedFilename()).toMatch(/^scene-.+\.png$/)
-  await page.screenshot({
-    path: join(artifacts, 'scene-desktop.png'),
-    fullPage: true,
+  expect(body.output).toEqual({
+    aspect_ratio: '3:4',
+    width: 750,
+    height: 1000,
+    format: 'png',
+    count: 1,
   })
+  expect(typeof body.model_id).toBe('string')
+  expect(body).not.toHaveProperty('text')
+  expect(body).not.toHaveProperty('style_prompt')
+  const tile = done(page, id).first()
+  await expect(tile).toBeVisible({ timeout: 60000 })
+  const stage = page.getByTestId('design-stage')
+  await expect(stage.locator('img.base')).toBeVisible()
+  await tile.hover()
+  await tile.getByRole('button', { name: '对照原图' }).click()
+  await expect(
+    page.getByTestId('compare-original').getByAltText('商品原图'),
+  ).toBeVisible()
+  await page.screenshot({ path: join(artifacts, 'scene-compare.png') })
+  await tile.hover()
+  const download = page.waitForEvent('download')
+  await tile.getByRole('button', { name: '下载' }).click()
+  expect((await download).suggestedFilename()).toMatch(/^scene-.+\.png$/)
   expect(errors).toEqual([])
 })
 
@@ -124,29 +161,38 @@ test('V4-B3: gift with text, then a free text-only re-render', async ({
   const errors = watchErrors(page)
   await login(page)
   await page.getByRole('link', { name: '赠品+文字主图' }).click()
-  await page
-    .getByLabel('上传赠品图片（独立图）')
-    .setInputFiles(process.env.CORE_GIFT_FILE!)
-  await expect(page.getByRole('status').first()).toContainText('赠品原图已保存')
+  // The product comes from the library picker, the gift from a new upload.
+  await page.getByRole('button', { name: /^商品图/ }).click()
+  await page.getByRole('menuitem', { name: '从素材库选择' }).click()
+  const picker = page.getByRole('dialog', { name: '从素材库选择商品图' })
+  await picker
+    .getByRole('button', { name: /^选择商品图/ })
+    .first()
+    .click()
+  await expect(picker).toHaveCount(0)
+  await page.getByLabel('上传赠品图').setInputFiles(process.env.CORE_GIFT_FILE!)
+  await expect(toast(page)).toContainText('赠品原图已保存')
+  await section(page, '赠品位置')
   await page.getByRole('button', { name: '左下' }).click()
-  await page.getByRole('button', { name: '背景颜色 #FFF6EC' }).click()
+  await section(page, '背景')
+  await page.getByRole('button', { name: '背景 奶油' }).click()
   if (withText) {
-    await page
-      .getByLabel('标题文字（可选，原文使用）')
-      .fill('下单即送\n防撞护角')
-    await page.getByLabel('营销标签（每行一条，可选）').fill('安全材质')
+    await section(page, '营销文字')
+    await page.getByLabel('标题').fill('下单即送\n防撞护角')
+    await page.getByLabel('标签（每行一条）').fill('安全材质')
+    await page.getByRole('button', { name: '右上' }).click()
     const layer = page.getByTestId('text-layer')
     await expect(layer).toContainText('防撞护角')
-    await layer.scrollIntoViewIfNeeded()
     const box = (await layer.boundingBox())!
     await page.mouse.move(box.x + 20, box.y + 20)
     await page.mouse.down()
-    await page.mouse.move(box.x + 50, box.y + 40, { steps: 5 })
+    await page.mouse.move(box.x - 30, box.y + 40, { steps: 5 })
     await page.mouse.up()
   }
-  const tracked = submitAndTrack(page)
-  await page.getByRole('button', { name: /生成图片/ }).click()
-  const { body, id } = await tracked
+  await page.screenshot({ path: join(artifacts, 'gift-plan.png') })
+  const { body, id } = await submitAndTrack(page, () =>
+    page.getByTestId('generate').click(),
+  )
   expect(body.feature_type).toBe('GIFT')
   expect(body.gift_position).toBe('BOTTOM_LEFT')
   expect(body.background).toEqual({ mode: 'SOLID', color: '#FFF6EC' })
@@ -154,30 +200,27 @@ test('V4-B3: gift with text, then a free text-only re-render', async ({
   if (withText) {
     expect(body.text.title).toBe('下单即送\n防撞护角')
     expect(body.text.points).toEqual(['安全材质'])
-    expect(body.text.box.x).toBeGreaterThan(0.05)
+    expect(body.text.align).toBe('right')
+    expect(body.text.box.x).toBeLessThan(0.49)
+    expect(body.text.size).toBe(56)
   }
   await expect(done(page, id)).toHaveCount(1, { timeout: 60000 })
-  await page.screenshot({
-    path: join(artifacts, 'gift-desktop.png'),
-    fullPage: true,
-  })
   if (withText) {
+    await expect(
+      page.getByText('拖动虚线框调整文字位置，改完点右侧按钮'),
+    ).toBeVisible()
+    await page.screenshot({ path: join(artifacts, 'gift-result.png') })
     // The model output stays; only the text is re-rendered and no model is called.
-    await page.getByLabel('标题文字（可选，原文使用）').fill('新标题')
-    const retyped = submitAndTrack(page, (r) =>
-      r.url().endsWith(`/api/v4/generation-tasks/${id}/retypeset`),
+    await section(page, '营销文字')
+    await page.getByLabel('标题').fill('新标题')
+    const retype = await submitAndTrack(
+      page,
+      () => page.getByRole('button', { name: '应用文字修改' }).click(),
+      (r) => r.url().endsWith(`/api/v4/generation-tasks/${id}/retypeset`),
     )
-    await page
-      .getByRole('button', { name: '应用文字修改（免费，不重新生成）' })
-      .click()
-    const retype = await retyped
     expect(retype.body.ordinal).toBe(0)
     expect(retype.body.text.title).toBe('新标题')
     await expect(done(page, retype.id)).toHaveCount(1, { timeout: 60000 })
-    await page.screenshot({
-      path: join(artifacts, 'gift-retypeset.png'),
-      fullPage: true,
-    })
   }
   await page.setViewportSize({ width: 390, height: 844 })
   await noHorizontalScroll(page)
@@ -195,23 +238,24 @@ test('V4-B4: selling points - one image per chosen style, verbatim points', asyn
   const errors = watchErrors(page)
   await login(page)
   await page.getByRole('link', { name: '卖点主图' }).click()
-  await page.getByRole('button', { name: '自然绿' }).click()
-  await expect(page.getByText('已选 2 种，将生成 2 张。')).toBeVisible()
-  await page.getByLabel('标题文字（可选，原文使用）').fill('轻松喂养')
+  await page.getByLabel('标题').fill('轻松喂养')
   await page
-    .getByLabel('卖点（每行一条，原文使用）')
+    .getByLabel('卖点（每行一条）')
     .fill(' 安全材质 \n防胀气设计\n易清洗')
-  const tracked = submitAndTrack(page)
-  await page.getByRole('button', { name: /生成图片/ }).click()
-  const { body, id } = await tracked
+  await section(page, '风格')
+  await page.getByRole('button', { name: '自然绿' }).click()
+  await expect(page.getByText('已选 2 种')).toBeVisible()
+  await expect(page.getByTestId('generate')).toHaveText('生成 2 张')
+  const { body, id } = await submitAndTrack(page, () =>
+    page.getByTestId('generate').click(),
+  )
   expect(body.styles).toEqual(['warm', 'green'])
   expect(body.output.count).toBe(2)
   expect(body.text.points).toEqual([' 安全材质 ', '防胀气设计', '易清洗'])
+  // No colour choice here: the title takes the first style's colour.
+  expect(body.text.color).toBe('#4A2E1F')
   await expect(done(page, id)).toHaveCount(2, { timeout: 60000 })
-  await page.screenshot({
-    path: join(artifacts, 'selling-desktop.png'),
-    fullPage: true,
-  })
+  await page.screenshot({ path: join(artifacts, 'selling-desktop.png') })
   expect(errors).toEqual([])
 })
 
@@ -232,7 +276,7 @@ test('V4-B5: a lost response is resent with the same key and body', async ({
     },
     { times: 1 },
   )
-  await page.getByRole('button', { name: /生成图片/ }).click()
+  await page.getByTestId('generate').click()
   const resend = page.getByRole('button', { name: '用原请求重发' })
   await expect(resend).toBeVisible()
   const again = page.waitForRequest(generationPost)
@@ -243,17 +287,20 @@ test('V4-B5: a lost response is resent with the same key and body', async ({
   await expect(resend).toHaveCount(0)
 })
 
-test('V4-B6: history, works and admin-only settings', async ({
+test('V4-B6: history, works, account page and the admin model settings', async ({
   page,
   browser,
 }) => {
   await login(page)
   await page.getByRole('link', { name: '任务记录' }).click()
   await expect(page.locator('.history-item').first()).toBeVisible()
+  await page.screenshot({ path: join(artifacts, 'tasks-desktop.png') })
   await page.getByRole('link', { name: '我的作品' }).click()
   await expect(page.getByTestId('result-card').first()).toBeVisible()
+  await page.screenshot({ path: join(artifacts, 'works-desktop.png') })
   await page.getByRole('link', { name: '账号与安全' }).click()
-  await expect(page.getByRole('button', { name: '本人改密' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '修改密码' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '账号管理' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: '模型配置' })).toHaveCount(0)
   // Sign-out is an icon at the bottom of the sidebar; the next visit needs a login.
   await page.getByRole('button', { name: '退出登录' }).click()
@@ -264,36 +311,77 @@ test('V4-B6: history, works and admin-only settings', async ({
   await expect(
     page.getByRole('heading', { name: '生产账号登录' }),
   ).toBeVisible()
+
   const admin = await browser.newPage()
   await login(admin, 'admin')
   await admin.getByRole('link', { name: '模型配置' }).click()
-  await expect(admin.getByTestId('provider-state')).toContainText('已启用')
-  await expect(
-    admin.getByTestId('provider-version-row').filter({ hasText: 'mock-model' }),
-  ).toContainText('****')
+  const rows = admin.getByTestId('model-row')
+  const main = rows.filter({ hasText: '模拟主力' })
+  await expect(main).toContainText('默认')
+  await expect(main).toContainText('****')
   await expect(admin.getByText('付费')).toHaveCount(0)
-  // Third-party endpoints: plain http only to intranet addresses, with a warning.
-  await admin.getByLabel('接口类型').selectOption('openai-compatible')
-  await admin.getByLabel('模型名称').fill('gpt-image-2')
-  await admin.getByLabel('接口地址').fill('http://8.8.8.8/v1')
-  await expect(admin.getByRole('note')).toContainText('明文传输')
-  await admin.getByLabel('API Key（保存后不可查看）').fill('mock-relay-key')
-  await admin.getByRole('button', { name: '保存配置' }).click()
-  await expect(admin.getByRole('alert')).toContainText('只允许内网 IP')
-  await admin.getByLabel('接口地址').fill('http://10.0.0.5:3000/v1')
-  await admin.getByLabel('API Key（保存后不可查看）').fill('mock-relay-key')
-  await admin.getByRole('button', { name: '保存配置' }).click()
-  await expect(admin.getByRole('status')).toContainText('已保存并设为当前配置')
-  await expect(admin.getByTestId('provider-state')).toContainText(
-    'OpenAI 格式（第三方） · gpt-image-2',
-  )
+  // Only the official interfaces are offered besides OpenRouter.
+  await admin.getByRole('button', { name: '添加模型' }).click()
+  const dialog = admin.getByRole('dialog', { name: '添加模型' })
+  await expect(dialog.getByLabel('接口类型').locator('option')).toHaveText([
+    'OpenRouter',
+    'OpenAI 官方',
+    'Gemini 官方',
+  ])
+  await dialog.getByLabel('显示名称').fill('Gemini 备用')
+  await dialog.getByLabel('接口类型').selectOption('gemini')
+  await dialog.getByLabel('模型标识').fill('gemini-2.5-flash-image')
+  await dialog.getByLabel('API Key').fill('mock-gemini-key')
+  await dialog.getByLabel('通过网络代理访问').check()
+  await dialog.getByRole('button', { name: '保存模型' }).click()
+  await expect(dialog).toHaveCount(0)
+  const added = rows.filter({ hasText: 'Gemini 备用' })
+  await expect(added).toContainText('Gemini 官方')
   await expect(
-    admin
-      .getByTestId('provider-version-row')
-      .filter({ hasText: 'http://10.0.0.5:3000/v1' }),
-  ).toContainText('当前配置')
+    added.getByRole('switch', { name: 'Gemini 备用 走代理' }),
+  ).toHaveAttribute('aria-checked', 'true')
+  // The default model cannot be switched off.
+  await main.getByRole('switch', { name: '模拟主力 启用' }).click()
+  await expect(admin.locator('.banner[role="alert"]')).toContainText(
+    '默认模型不能停用',
+  )
+  await added.getByRole('button', { name: '设为默认' }).click()
+  await expect(added).toContainText('默认')
+  await main.getByRole('button', { name: '设为默认' }).click()
+  await expect(main).toContainText('默认')
+  // Proxy: no paths; credentials are masked once saved.
+  await admin
+    .getByLabel('代理地址')
+    .fill('http://user:secret@proxy.internal:3128/x')
+  await admin.getByRole('button', { name: '保存代理' }).click()
+  await expect(admin.locator('.banner[role="alert"]')).toBeVisible()
+  await admin
+    .getByLabel('代理地址')
+    .fill('http://user:secret@proxy.internal:3128')
+  await admin.getByRole('button', { name: '保存代理' }).click()
+  await expect(admin.getByTestId('proxy-state')).toHaveText('已设置')
+  await expect(admin.getByText('http://****@proxy.internal:3128')).toBeVisible()
+  await expect(admin.getByText('secret')).toHaveCount(0)
   await admin.screenshot({
-    path: join(artifacts, 'settings-admin.png'),
+    path: join(artifacts, 'models-admin.png'),
+    fullPage: true,
+  })
+  admin.once('dialog', (confirm) => void confirm.accept())
+  await admin.getByRole('button', { name: '清除代理' }).click()
+  await expect(admin.getByTestId('proxy-state')).toHaveText('未设置')
+  // Operators pick any enabled model on the create pages.
+  await admin.getByRole('link', { name: '场景主图' }).click()
+  await section(admin, '输出设置')
+  await admin.getByRole('button', { name: /^模型：/ }).click()
+  await expect(
+    admin.getByRole('option', { name: /Gemini 备用.*Gemini 官方/ }),
+  ).toBeVisible()
+  await admin.keyboard.press('Escape')
+  await admin.getByRole('link', { name: '账号与安全' }).click()
+  await admin.getByRole('button', { name: '账号管理' }).click()
+  await expect(admin.getByTestId('account-row')).not.toHaveCount(0)
+  await admin.screenshot({
+    path: join(artifacts, 'accounts-admin.png'),
     fullPage: true,
   })
   await admin.close()
@@ -305,26 +393,31 @@ test('V4-B7: owners delete an original and a result; history keeps a placeholder
   await login(page)
   page.on('dialog', (dialog) => void dialog.accept())
   await page.getByRole('link', { name: '素材管理' }).click()
-  const assets = page.locator('.asset-card')
+  const assets = page.getByTestId('asset-card')
   const before = await assets.count()
+  await assets.first().hover()
   await assets
     .first()
     .getByRole('button', { name: /^删除素材/ })
     .click()
-  await expect(page.getByRole('status')).toContainText('原图已删除')
+  await expect(toast(page)).toContainText('原图已删除')
   await expect(assets).toHaveCount(before - 1)
+  await page.screenshot({ path: join(artifacts, 'assets-desktop.png') })
 
   // Results made from a deleted original stay, and the comparison says so.
   await page.getByRole('link', { name: '我的作品' }).click()
   await page.getByRole('button', { name: '场景主图' }).click()
   const cards = page.getByTestId('result-card')
+  await cards.first().hover()
   await cards.first().getByRole('button', { name: '对照原图' }).click()
   const dialog = page.getByRole('dialog', { name: '原图对照' })
   await expect(dialog).toContainText('原图已删除')
   await dialog.getByRole('button', { name: '关闭' }).click()
 
   const results = await cards.count()
+  await cards.first().hover()
   await cards.first().getByRole('button', { name: '删除' }).click()
-  await expect(page.getByRole('status')).toContainText('生成结果已删除')
+  await expect(toast(page)).toContainText('生成结果已删除')
   await expect(cards).toHaveCount(results - 1)
+  expect(await alert(page).count()).toBe(0)
 })

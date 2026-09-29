@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 // generation here fails visibly; no model is ever called by these page tests.
 async function login(page: Page, name = 'alice') {
   await page.goto('/')
-  await page.getByLabel('本地账号', { exact: true }).fill(name)
+  await page.getByLabel('账号', { exact: true }).fill(name)
   await page.getByLabel('密码', { exact: true }).fill(process.env.T06_PASSWORD!)
   await page.getByRole('button', { name: '登录开发环境' }).click()
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
@@ -19,8 +19,9 @@ function generationPost(request: Request) {
   )
 }
 function card(page: Page, task: string) {
-  return page.locator(`[data-task="${task}"]`)
+  return page.locator(`[data-testid="result-card"][data-task="${task}"]`)
 }
+const toast = (page: Page) => page.locator('.toasts [role="status"]')
 
 test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failure and responsive pages', async ({
   page,
@@ -50,13 +51,13 @@ test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failur
   await expect(rows).toHaveCount(22)
 
   await page.getByRole('link', { name: '素材管理' }).click()
-  await page.getByLabel('上传商品白底图').setInputFiles({
+  await page.getByLabel('上传商品图').setInputFiles({
     name: 'invalid.png',
     mimeType: 'image/png',
     buffer: Buffer.from('not an image'),
   })
   await expect(page.getByRole('alert')).toContainText('图片内容或尺寸')
-  await page.getByLabel('上传商品白底图').setInputFiles({
+  await page.getByLabel('上传商品图').setInputFiles({
     name: 'synthetic.jpg',
     mimeType: 'image/jpeg',
     buffer: Buffer.from(
@@ -64,17 +65,17 @@ test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failur
       'base64',
     ),
   })
-  await expect(page.getByRole('status')).toContainText('原图已保存')
-  await expect(page.locator('.asset-card')).not.toHaveCount(0)
+  await expect(toast(page)).toContainText('原图已保存')
+  await expect(page.getByTestId('asset-card')).not.toHaveCount(0)
 
   // Without a configured provider the task fails with a diagnosable code, never silently.
   await page.getByRole('link', { name: '场景主图' }).click()
-  await page.getByLabel('场景描述（可选补充）').fill('仅用于页面测试的场景描述')
+  await page.getByLabel('补充描述（可选）').fill('仅用于页面测试的场景描述')
   const sent = page.waitForRequest(generationPost)
   const answered = page.waitForResponse(
     (r) => generationPost(r.request()) && r.status() === 202,
   )
-  await page.getByRole('button', { name: /生成图片/ }).click()
+  await page.getByTestId('generate').click()
   const body = (await sent).postDataJSON()
   const task = (await (await answered).json()).id as string
   expect(body.feature_type).toBe('SCENE')
@@ -135,7 +136,7 @@ test('ACC-T06 A2/A4: lost response reuses the key; network error and expired ses
     },
     { times: 1 },
   )
-  await page.getByRole('button', { name: /生成图片/ }).click()
+  await page.getByTestId('generate').click()
   const resend = page.getByRole('button', { name: '用原请求重发' })
   await expect(resend).toBeVisible()
   const again = page.waitForRequest(generationPost)
@@ -205,7 +206,7 @@ test('ACC-T06 A2/A5: task polling shows RUNNING, survives a network error and re
     .first()
     .getByRole('button', { name: '查看' })
     .click()
-  const current = page.locator('.result-card').first()
+  const current = page.getByTestId('result-card').first()
   await expect(current).toContainText('生成中')
   await expect(page.getByRole('alert')).toContainText('连接中断或超时', {
     timeout: 10000,
@@ -214,7 +215,7 @@ test('ACC-T06 A2/A5: task polling shows RUNNING, survives a network error and re
   await expect(current).toContainText('生成失败', { timeout: 10000 })
   await page.unroute('**/api/v4/generation-tasks/*')
 
-  await page.getByLabel('场景描述（可选补充）').fill('private unsaved draft')
+  await page.getByLabel('补充描述（可选）').fill('private unsaved draft')
   await page.route(
     '**/api/v1/projects/p/tasks?offset=0',
     (route) =>
@@ -225,10 +226,10 @@ test('ACC-T06 A2/A5: task polling shows RUNNING, survives a network error and re
       }),
     { times: 1 },
   )
-  await page.getByRole('button', { name: '刷新', exact: true }).click()
+  await page.getByRole('button', { name: '刷新结果' }).click()
   await expect(page.getByRole('button', { name: '登录开发环境' })).toBeVisible()
-  await page.getByLabel('本地账号', { exact: true }).fill('alice')
+  await page.getByLabel('账号', { exact: true }).fill('alice')
   await page.getByLabel('密码', { exact: true }).fill(process.env.T06_PASSWORD!)
   await page.getByLabel('密码', { exact: true }).press('Enter')
-  await expect(page.getByLabel('场景描述（可选补充）')).toHaveValue('')
+  await expect(page.getByLabel('补充描述（可选）')).toHaveValue('')
 })

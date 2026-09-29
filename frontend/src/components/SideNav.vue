@@ -2,104 +2,65 @@
 import { computed, inject } from 'vue'
 import { features } from '../workbench/generation'
 import { workbenchKey } from '../workbench/useWorkbench'
+import LineIcon from './LineIcon.vue'
 
 const w = inject(workbenchKey)!
 const admin = computed(() => w.identity?.role === 'ADMIN')
-const until = computed(() =>
-  w.sessionExpires
-    ? new Date(w.sessionExpires).toLocaleTimeString('zh-CN', {
-        hour: '2-digit',
-        minute: '2-digit',
-      })
-    : '',
-)
 </script>
 
 <template>
   <aside class="side-nav" aria-label="工作台导航">
     <div class="brand">
-      <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
-        <circle cx="20" cy="20" r="19" fill="#eef3ff" />
-        <circle cx="20" cy="22" r="11" fill="#ffe8d6" />
-        <path
-          d="M11 17c2-7 16-8 18 0"
-          fill="none"
-          stroke="#f4a261"
-          stroke-width="3"
-          stroke-linecap="round"
-        />
-        <circle cx="16" cy="22" r="1.4" fill="#374151" />
-        <circle cx="24" cy="22" r="1.4" fill="#374151" />
-        <path
-          d="M17 26c2 1.6 4 1.6 6 0"
-          fill="none"
-          stroke="#e76f51"
-          stroke-width="1.6"
-          stroke-linecap="round"
-        />
-      </svg>
-      <div>
-        <strong>母婴商品图工作台</strong><small>AI 让商品图更简单</small>
-      </div>
+      <span class="logo" aria-hidden="true">母</span>
+      <strong>母婴商品图工作台</strong>
     </div>
-    <nav class="nav-list">
-      <router-link class="nav-link" to="/">首页</router-link>
-      <div class="nav-group">
-        <span>图片生成</span>
-        <router-link
-          v-for="item in features"
-          :key="item.id"
-          class="nav-link nav-sub"
-          :to="`/create/${item.route}`"
-          >{{ item.name }}</router-link
-        >
-      </div>
-      <router-link class="nav-link" to="/assets">素材管理</router-link>
-      <router-link class="nav-link" to="/tasks">任务记录</router-link>
-      <router-link class="nav-link" to="/works">我的作品</router-link>
-      <div class="nav-group">
-        <span>设置</span>
-        <router-link class="nav-link nav-sub" to="/settings"
-          >账号与安全</router-link
-        >
-        <router-link v-if="admin" class="nav-link nav-sub" to="/models"
-          >模型配置</router-link
-        >
-      </div>
+    <nav>
+      <router-link class="nav-link" to="/"
+        ><LineIcon name="home" />首页</router-link
+      >
+      <div class="nav-group">图片生成</div>
+      <router-link
+        v-for="item in features"
+        :key="item.id"
+        class="nav-link"
+        :to="`/create/${item.route}`"
+        ><LineIcon :name="item.tone" />{{ item.name }}</router-link
+      >
+      <div class="nav-group">素材与作品</div>
+      <router-link class="nav-link" to="/assets"
+        ><LineIcon name="box" />素材管理</router-link
+      >
+      <router-link class="nav-link" to="/works"
+        ><LineIcon name="grid" />我的作品</router-link
+      >
+      <router-link class="nav-link" to="/tasks"
+        ><LineIcon name="clock" />任务记录</router-link
+      >
+      <div class="nav-group">设置</div>
+      <router-link class="nav-link" to="/settings"
+        ><LineIcon name="user" />账号与安全</router-link
+      >
+      <router-link v-if="admin" class="nav-link" to="/models"
+        ><LineIcon name="cpu" />模型配置</router-link
+      >
     </nav>
-    <p class="side-foot">生成结果需人工审核 · 仅生成与下载，不自动上架</p>
     <div class="user-card">
       <span class="avatar" aria-hidden="true">{{
         (w.identity?.username ?? 'U').slice(0, 1).toUpperCase()
       }}</span>
-      <div class="user-meta">
-        <strong
-          ><span>{{ w.identity?.username }}</span
-          ><span class="role-tag">{{ admin ? '管理员' : '运营' }}</span></strong
-        >
-        <small
-          ><span class="status-dot" aria-hidden="true"></span
-          >{{ until ? `在线 · 有效至 ${until}` : '在线' }}</small
-        >
+      <div class="who">
+        <strong>{{ w.identity?.username }}</strong>
+        <span class="tag">{{ admin ? '管理员' : '运营' }}</span>
       </div>
       <button
         type="button"
-        class="icon-button"
+        class="icon-btn danger"
         aria-label="退出登录"
         title="退出登录"
         :disabled="w.busy"
         @click="w.logout"
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4M15 16l4-4-4-4M19 12H9"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+        <LineIcon name="out" :size="18" />
       </button>
     </div>
   </aside>

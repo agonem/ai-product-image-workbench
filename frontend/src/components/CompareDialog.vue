@@ -3,6 +3,7 @@ import { inject, onMounted, ref } from 'vue'
 import type { Generation } from '../workbench/model'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import { workbenchKey } from '../workbench/useWorkbench'
+import ModalDialog from './ModalDialog.vue'
 
 const props = defineProps<{ task: string; artifact: string }>()
 const emit = defineEmits<{ close: [] }>()
@@ -19,23 +20,11 @@ onMounted(async () => {
 </script>
 
 <template>
-  <dialog
-    class="compare"
-    open
-    aria-label="原图对照"
-    @keydown.esc="emit('close')"
-  >
-    <div class="results-head">
-      <h2>原图对照 · 待人工审核</h2>
-      <button class="secondary" @click="emit('close')">关闭</button>
-    </div>
-    <p>
-      <small
-        >生成模型可能细微改变商品。请逐项核对：Logo
-        与包装文字、颜色、外形结构、数量、赠品外观。不一致时请重新生成，不要直接使用。</small
-      >
+  <ModalDialog title="原图对照" wide @close="emit('close')">
+    <p class="hint">
+      请核对 Logo、包装文字、颜色、外形、数量与赠品外观；不一致时请重新生成。
     </p>
-    <p v-if="problem" class="message error">{{ problem }}</p>
+    <p v-if="problem" class="banner error" role="alert">{{ problem }}</p>
     <div class="compare-grid">
       <figure v-if="detail?.request?.product_asset_id">
         <PrivateImage
@@ -64,5 +53,5 @@ onMounted(async () => {
         <figcaption>生成结果</figcaption>
       </figure>
     </div>
-  </dialog>
+  </ModalDialog>
 </template>
