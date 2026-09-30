@@ -79,7 +79,8 @@
               "enum": [
                 "SOLID",
                 "GRADIENT",
-                "CUSTOM"
+                "CUSTOM",
+                "ORIGINAL"
               ]
             },
             "color": {
@@ -137,6 +138,35 @@
                   "color": {}
                 }
               }
+            },
+            {
+              "properties": {
+                "mode": {
+                  "const": "ORIGINAL"
+                }
+              },
+              "allOf": [
+                {
+                  "not": {
+                    "required": [
+                      "color"
+                    ],
+                    "properties": {
+                      "color": {}
+                    }
+                  }
+                },
+                {
+                  "not": {
+                    "required": [
+                      "prompt"
+                    ],
+                    "properties": {
+                      "prompt": {}
+                    }
+                  }
+                }
+              ]
             }
           ]
         },

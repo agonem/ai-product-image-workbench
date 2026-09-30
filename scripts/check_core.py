@@ -451,7 +451,7 @@ def api_checks(core, admin, alice, bob, project):
     assert run.http("POST", f"/api/v1/tasks/{legacy}/retry", alice, {"attempt": 1})[0] == 409
     assert run.sql("SELECT count(*) FROM outbox_events") == before
 
-    # A12: model catalog (ADR-20260929-C). Only OpenRouter / OpenAI / Gemini with their own fields;
+    # A12: model catalog (ADR-20260929-C; third-party types again since ADR-20260930-E, A15).
     # several enabled models; a task binds the chosen model or the default; a disabled model is
     # refused and the default cannot be disabled; a new key retires the old row but keeps the name,
     # the default and every frozen task binding; the proxy is masked and only models marked "use
@@ -460,7 +460,7 @@ def api_checks(core, admin, alice, bob, project):
     common = {"api_key": "mock-key", "enabled": True, "use_proxy": False}
     for bad in (
         {"name": "x", "provider": "openai", "model": "gpt-image-2", "provider_tag": "x"},
-        {"name": "x", "provider": "openai-compatible", "model": "m", "base_url": "https://a.test"},
+        {"name": "x", "provider": "openai-compatible", "model": "m", "base_url": "http://8.8.8.8"},
         {"name": " ", "provider": "gemini", "model": "gemini-2.5-flash-image"},
         {"name": "x", "provider": "unknown", "model": "m"},
     ):
@@ -600,6 +600,106 @@ def api_checks(core, admin, alice, bob, project):
     state = core.generate(alice, dict(scene, product_asset_id=asset["id"]), "v4-cmyk")
     assert state["status"] == "SUCCEEDED", state
     evidence["real_world_uploads"] = {"phone_exif": "upright", "cmyk": "ok"}
+
+    # A15 (ADR-20260930-E): a result reused as a new original (a copy, asked twice -> same copy),
+    # the gift keeping the product photo's own background, and a third-party endpoint.
+    work = state["artifacts"][0]["id"]
+    reuse = f"/api/v1/artifacts/{work}/asset"
+    status, copied, _ = run.http("POST", reuse, alice, {"kind": "GIFT"})
+    assert status == 201 and copied["kind"] == "GIFT", (status, copied)
+    assert copied["source_artifact_id"] == work
+    assert run.http("GET", f"/api/v1/assets/{copied['id']}/content", alice)[1] == core.image(
+        alice, work
+    )
+    again = run.http("POST", reuse, alice, {"kind": "GIFT"})
+    assert again[0] == 200 and again[1]["id"] == copied["id"], again
+    for token in (bob, admin):
+        assert run.http("POST", reuse, token, {"kind": "GIFT"})[0] == 404
+    assert run.http("POST", reuse, alice, {"kind": "ALPHA"})[0] == 400
+    keep = {
+        "project_id": project,
+        "feature_type": "GIFT",
+        "product_asset_id": asset["id"],
+        "gift_asset_id": copied["id"],
+        "gift_position": "BOTTOM_RIGHT",
+        "background": {"mode": "ORIGINAL"},
+        "output": output,
+    }
+    assert (
+        core.post(
+            alice,
+            "/api/v4/generation-tasks",
+            dict(keep, background={"mode": "ORIGINAL", "color": "#FFFFFF"}),
+        )[0]
+        == 400
+    )
+    kept = core.generate(alice, keep, "v4-original-background")
+    assert kept["status"] == "SUCCEEDED", kept
+    prompt = core.generations(kept["id"])[1][0]["provenance"]["prompt"]
+    assert "Keep the background of reference image 1 exactly as it is" in prompt, prompt
+    relay = {
+        "name": "内网中转",
+        "provider": "openai-compatible",
+        "model": "gpt-image-2",
+        "base_url": "http://10.2.2.110:3000/v1",
+        "api_key": "mock-relay-key",
+        "enabled": True,
+        "use_proxy": False,
+    }
+    configs = "/api/v1/admin/provider-configs"
+    assert run.http("POST", configs, admin, dict(relay, base_url="http://8.8.8.8/v1"))[0] == 400
+    status, relay_model, _ = run.http("POST", configs, admin, relay)
+    assert status == 201 and relay_model["base_url"] == relay["base_url"], relay_model
+    routed = core.generate(
+        alice, dict(scene, product_asset_id=asset["id"], model_id=relay_model["id"]), "v4-relay"
+    )
+    assert core.generations(routed["id"])[1][0]["provenance"]["provider"] == (
+        "mock-acceptance-only:openai-compatible:direct"
+    )
+    evidence["reuse_and_relay"] = {"copied": copied["id"], "relay_task": routed["id"]}
+
+    # A16 (ADR-20260930-E): deleting an account signs it out for good, frees its login name and
+    # removes its originals and generated images; refused for oneself, non-admins and while the
+    # account still has a queued task.
+    member = {"username": "leaver", "password": run.password, "role": "USER"}
+    status, account, _ = run.http("POST", "/api/v1/admin/accounts", admin, member)
+    assert status == 201, (status, account)
+    leaver = run.login("leaver")
+    own_project = run.http("POST", "/api/v1/projects", leaver, {"name": "temp"})[1]["id"]
+    status, own, _ = run.http(
+        "POST",
+        f"/api/v1/projects/{own_project}/assets?kind=PRODUCT",
+        leaver,
+        data=synthetic_png(),
+        mime="image/png",
+    )
+    assert status == 201
+    busy = dict(scene, project_id=own_project, product_asset_id=own["id"])
+    assert core.post(leaver, "/api/v4/generation-tasks", busy, "leaver-task")[0] == 202
+    target = f"/api/v1/admin/accounts/{account['id']}"
+    status, body, _ = run.http("DELETE", target, admin)
+    assert status == 409 and body["code"] == "ACCOUNT_BUSY", (status, body)
+    core.worker()
+    admin_id = run.sql("SELECT user_id FROM local_credentials WHERE username='admin'")
+    status, body, _ = run.http("DELETE", f"/api/v1/admin/accounts/{admin_id}", admin)
+    assert status == 409 and body["code"] == "SELF_DELETE", (status, body)
+    assert run.http("DELETE", target, alice)[0] == 403
+    files = set(run.store.rglob("*.image"))
+    assert run.http("DELETE", target, admin)[0] == 204
+    removed = files - set(run.store.rglob("*.image"))
+    assert len(removed) == 3, removed  # the original, the result and the model output behind it
+    assert run.http("GET", "/api/v1/local-auth/me", leaver)[0] == 401
+    login = {"username": "leaver", "password": run.password}
+    assert run.http("POST", "/api/v1/local-auth/login", body=login)[0] == 401
+    assert (
+        run.sql(f"SELECT status||'/'||deleted_username FROM users WHERE id='{account['id']}'")
+        == "DELETED/leaver"
+    )
+    listed = run.http("GET", "/api/v1/admin/accounts", admin)[1]["items"]
+    assert "leaver" not in {item["username"] for item in listed}
+    assert run.http("POST", "/api/v1/admin/accounts", admin, member)[0] == 201  # name is free again
+    assert run.http("DELETE", target, admin)[0] == 404
+    evidence["account_deletion"] = {"removed_files": len(removed)}
     return evidence
 
 
@@ -722,8 +822,9 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A13: three entries, references, text, retypeset, isolation, "
-            "withdrawn routes, model catalog and proxy, owner deletion",
+            "PASS V4-A1..A16: three entries, references, text, retypeset, isolation, "
+            "withdrawn routes, model catalog and proxy, owner deletion, real-world uploads, "
+            "reuse, original background, third-party endpoint, account deletion",
             flush=True,
         )
         if browser_checks(core, stack):

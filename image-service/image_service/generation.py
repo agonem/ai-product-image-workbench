@@ -162,6 +162,13 @@ def build_prompt(request, ordinal):
             parts.append(
                 f"Plain seamless studio background in the solid colour {background['color']}."
             )
+        elif background["mode"] == "ORIGINAL":
+            # ADR-20260930-E: the product photo's own background stays as it is.
+            parts.append(
+                "Keep the background of reference image 1 exactly as it is: the same colour, "
+                "surface, lighting and surroundings. Do not replace, extend or restyle it; only "
+                "add the gift."
+            )
         elif background["mode"] == "GRADIENT":
             parts.append(
                 f"Soft smooth gradient studio background based on the colour {background['color']}."

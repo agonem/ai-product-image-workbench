@@ -17,12 +17,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 public final class ProductionAccounts implements UserAuthenticator {
   private final JdbcTemplate jdbc;
   private final TransactionTemplate tx;
+  private final LocalObjectStore store;
   private final int seconds;
   private final int loginLimit;
 
-  ProductionAccounts(Environment env, JdbcTemplate jdbc, TransactionTemplate tx) {
+  ProductionAccounts(
+      Environment env, JdbcTemplate jdbc, TransactionTemplate tx, LocalObjectStore store) {
     this.jdbc = jdbc;
     this.tx = tx;
+    this.store = store;
     // Default working day (8 h, user decision); 60 s - 24 h configurable.
     seconds = limit(env, "PROD_SESSION_SECONDS", 28800, 60, 86400);
     loginLimit = limit(env, "PROD_LOGIN_LIMIT", 60, 1, 600);
@@ -265,6 +268,57 @@ public final class ProductionAccounts implements UserAuthenticator {
           jdbc.update("DELETE FROM local_sessions WHERE user_id=?", id);
           audit(actor, "LOCAL_STATUS", id);
         });
+  }
+
+  /**
+   * An admin deletes an account (ADR-20260930-E): it is signed out and can never sign in again, its
+   * login name becomes free, and its originals and generated images are deleted (deletion records
+   * first, files after commit). Projects, tasks and audit rows stay for history. An account with
+   * queued or running tasks is refused so no image appears after the deletion.
+   */
+  public void delete(String header, String id) {
+    java.util.List<String> keys =
+        tx.execute(
+            status -> {
+              managementLock();
+              String actor = manager(header);
+              if (actor.equals(id)) throw new Problem(409, "SELF_DELETE");
+              var row = account(id, true);
+              if ("ADMIN".equals(row.get("role"))
+                  && "ACTIVE".equals(row.get("status"))
+                  && jdbc.queryForObject(
+                          "SELECT count(*) FROM local_credentials c JOIN users u ON u.id=c.user_id WHERE c.role='ADMIN' AND u.status='ACTIVE'",
+                          Long.class)
+                      <= 1) throw new Problem(409, "LAST_ADMIN_REQUIRED");
+              if (jdbc.queryForObject(
+                      "SELECT count(*) FROM generation_tasks t JOIN projects p ON p.id=t.project_id WHERE p.owner_id=? AND t.status IN ('QUEUED','RUNNING')",
+                      Long.class,
+                      id)
+                  > 0) throw new Problem(409, "ACCOUNT_BUSY");
+              var removed = new java.util.ArrayList<String>();
+              for (var image :
+                  jdbc.queryForList(
+                      "SELECT a.id,a.object_key,'ASSET' AS kind FROM assets a JOIN projects p ON p.id=a.project_id WHERE p.owner_id=? AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) "
+                          + "UNION ALL SELECT f.id,f.object_key,'ARTIFACT' FROM artifacts f JOIN generation_tasks t ON t.id=f.task_id JOIN projects p ON p.id=t.project_id WHERE p.owner_id=? AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=f.id)",
+                      id,
+                      id)) {
+                jdbc.update(
+                    "INSERT INTO deletions(target_id,target_kind,deleted_by) VALUES (?,?,?)",
+                    image.get("id"),
+                    image.get("kind"),
+                    actor);
+                removed.add(image.get("object_key").toString());
+              }
+              jdbc.update("DELETE FROM local_sessions WHERE user_id=?", id);
+              jdbc.update("DELETE FROM local_credentials WHERE user_id=?", id);
+              jdbc.update(
+                  "UPDATE users SET status='DELETED',deleted_username=? WHERE id=?",
+                  row.get("username"),
+                  id);
+              audit(actor, "LOCAL_DELETE", id);
+              return removed;
+            });
+    keys.forEach(store::delete);
   }
 
   public void password(String header, String target, JsonNode body) {

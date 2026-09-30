@@ -103,15 +103,73 @@ public final class ProjectAssets {
 
   JsonNode asset(String actor, String id) {
     var row = owned(actor, id);
-    return Json.object()
-        .put("id", id)
-        .put("project_id", row.get("project_id").toString())
-        .put("kind", row.get("kind").toString())
-        .put("sha256", row.get("sha256").toString())
-        .put("width", ((Number) row.get("width")).intValue())
-        .put("height", ((Number) row.get("height")).intValue())
-        .put("review_status", row.get("review_status").toString())
-        .put("content_url", "/api/v1/assets/" + id + "/content");
+    var result =
+        Json.object()
+            .put("id", id)
+            .put("project_id", row.get("project_id").toString())
+            .put("kind", row.get("kind").toString())
+            .put("sha256", row.get("sha256").toString())
+            .put("width", ((Number) row.get("width")).intValue())
+            .put("height", ((Number) row.get("height")).intValue())
+            .put("review_status", row.get("review_status").toString())
+            .put("content_url", "/api/v1/assets/" + id + "/content");
+    if (row.get("source_artifact_id") != null)
+      result.put("source_artifact_id", row.get("source_artifact_id").toString());
+    return result;
+  }
+
+  record Imported(boolean created, JsonNode asset) {}
+
+  /**
+   * Reuses one of the owner's generated results as a new original (ADR-20260930-E). The bytes are
+   * copied, so deleting the result or the new original never affects the other; asking again for
+   * the same result and kind returns the copy that already exists.
+   */
+  Imported fromArtifact(String actor, String artifact, JsonNode body) {
+    if (!body.isObject() || body.size() != 1 || !body.path("kind").isTextual())
+      throw new Problem(400, "INVALID_CONTRACT");
+    String kind = body.path("kind").asText();
+    if (!"PRODUCT".equals(kind) && !"GIFT".equals(kind)) throw new Problem(400, "INVALID_ASSET");
+    var rows =
+        jdbc.queryForList(
+            "SELECT f.object_key,f.sha256,f.width,f.height,t.project_id FROM artifacts f JOIN generation_tasks t ON t.id=f.task_id JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id WHERE f.id=? AND f.kind='COMPOSITE' AND p.owner_id=? AND u.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=f.id)",
+            artifact,
+            actor);
+    if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
+    var row = rows.getFirst();
+    var existing =
+        jdbc.queryForList(
+            "SELECT a.id FROM assets a WHERE a.source_artifact_id=? AND a.kind=? AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) ORDER BY a.created_at LIMIT 1",
+            artifact,
+            kind);
+    if (!existing.isEmpty())
+      return new Imported(false, asset(actor, existing.getFirst().get("id").toString()));
+    byte[] bytes = store.read(row.get("object_key").toString());
+    if (!Json.hash(bytes).equals(row.get("sha256"))) throw new Problem(422, "INVALID_ASSET");
+    String project = row.get("project_id").toString();
+    String id = Json.id(), key = "originals/" + project + "/" + id + ".image";
+    var info =
+        store.putOriginal(
+            key,
+            bytes,
+            ((Number) row.get("width")).intValue(),
+            ((Number) row.get("height")).intValue());
+    return tx.execute(
+        status -> {
+          access.require(actor, project);
+          jdbc.update(
+              "INSERT INTO assets(id,project_id,kind,object_key,sha256,width,height,source_artifact_id) VALUES (?,?,?,?,?,?,?,?)",
+              id,
+              project,
+              kind,
+              key,
+              info.sha256(),
+              info.width(),
+              info.height(),
+              artifact);
+          audit(actor, "ASSET_FROM_ARTIFACT", id);
+          return new Imported(true, asset(actor, id));
+        });
   }
 
   /**

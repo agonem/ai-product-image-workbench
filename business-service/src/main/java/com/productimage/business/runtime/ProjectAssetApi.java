@@ -71,6 +71,15 @@ public class ProjectAssetApi {
     }
   }
 
+  /** {kind}: copies one of the owner's generated results into a new original (201, or 200). */
+  @PostMapping("/api/v1/artifacts/{id}/asset")
+  ResponseEntity<JsonNode> fromArtifact(@PathVariable String id, HttpServletRequest request) {
+    var imported = assets.fromArtifact(actor(request), id, HttpInput.json(request, 1024));
+    return ResponseEntity.status(imported.created() ? 201 : 200)
+        .header("Cache-Control", "no-store")
+        .body(imported.asset());
+  }
+
   @GetMapping("/api/v1/assets/{id}")
   ResponseEntity<JsonNode> asset(@PathVariable String id, HttpServletRequest request) {
     return ResponseEntity.ok()

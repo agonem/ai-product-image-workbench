@@ -51,8 +51,9 @@ public class RuntimeConfiguration {
       Environment env,
       RuntimeSettings settings,
       JdbcTemplate jdbc,
-      PlatformTransactionManager manager) {
-    return new ProductionAccounts(env, jdbc, new TransactionTemplate(manager));
+      PlatformTransactionManager manager,
+      LocalObjectStore store) {
+    return new ProductionAccounts(env, jdbc, new TransactionTemplate(manager), store);
   }
 
   @Bean

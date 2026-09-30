@@ -48,7 +48,8 @@ def route(config, url):
     development-only environment configuration falls back to MODEL_PROXY_URL."""
     explicit = getattr(config, "proxy", None)
     if explicit is not None:
-        return explicit or None
+        # An intranet relay is always reached directly, even for a model marked "use proxy".
+        return None if not explicit or private_http_host(url) else explicit
     return proxy_for(url)
 
 

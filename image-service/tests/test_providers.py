@@ -277,6 +277,16 @@ def test_leased_models_use_only_their_own_proxy_setting(monkeypatch):
         "http://user:pass@proxy.company:3128"
     )
     assert "pass" not in repr(proxied)
+    relay = config_from_mapping(
+        {
+            "provider": "openai-compatible",
+            "api_key": "k",
+            "model": "m",
+            "base_url": "http://10.2.2.110:3000/v1",
+            "proxy_url": "http://proxy.company:3128",
+        }
+    )
+    assert route(relay, "http://10.2.2.110:3000/v1") is None
     # Environment configuration (development only) still honours MODEL_PROXY_URL.
     assert route(ModelConfig("k", "a/b", "t"), "https://openrouter.ai") == (
         "http://env-proxy.internal:3128"

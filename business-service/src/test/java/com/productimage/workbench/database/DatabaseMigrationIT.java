@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(10, flyway.migrate().migrationsExecuted);
+    assertEquals(11, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -141,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(9, upgrade.migrate().migrationsExecuted);
+      assertEquals(10, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(8, current.migrate().migrationsExecuted);
+      assertEquals(9, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -457,7 +457,7 @@ class DatabaseMigrationIT {
           "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(3, upgrade.migrate().migrationsExecuted);
+      assertEquals(4, upgrade.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery("SELECT provider,active_version_id FROM provider_config_state")) {
         assertTrue(rows.next());
@@ -496,6 +496,22 @@ class DatabaseMigrationIT {
     rejects("23514", "DELETE FROM deletions WHERE target_id='product'");
     // The original row itself stays for history.
     assertEquals(2, count("assets"));
+  }
+
+  @Test
+  void deletedAccountsKeepTheirFormerNameAndCopiedAssetsTheirSource() throws SQLException {
+    // V11: DELETED always carries the former login name, and only DELETED does.
+    rejects("23514", "UPDATE users SET status='DELETED' WHERE id='v'");
+    sql("UPDATE users SET status='DELETED',deleted_username='bob' WHERE id='v'");
+    rejects("23514", "UPDATE users SET status='ACTIVE' WHERE id='v'");
+    rejects("23514", "UPDATE users SET status='GONE' WHERE id='u'");
+    // A copied asset's source result is part of its immutable identity.
+    rejects("23514", "UPDATE assets SET source_artifact_id='missing' WHERE id='product'");
+    rejects(
+        "23503",
+        "INSERT INTO assets(id,project_id,kind,object_key,sha256,width,height,source_artifact_id) VALUES ('copy','p','PRODUCT','fixtures/copy','"
+            + "c".repeat(64)
+            + "',64,64,'missing')");
   }
 
   @Test

@@ -80,6 +80,13 @@ public class ProductionAuthApi {
     return done();
   }
 
+  /** Deletes an account and its images (ADR-20260930-E). */
+  @org.springframework.web.bind.annotation.DeleteMapping("/api/v1/admin/accounts/{id}")
+  ResponseEntity<Void> delete(@PathVariable String id, HttpServletRequest request) {
+    accounts.delete(token(request), id);
+    return done();
+  }
+
   @PostMapping("/api/v1/admin/accounts/{id}/password")
   ResponseEntity<Void> reset(@PathVariable String id, HttpServletRequest request) {
     accounts.password(token(request), id, body(request));

@@ -21,7 +21,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * the external master key and are never echoed or logged.
  */
 public final class ProviderConfigService {
-  static final Set<String> PROVIDERS = Set.of("openrouter", "openai", "gemini");
+  // Third-party endpoints in the OpenAI or Gemini format are offered again (ADR-20260930-E).
+  static final Set<String> PROVIDERS =
+      Set.of("openrouter", "openai", "gemini", "openai-compatible", "gemini-compatible");
   private static final Set<String> BASE =
       Set.of("name", "provider", "model", "api_key", "enabled", "use_proxy");
   private static final Map<String, Set<String>> SETTINGS =
@@ -126,6 +128,7 @@ public final class ProviderConfigService {
       throw new Problem(400, "INVALID_CONTRACT");
     var expected = new HashSet<>(BASE);
     if (provider.equals("openrouter")) expected.add("provider_tag");
+    if (provider.endsWith("-compatible")) expected.add("base_url");
     var names = new HashSet<String>();
     body.fieldNames().forEachRemaining(names::add);
     String model = body.path("model").asText();
@@ -139,7 +142,36 @@ public final class ProviderConfigService {
         || (provider.equals("openrouter") && !model.matches("[a-zA-Z0-9_-]+/[a-zA-Z0-9_.:-]+"))
         || (body.has("provider_tag")
             && !body.path("provider_tag").asText().matches("[a-zA-Z0-9_./-]{1,100}"))
+        || (body.has("base_url")
+            && !(body.path("base_url").isTextual() && validBaseUrl(body.path("base_url").asText())))
         || !validKey(body.path("api_key"))) throw new Problem(400, "INVALID_CONTRACT");
+  }
+
+  /**
+   * Third-party endpoint: https anywhere; plain http only to a literal private IPv4 address (10/8,
+   * 172.16/12, 192.168/16), because keys and images would cross the network unencrypted. No
+   * credentials, query or fragment; at most 300 characters. Same rule as the Worker.
+   */
+  static boolean validBaseUrl(String value) {
+    if (value.length() > 300 || !value.matches("https?://[\\x21-\\x7e]+")) return false;
+    try {
+      var uri = new URI(value);
+      String host = uri.getHost();
+      if (host == null
+          || uri.getRawUserInfo() != null
+          || uri.getRawQuery() != null
+          || uri.getRawFragment() != null
+          || uri.getPort() > 65535) return false;
+      if (uri.getScheme().equals("https")) return true;
+      if (!host.matches("\\d{1,3}(\\.\\d{1,3}){3}")) return false;
+      int[] ip = java.util.Arrays.stream(host.split("\\.")).mapToInt(Integer::parseInt).toArray();
+      if (java.util.Arrays.stream(ip).anyMatch(part -> part > 255)) return false;
+      return ip[0] == 10
+          || (ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31)
+          || (ip[0] == 192 && ip[1] == 168);
+    } catch (URISyntaxException ex) {
+      return false;
+    }
   }
 
   private static boolean validKey(JsonNode key) {
@@ -188,6 +220,7 @@ public final class ProviderConfigService {
             .put("provider", row.get("provider").toString())
             .put("model", row.get("model").toString());
     optional(item, "provider_tag", row.get("provider_tag"));
+    optional(item, "base_url", row.get("base_url"));
     return item.put("api_key_mask", row.get("api_key_mask").toString())
         .put("enabled", Boolean.TRUE.equals(row.get("enabled")))
         .put("use_proxy", Boolean.TRUE.equals(row.get("use_proxy")))
@@ -196,7 +229,7 @@ public final class ProviderConfigService {
   }
 
   private static final String COLUMNS =
-      "id,name,provider,model,provider_tag,api_key_mask,enabled,use_proxy,created_at";
+      "id,name,provider,model,provider_tag,base_url,api_key_mask,enabled,use_proxy,created_at";
 
   public JsonNode list() {
     var result = Json.object();
@@ -260,12 +293,13 @@ public final class ProviderConfigService {
         status -> {
           String id = UUID.randomUUID().toString();
           jdbc.update(
-              "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,api_key_cipher,api_key_mask,enabled,use_proxy,created_by) VALUES (?,?,?,?,?,?,?,?,?,?)",
+              "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,enabled,use_proxy,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
               id,
               body.path("name").asText().strip(),
               body.path("provider").asText(),
               body.path("model").asText(),
               body.has("provider_tag") ? body.path("provider_tag").asText() : null,
+              body.has("base_url") ? body.path("base_url").asText() : null,
               ProviderCrypto.encrypt(master, key),
               ProviderCrypto.mask(key),
               body.path("enabled").asBoolean(),

@@ -47,6 +47,8 @@ public class RuntimeErrors {
           case "UPLOAD_CONTENT_REJECTED" -> "图片文件不完整或已损坏，请重新导出后上传";
           case "UPLOAD_BUDGET_EXCEEDED" -> "图片超过服务器的安全上限（文件或像素过大）";
           case "MODEL_UNAVAILABLE" -> "所选模型已停用或不存在，请重新选择";
+          case "SELF_DELETE" -> "不能删除当前登录的账号";
+          case "ACCOUNT_BUSY" -> "该账号还有生成中的任务，请稍后再删除";
           case "DEFAULT_MODEL" -> "默认模型不能停用，请先把其他模型设为默认";
           case "ASSET_IN_USE" -> "这张原图正在生成中使用，完成后再删除";
           case "ASSET_DELETED" -> "原图已删除，不能再用于生成或重试";

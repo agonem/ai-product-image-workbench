@@ -22,7 +22,30 @@ class ProviderConfigValidationTest {
   }
 
   @Test
-  void onlyOpenRouterOpenAiAndGeminiWithTheirOwnFields() {
+  void thirdPartyEndpointsNeedAnAddressHttpOnlyOnTheIntranet() {
+    accepts(
+        "\"provider\":\"openai-compatible\",\"model\":\"gpt-image-2\",\"base_url\":\"http://10.2.2.110:3000/v1\"");
+    accepts(
+        "\"provider\":\"gemini-compatible\",\"model\":\"gemini-2.5-flash-image\",\"base_url\":\"https://relay.example.com\"");
+    // Public plain http, credentials in the address, or no address at all are refused.
+    rejects(
+        "{\"provider\":\"openai-compatible\",\"model\":\"m\",\"base_url\":\"http://8.8.8.8/v1\","
+            + COMMON
+            + "}");
+    rejects(
+        "{\"provider\":\"openai-compatible\",\"model\":\"m\",\"base_url\":\"https://u:p@relay.example.com\","
+            + COMMON
+            + "}");
+    rejects("{\"provider\":\"gemini-compatible\",\"model\":\"m\"," + COMMON + "}");
+    // Official types never take an address.
+    rejects(
+        "{\"provider\":\"openai\",\"model\":\"m\",\"base_url\":\"https://relay.example.com\","
+            + COMMON
+            + "}");
+  }
+
+  @Test
+  void onlyKnownTypesWithTheirOwnFields() {
     accepts(
         "\"provider\":\"openrouter\",\"model\":\"openai/gpt-image-2\",\"provider_tag\":\"openai\"");
     accepts("\"provider\":\"openai\",\"model\":\"gpt-image-2\"");
@@ -34,11 +57,6 @@ class ProviderConfigValidationTest {
     rejects("{\"provider\":\"openrouter\",\"model\":\"openai/gpt-image-2\"," + COMMON + "}");
     rejects(
         "{\"provider\":\"openrouter\",\"model\":\"no-slash\",\"provider_tag\":\"t\","
-            + COMMON
-            + "}");
-    // Third-party formats are not offered for now (ADR-20260929-C).
-    rejects(
-        "{\"provider\":\"openai-compatible\",\"model\":\"m\",\"base_url\":\"https://a.example\","
             + COMMON
             + "}");
     rejects("{\"provider\":\"other\",\"model\":\"m\"," + COMMON + "}");
