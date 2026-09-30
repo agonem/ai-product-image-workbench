@@ -69,6 +69,8 @@ HTTP_PORT=8080 HTTPS_PORT=8443 ./init.sh 192.168.1.20 admin   # 两个都换
 
 登录会话默认 8 小时到期（`PROD_SESSION_SECONDS=28800`），可在 `.env` 里调整（60–86400 秒）后 `docker compose up -d`。
 
+同时生成的任务数默认 2（`WORKER_CONCURRENCY=2`，可设 1–8）。按实测单张约 20–40 秒，每个槽位三分钟内约能出 4 张；同时提交的张数更多时会排队。调大前先确认模型供应商允许的并发数，然后在 `.env` 里加一行 `WORKER_CONCURRENCY=3` 并执行 `docker compose up -d`。
+
 数据位置：数据库在 Docker 卷 `product-image-workbench_db-data`，原图与生成结果在 `deploy/data/objects`，Worker 回执在 `deploy/data/journal`。`secrets/` 必须保留：丢失 `provider_master_key` 后已保存的 API Key 无法解密，需要重新录入。
 
 ### 服务器只保留运行所需文件（测试服务器已启用）

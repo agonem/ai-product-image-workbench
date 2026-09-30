@@ -88,6 +88,11 @@ def main() -> None:
 
             rehearse(env, work / "deploy")
             return
+        if "--capacity-only" in sys.argv:
+            from check_capacity import run_capacity_checks
+
+            run_capacity_checks(env, work / "capacity")
+            return
         if "--core-only" in sys.argv:
             from check_core import run_core_checks
 

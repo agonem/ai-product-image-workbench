@@ -1,13 +1,14 @@
 """Worker transport safety and withdrawn request versions."""
 
 import ssl
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from image_service import app as app_module
 from image_service.contracts import validate_contract
-from image_service.worker import Api, process
+from image_service.worker import Api, concurrency, journal_root, process
 
 
 class LocalApi:
@@ -66,3 +67,26 @@ def test_cutout_route_is_withdrawn(monkeypatch):
         content=b"\x89PNG",
     )
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize(("raw", "slots"), [(None, 1), ("1", 1), (" 3 ", 3), ("8", 8)])
+def test_worker_concurrency_defaults_to_one_slot(monkeypatch, raw, slots):
+    if raw is None:
+        monkeypatch.delenv("WORKER_CONCURRENCY", raising=False)
+    else:
+        monkeypatch.setenv("WORKER_CONCURRENCY", raw)
+    assert concurrency() == slots
+
+
+@pytest.mark.parametrize("raw", ["0", "9", "-1", "two", ""])
+def test_worker_concurrency_rejects_out_of_range_values(monkeypatch, raw):
+    monkeypatch.setenv("WORKER_CONCURRENCY", raw)
+    with pytest.raises(SystemExit):
+        concurrency()
+
+
+def test_each_slot_has_its_own_journal_and_slot_zero_keeps_the_original():
+    root = Path("/data/journal")
+    assert journal_root(root, 0) == root
+    assert journal_root(root, 2) == root / "slot-2"
+    assert len({journal_root(root, slot) for slot in range(8)}) == 8

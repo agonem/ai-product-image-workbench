@@ -9,6 +9,8 @@ import hashlib
 import io
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 from PIL import Image
@@ -18,6 +20,7 @@ from image_service import background_config, providers, worker  # noqa: E402
 from image_service.background import BackgroundError, BackgroundResult  # noqa: E402
 
 CALLS = {"count": 0}
+LOCK = threading.Lock()  # WORKER_CONCURRENCY > 1 runs several generate() calls at once
 
 
 class MockModel:
@@ -34,12 +37,16 @@ class MockModel:
         pass
 
     def generate(self, request):
-        CALLS["count"] += 1
-        if os.getenv("MOCK_FAIL_AT") == str(CALLS["count"]):
+        with LOCK:
+            CALLS["count"] += 1
+            call = CALLS["count"]
+        if os.getenv("MOCK_FAIL_AT") == str(call):
             raise BackgroundError("PROVIDER_HTTP_429", retryable=True)
+        # Capacity checks stand in for model latency with a fixed pause (no paid call is made).
+        time.sleep(float(os.getenv("MOCK_DELAY_SECONDS", "0")))
         rw, rh = map(int, request.aspect_ratio.split(":"))
         size = (1024, round(1024 * rh / rw)) if rw >= rh else (round(1024 * rw / rh), 1024)
-        canvas = Image.new("RGB", size, (200 + CALLS["count"] % 40, 220, 235))
+        canvas = Image.new("RGB", size, (200 + call % 40, 220, 235))
         slots = [
             (round(size[0] * 0.45), round(size[1] * 0.35), 0.4),
             (round(size[0] * 0.75), round(size[1] * 0.72), 0.2),

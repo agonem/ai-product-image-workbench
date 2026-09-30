@@ -114,7 +114,7 @@ class Core:
     def __init__(self, run, work, certificate, font):
         self.run, self.work, self.certificate, self.font = run, work, certificate, font
 
-    def worker(self, *, fail_at=None, font=True, once=True):
+    def worker(self, *, fail_at=None, font=True, once=True, extra=None):
         env = {
             k: v
             for k, v in self.run.env.items()
@@ -130,6 +130,7 @@ class Core:
         )
         if fail_at:
             env["MOCK_FAIL_AT"] = str(fail_at)
+        env.update(extra or {})
         if font and self.font:
             env["GENERATION_TEXT_FONT"] = self.font
         command = [

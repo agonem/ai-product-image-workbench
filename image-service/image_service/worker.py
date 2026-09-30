@@ -272,6 +272,65 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
     return True
 
 
+MAX_CONCURRENCY = 8
+
+
+def concurrency() -> int:
+    """WORKER_CONCURRENCY: tasks processed side by side (default 1, at most 8).
+
+    Each slot is an independent claim loop with its own receipt journal; the provider quota and
+    machine capacity decide a sensible value (ADR-20260930-F capacity check)."""
+    raw = os.getenv("WORKER_CONCURRENCY", "1").strip()
+    if not raw.isdigit() or not 1 <= int(raw) <= MAX_CONCURRENCY:
+        raise SystemExit(f"WORKER_CONCURRENCY must be 1..{MAX_CONCURRENCY}")
+    return int(raw)
+
+
+def journal_root(root: Path, slot: int) -> Path:
+    # Slot 0 keeps the original directory, so receipts journaled before slots existed replay.
+    return root if slot == 0 else root / f"slot-{slot}"
+
+
+def connect() -> Api:
+    return Api(
+        os.environ["WORKER_API_URL"],
+        os.environ["RUNTIME_WORKER_TOKEN"],
+        environment=os.getenv("APP_ENV", "development"),
+        ca_file=os.getenv("WORKER_CA_FILE"),
+    )
+
+
+def serve(slot: int, fixture: bool, stop: threading.Event, failures: list):
+    """One claim loop of a multi-slot Worker; a corrupt journal stops every slot."""
+    try:
+        api = connect()
+        try:
+            with Journal(journal_root(Path(os.environ["WORKER_JOURNAL_ROOT"]), slot)) as journal:
+                delay = 1
+                while not stop.is_set():
+                    try:
+                        worked = run_once(api, journal, fixture)
+                        delay = 1
+                        if not worked:
+                            stop.wait(1)
+                    except (httpx.HTTPError, ValueError, RuntimeError) as error:
+                        print(
+                            f"worker_retry slot={slot} error_type={type(error).__name__}",
+                            flush=True,
+                        )
+                        stop.wait(delay)
+                        delay = min(delay * 2, 30)
+        finally:
+            api.close()
+    except CorruptJournal:
+        failures.append("journal")
+        stop.set()
+    except Exception as error:  # noqa: BLE001 - reported by type only, then every slot stops
+        print(f"worker_stopped slot={slot} error_type={type(error).__name__}", flush=True)
+        failures.append("slot")
+        stop.set()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
@@ -279,12 +338,27 @@ def main():
         "--fixture", action="store_true", help="Synthetic transport acceptance only"
     )
     args = parser.parse_args()
-    api = Api(
-        os.environ["WORKER_API_URL"],
-        os.environ["RUNTIME_WORKER_TOKEN"],
-        environment=os.getenv("APP_ENV", "development"),
-        ca_file=os.getenv("WORKER_CA_FILE"),
-    )
+    slots = 1 if args.once else concurrency()
+    if slots > 1:
+        stop, failures = threading.Event(), []
+        threads = [
+            threading.Thread(target=serve, args=(slot, args.fixture, stop, failures), daemon=True)
+            for slot in range(slots)
+        ]
+        for thread in threads:
+            thread.start()
+        try:
+            while any(thread.is_alive() for thread in threads):
+                for thread in threads:
+                    thread.join(timeout=1)
+        except KeyboardInterrupt:
+            stop.set()
+        if "journal" in failures:
+            raise SystemExit("Worker stopped: inspect private receipt journal")
+        if failures:
+            raise SystemExit(1)
+        return
+    api = connect()
     try:
         with Journal(Path(os.environ["WORKER_JOURNAL_ROOT"])) as journal:
             delay = 1
