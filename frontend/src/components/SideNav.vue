@@ -4,45 +4,62 @@ import { features } from '../workbench/generation'
 import { workbenchKey } from '../workbench/useWorkbench'
 import LineIcon from './LineIcon.vue'
 
+// Grouped by kind of work, like the New API console (ADR-20260930-E); admin tools last.
 const w = inject(workbenchKey)!
 const admin = computed(() => w.identity?.role === 'ADMIN')
+const groups = computed(() => [
+  { name: '概览', items: [{ to: '/', label: '首页', icon: 'home' }] },
+  {
+    name: '图片生成',
+    items: features.map((item) => ({
+      to: `/create/${item.route}`,
+      label: item.name,
+      icon: item.tone,
+    })),
+  },
+  {
+    name: '素材与作品',
+    items: [
+      { to: '/assets', label: '素材管理', icon: 'box' },
+      { to: '/works', label: '我的作品', icon: 'grid' },
+      { to: '/tasks', label: '任务记录', icon: 'clock' },
+    ],
+  },
+  {
+    name: '个人中心',
+    items: [{ to: '/account', label: '我的账号', icon: 'user' }],
+  },
+  ...(admin.value
+    ? [
+        {
+          name: '管理员',
+          items: [
+            { to: '/accounts', label: '账号管理', icon: 'users' },
+            { to: '/models', label: '模型配置', icon: 'cpu' },
+          ],
+        },
+      ]
+    : []),
+])
 </script>
 
 <template>
   <aside class="side-nav" aria-label="工作台导航">
-    <div class="brand">
-      <span class="logo" aria-hidden="true">母</span>
-      <strong>母婴商品图工作台</strong>
-    </div>
     <nav>
-      <router-link class="nav-link" to="/"
-        ><LineIcon name="home" />首页</router-link
-      >
-      <div class="nav-group">图片生成</div>
-      <router-link
-        v-for="item in features"
-        :key="item.id"
-        class="nav-link"
-        :to="`/create/${item.route}`"
-        ><LineIcon :name="item.tone" />{{ item.name }}</router-link
-      >
-      <div class="nav-group">素材与作品</div>
-      <router-link class="nav-link" to="/assets"
-        ><LineIcon name="box" />素材管理</router-link
-      >
-      <router-link class="nav-link" to="/works"
-        ><LineIcon name="grid" />我的作品</router-link
-      >
-      <router-link class="nav-link" to="/tasks"
-        ><LineIcon name="clock" />任务记录</router-link
-      >
-      <div class="nav-group">设置</div>
-      <router-link class="nav-link" to="/settings"
-        ><LineIcon name="user" />账号与安全</router-link
-      >
-      <router-link v-if="admin" class="nav-link" to="/models"
-        ><LineIcon name="cpu" />模型配置</router-link
-      >
+      <template v-for="group in groups" :key="group.name">
+        <div class="nav-group">{{ group.name }}</div>
+        <router-link
+          v-for="item in group.items"
+          :key="item.to"
+          class="nav-link"
+          :to="item.to"
+          :title="item.label"
+          :aria-label="item.label"
+          ><LineIcon :name="item.icon" /><span>{{
+            item.label
+          }}</span></router-link
+        >
+      </template>
     </nav>
     <div class="user-card">
       <span class="avatar" aria-hidden="true">{{

@@ -2,6 +2,7 @@
 import { computed, inject, ref } from 'vue'
 import CompareDialog from '../components/CompareDialog.vue'
 import EmptyState from '../components/EmptyState.vue'
+import ImageViewer from '../components/ImageViewer.vue'
 import LineIcon from '../components/LineIcon.vue'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import { featureName, features } from '../workbench/generation'
@@ -12,6 +13,7 @@ import { workbenchKey } from '../workbench/useWorkbench'
 const w = inject(workbenchKey)!
 const filter = ref<Feature | ''>('')
 const comparing = ref<{ task: string; artifact: string } | null>(null)
+const viewing = ref<number | null>(null)
 async function remove(artifact: string) {
   if (
     await confirmAction(
@@ -41,13 +43,25 @@ const works = computed(() =>
       item.task.artifacts.map((artifact) => ({ task: item.task, artifact })),
     ),
 )
+const viewerItems = computed(() =>
+  works.value.map((item) => ({
+    path: `/artifacts/${item.artifact.id}/content`,
+    title: featureName(item.task.feature_type),
+    detail: `${item.artifact.width} × ${item.artifact.height} · ${time(item.task.created_at)}`,
+    download: () => w.download(item.artifact.id, `work-${item.artifact.id}`),
+  })),
+)
 </script>
 
 <template>
   <main class="page">
     <div class="page-head">
-      <h1>我的作品</h1>
-      <div class="seg" role="group" aria-label="按功能筛选">
+      <div class="intro">
+        <h1>我的作品</h1>
+        <p>已生成的图片；点击放大，悬停可对照原图、下载或删除。</p>
+      </div>
+      <span class="spacer"></span>
+      <div class="tabs" role="group" aria-label="按功能筛选">
         <button
           type="button"
           :aria-pressed="filter === ''"
@@ -76,7 +90,7 @@ const works = computed(() =>
             data-testid="result-card"
             :data-task="item.task.id"
           >
-            <figure>
+            <figure @click="viewing = works.indexOf(item)">
               <PrivateImage
                 :path="`/artifacts/${item.artifact.id}/content`"
                 :alt="`${featureName(item.task.feature_type)}作品`"
@@ -89,6 +103,14 @@ const works = computed(() =>
               <span class="muted num">{{ time(item.task.created_at) }}</span>
             </div>
             <div class="hover-actions">
+              <button
+                type="button"
+                title="放大查看"
+                aria-label="放大查看"
+                @click="viewing = works.indexOf(item)"
+              >
+                <LineIcon name="zoomin" :size="14" />
+              </button>
               <button
                 type="button"
                 title="对照原图"
@@ -136,6 +158,12 @@ const works = computed(() =>
         </button>
       </div>
     </section>
+    <ImageViewer
+      v-if="viewing !== null && viewerItems.length"
+      :items="viewerItems"
+      :start="viewing"
+      @close="viewing = null"
+    />
     <CompareDialog
       v-if="comparing"
       :task="comparing.task"

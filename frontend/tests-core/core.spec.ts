@@ -170,7 +170,7 @@ test('V4-B3: gift with text, then a free text-only re-render', async ({
   // The product comes from the library picker, the gift from a new upload.
   await page.getByRole('button', { name: /^商品图/ }).click()
   await page.getByRole('menuitem', { name: '从素材库选择' }).click()
-  const picker = page.getByRole('dialog', { name: '从素材库选择商品图' })
+  const picker = page.getByRole('dialog', { name: '选择商品图' })
   await picker
     .getByRole('button', { name: /^选择商品图/ })
     .first()
@@ -375,9 +375,10 @@ test('V4-B6: history, works, account page and the admin model settings', async (
   await page.getByRole('link', { name: '我的作品' }).click()
   await expect(page.getByTestId('result-card').first()).toBeVisible()
   await page.screenshot({ path: join(artifacts, 'works-desktop.png') })
-  await page.getByRole('link', { name: '账号与安全' }).click()
+  await page.getByRole('link', { name: '我的账号' }).click()
   await expect(page.getByRole('heading', { name: '修改密码' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '账号管理' })).toHaveCount(0)
+  // Admin tools are a separate sidebar group that operators never see.
+  await expect(page.getByRole('link', { name: '账号管理' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: '模型配置' })).toHaveCount(0)
   // Sign-out is an icon at the bottom of the sidebar; the next visit needs a login.
   await page.getByRole('button', { name: '退出登录' }).click()
@@ -397,13 +398,15 @@ test('V4-B6: history, works, account page and the admin model settings', async (
   await expect(main).toContainText('默认')
   await expect(main).toContainText('****')
   await expect(admin.getByText('付费')).toHaveCount(0)
-  // Only the official interfaces are offered besides OpenRouter.
+  // Official interfaces plus third-party endpoints in either format (ADR-20260930-E).
   await admin.getByRole('button', { name: '添加模型' }).click()
-  const dialog = admin.getByRole('dialog', { name: '添加模型' })
+  let dialog = admin.getByRole('dialog', { name: '添加模型' })
   await expect(dialog.getByLabel('接口类型').locator('option')).toHaveText([
     'OpenRouter',
     'OpenAI 官方',
     'Gemini 官方',
+    'OpenAI 格式（第三方）',
+    'Gemini 格式（第三方）',
   ])
   await dialog.getByLabel('显示名称').fill('Gemini 备用')
   await dialog.getByLabel('接口类型').selectOption('gemini')
@@ -426,7 +429,30 @@ test('V4-B6: history, works, account page and the admin model settings', async (
   await expect(added).toContainText('默认')
   await main.getByRole('button', { name: '设为默认' }).click()
   await expect(main).toContainText('默认')
-  // Proxy: no paths; credentials are masked once saved.
+  // Third-party endpoint: plain http only to intranet addresses, with a warning.
+  await admin.getByRole('button', { name: '添加模型' }).click()
+  dialog = admin.getByRole('dialog', { name: '添加模型' })
+  await dialog.getByLabel('显示名称').fill('中转备用')
+  await dialog.getByLabel('接口类型').selectOption('openai-compatible')
+  await dialog.getByLabel('接口地址').fill('http://8.8.8.8/v1')
+  await expect(dialog.getByRole('note')).toContainText('明文传输')
+  await dialog.getByLabel('模型标识').fill('gpt-image-2')
+  await dialog.getByLabel('API Key').fill('mock-relay-key')
+  await dialog.getByRole('button', { name: '保存模型' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('只允许内网 IP')
+  await dialog.getByLabel('接口地址').fill('http://10.0.0.5:3000/v1')
+  await dialog.getByLabel('API Key').fill('mock-relay-key')
+  await dialog.getByRole('button', { name: '保存模型' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(rows.filter({ hasText: '中转备用' })).toContainText(
+    'http://10.0.0.5:3000/v1',
+  )
+  await admin.screenshot({
+    path: join(artifacts, 'models-admin.png'),
+    fullPage: true,
+  })
+  // Proxy (its own tab): no paths; credentials are masked once saved.
+  await admin.getByRole('button', { name: '网络代理' }).click()
   await admin
     .getByLabel('代理地址')
     .fill('http://user:secret@proxy.internal:3128/x')
@@ -439,10 +465,6 @@ test('V4-B6: history, works, account page and the admin model settings', async (
   await expect(admin.getByTestId('proxy-state')).toHaveText('已设置')
   await expect(admin.getByText('http://****@proxy.internal:3128')).toBeVisible()
   await expect(admin.getByText('secret')).toHaveCount(0)
-  await admin.screenshot({
-    path: join(artifacts, 'models-admin.png'),
-    fullPage: true,
-  })
   await admin.getByRole('button', { name: '清除代理' }).click()
   await confirm(admin, '清除代理')
   await expect(admin.getByTestId('proxy-state')).toHaveText('未设置')
@@ -454,13 +476,30 @@ test('V4-B6: history, works, account page and the admin model settings', async (
     admin.getByRole('option', { name: /Gemini 备用.*Gemini 官方/ }),
   ).toBeVisible()
   await admin.keyboard.press('Escape')
-  await admin.getByRole('link', { name: '账号与安全' }).click()
-  await admin.getByRole('button', { name: '账号管理' }).click()
-  await expect(admin.getByTestId('account-row')).not.toHaveCount(0)
+  // Account management has its own page; an admin can delete others, never themself.
+  await admin.getByRole('link', { name: '账号管理' }).click()
+  const accountRows = admin.getByTestId('account-row')
+  await expect(accountRows).not.toHaveCount(0)
+  await expect(
+    accountRows
+      .filter({ hasText: '当前登录' })
+      .getByRole('button', { name: '删除' }),
+  ).toHaveCount(0)
+  await admin.getByRole('button', { name: '新建账号' }).click()
+  const create = admin.getByRole('dialog', { name: '新建账号' })
+  await create.getByLabel('新账号名称').fill('temp-ui')
+  await create.getByLabel('初始密码').fill(process.env.T06_PASSWORD!)
+  await create.getByRole('button', { name: '创建账号' }).click()
+  const temp = accountRows.filter({ hasText: 'temp-ui' })
+  await expect(temp).toBeVisible()
   await admin.screenshot({
     path: join(artifacts, 'accounts-admin.png'),
     fullPage: true,
   })
+  await temp.getByRole('button', { name: '删除' }).click()
+  await confirm(admin, '删除账号 temp-ui')
+  await expect(temp).toHaveCount(0)
+  await expect(admin.locator('.banner[role="status"]')).toContainText('已删除')
   await admin.close()
 })
 
@@ -526,4 +565,61 @@ test('V4-B10: an image the browser can open is accepted whatever its name or for
   await expect(toast(page)).toContainText('已转为 PNG 保存')
   await expect(cards).toHaveCount(before + 1)
   await expect(cards.first().locator('img')).toBeVisible()
+})
+
+test('V4-B11: a finished work becomes the product image; the gift keeps the original background', async ({
+  page,
+}) => {
+  await login(page)
+  await page.getByRole('link', { name: '赠品+文字主图' }).click()
+  await page.getByRole('button', { name: /^商品图/ }).click()
+  await page.getByRole('menuitem', { name: '从素材库选择' }).click()
+  const picker = page.getByRole('dialog', { name: '选择商品图' })
+  await picker.getByRole('button', { name: '我的作品' }).click()
+  await picker
+    .getByRole('button', { name: /^使用作品/ })
+    .first()
+    .click()
+  await expect(picker).toHaveCount(0)
+  await expect(toast(page)).toContainText('已把作品复制为商品图')
+  await section(page, '背景')
+  await page.getByRole('button', { name: '保持原图' }).click()
+  await expect(page.getByRole('button', { name: /^背景/ })).toContainText(
+    '保持原图背景',
+  )
+  const { body, id } = await submitAndTrack(page, () =>
+    page.getByTestId('generate').click(),
+  )
+  expect(body.background).toEqual({ mode: 'ORIGINAL' })
+  await expect(done(page, id)).toHaveCount(1, { timeout: 60000 })
+  // The copy shows in the library, marked as coming from a work.
+  await page.getByRole('link', { name: '素材管理' }).click()
+  await expect(
+    page.getByTestId('asset-card').filter({ hasText: '来自作品' }).first(),
+  ).toBeVisible()
+})
+
+test('V4-B12: images open full-screen with zoom and previous/next', async ({
+  page,
+}) => {
+  await login(page)
+  await page.getByRole('link', { name: '我的作品' }).click()
+  const cards = page.getByTestId('result-card')
+  await expect(cards.nth(1)).toBeVisible()
+  await cards.first().locator('figure').click()
+  const viewer = page.getByRole('dialog', { name: '图片查看' })
+  await expect(viewer.locator('img')).toBeVisible()
+  await expect(viewer).toContainText('1 /')
+  await viewer.getByRole('button', { name: '放大' }).click()
+  await expect(viewer.getByRole('button', { name: '适应窗口' })).toHaveText(
+    '125%',
+  )
+  await page.keyboard.press('ArrowRight')
+  await expect(viewer).toContainText('2 /')
+  await expect(viewer.getByRole('button', { name: '适应窗口' })).toHaveText(
+    '100%',
+  )
+  await page.screenshot({ path: join(artifacts, 'viewer.png') })
+  await page.keyboard.press('Escape')
+  await expect(viewer).toHaveCount(0)
 })

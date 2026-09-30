@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import AssetSlot from '../components/AssetSlot.vue'
 import DropSelect from '../components/DropSelect.vue'
 import EmptyState from '../components/EmptyState.vue'
+import ImageViewer from '../components/ImageViewer.vue'
 import LineIcon from '../components/LineIcon.vue'
 import ParamSection from '../components/ParamSection.vue'
 import SceneArt from '../components/SceneArt.vue'
@@ -167,10 +168,12 @@ const summary = computed(() => {
   return {
     gift: giftPositions.find((p) => p.id === d.giftPosition)?.name ?? '',
     background:
-      d.backgroundMode === 'CUSTOM'
-        ? d.backgroundPrompt.trim() || '自定义描述'
-        : (backgrounds.find((b) => b.color === d.backgroundColor)?.name ??
-          d.backgroundColor),
+      d.backgroundMode === 'ORIGINAL'
+        ? '保持原图背景'
+        : d.backgroundMode === 'CUSTOM'
+          ? d.backgroundPrompt.trim() || '自定义描述'
+          : (backgrounds.find((b) => b.color === d.backgroundColor)?.name ??
+            d.backgroundColor),
     text: `${firstLine || '未填写标题'} · ${pointLines(d).length} 条`,
     scene: d.scenePreset
       ? (w.generation?.scene_presets.find((s) => s.id === d.scenePreset)
@@ -221,6 +224,18 @@ const tiles = computed<Tile[]>(() => {
   )
 })
 
+// Finished results of this entry in the full-screen viewer (ADR-20260930-E).
+const viewing = ref<number | null>(null)
+const finished = computed(() => tiles.value.filter((tile) => tile.artifact))
+const viewerItems = computed(() =>
+  finished.value.map((tile) => ({
+    path: `/artifacts/${tile.artifact!.id}/content`,
+    title: meta.value.name,
+    detail: `${tile.artifact!.width} × ${tile.artifact!.height}`,
+    download: () =>
+      w.download(tile.artifact!.id, `${meta.value.route}-${tile.artifact!.id}`),
+  })),
+)
 async function open(task: string, ordinal: number) {
   await w.select(task)
   if (w.selected?.id !== task) return
@@ -336,6 +351,13 @@ onMounted(() => {
             <div class="seg" role="group" aria-label="背景方式">
               <button
                 type="button"
+                :aria-pressed="draft.backgroundMode === 'ORIGINAL'"
+                @click="draft.backgroundMode = 'ORIGINAL'"
+              >
+                保持原图
+              </button>
+              <button
+                type="button"
                 :aria-pressed="draft.backgroundMode === 'SOLID'"
                 @click="draft.backgroundMode = 'SOLID'"
               >
@@ -349,8 +371,11 @@ onMounted(() => {
                 描述
               </button>
             </div>
+            <p v-if="draft.backgroundMode === 'ORIGINAL'" class="hint">
+              沿用商品图原来的背景，只加入赠品和文字。
+            </p>
             <div
-              v-if="draft.backgroundMode === 'SOLID'"
+              v-else-if="draft.backgroundMode === 'SOLID'"
               class="swatches"
               role="group"
               aria-label="背景颜色"
@@ -729,6 +754,14 @@ onMounted(() => {
             <div v-if="tile.artifact" class="hover-actions">
               <button
                 type="button"
+                aria-label="放大查看"
+                title="放大查看"
+                @click="viewing = finished.indexOf(tile)"
+              >
+                <LineIcon name="zoomin" :size="13" />
+              </button>
+              <button
+                type="button"
                 aria-label="对照原图"
                 title="对照原图"
                 :disabled="w.busy"
@@ -780,5 +813,11 @@ onMounted(() => {
         </div>
       </div>
     </section>
+    <ImageViewer
+      v-if="viewing !== null && viewerItems.length"
+      :items="viewerItems"
+      :start="viewing"
+      @close="viewing = null"
+    />
   </main>
 </template>

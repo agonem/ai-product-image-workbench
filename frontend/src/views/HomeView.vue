@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, inject } from 'vue'
+import { computed, inject, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import EmptyState from '../components/EmptyState.vue'
 import FeatureIcon from '../components/FeatureIcon.vue'
+import ImageViewer from '../components/ImageViewer.vue'
 import LineIcon from '../components/LineIcon.vue'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import { featureName, features } from '../workbench/generation'
@@ -19,16 +20,25 @@ const recent = computed(() =>
     )
     .slice(0, 8),
 )
+const viewing = ref<number | null>(null)
+const viewerItems = computed(() =>
+  recent.value.map((item) => ({
+    path: `/artifacts/${item.artifact.id}/content`,
+    title: featureName(item.task.feature_type),
+    detail: `${item.artifact.width} × ${item.artifact.height}`,
+    download: () => w.download(item.artifact.id, `work-${item.artifact.id}`),
+  })),
+)
 </script>
 
 <template>
   <main class="page">
-    <section class="card welcome">
-      <div>
+    <div class="page-head">
+      <div class="intro">
         <h1>选择功能开始生成</h1>
         <p>上传商品白底图，生成赠品主图、场景主图和卖点主图。</p>
       </div>
-    </section>
+    </div>
     <section class="feature-cards" aria-label="三个独立功能">
       <article
         v-for="item in features"
@@ -66,7 +76,7 @@ const recent = computed(() =>
             :key="item.artifact.id"
             class="image-card lift"
           >
-            <figure>
+            <figure @click="viewing = recent.indexOf(item)">
               <PrivateImage
                 :path="`/artifacts/${item.artifact.id}/content`"
                 :alt="`${featureName(item.task.feature_type)}结果`"
@@ -87,5 +97,11 @@ const recent = computed(() =>
         >
       </div>
     </section>
+    <ImageViewer
+      v-if="viewing !== null && viewerItems.length"
+      :items="viewerItems"
+      :start="viewing"
+      @close="viewing = null"
+    />
   </main>
 </template>

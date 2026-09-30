@@ -453,6 +453,25 @@ export function useWorkbench() {
     })
     return created
   }
+  /** Copies a generated result into a new original (ADR-20260930-E). */
+  async function reuseWork(
+    artifact: string,
+    kind: 'PRODUCT' | 'GIFT',
+  ): Promise<Asset | null> {
+    let copied: Asset | null = null
+    await action(async () => {
+      const item = await api<Asset>(
+        `/artifacts/${artifact}/asset`,
+        json({ kind }),
+      )
+      if (!assets.value.some((entry) => entry.id === item.id))
+        assets.value.unshift(item)
+      copied = item
+      notice.value =
+        kind === 'PRODUCT' ? '已把作品复制为商品图。' : '已把作品复制为赠品图。'
+    })
+    return copied
+  }
   /** The owner deletes an original; results made from it stay in history. */
   async function deleteAsset(id: string) {
     await action(async () => {
@@ -477,8 +496,12 @@ export function useWorkbench() {
     })
   }
   async function download(artifact: string, name: string) {
+    await downloadFile(`/artifacts/${artifact}/content`, name)
+  }
+  /** Saves any private image (a result or an original) under a readable name. */
+  async function downloadFile(path: string, name: string) {
     await action(async () => {
-      const blob = await api<Blob>(`/artifacts/${artifact}/content`)
+      const blob = await api<Blob>(path)
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       const signature = new Uint8Array(await blob.slice(0, 2).arrayBuffer())
@@ -643,6 +666,8 @@ export function useWorkbench() {
     deleteAsset,
     deleteArtifact,
     download,
+    downloadFile,
+    reuseWork,
     select: (id: string) => action(() => select(id)),
     refreshTask,
     submit,

@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import AccountsView from './views/AccountsView.vue'
 import AssetsView from './views/AssetsView.vue'
 import CreateView from './views/CreateView.vue'
 import HomeView from './views/HomeView.vue'
@@ -16,9 +17,11 @@ export const router = createRouter({
     { path: '/assets', component: AssetsView },
     { path: '/tasks', component: TasksView },
     { path: '/works', component: WorksView },
-    // Account settings work without a project (e.g. a new admin configuring the provider).
-    { path: '/settings', component: SettingsView, meta: { project: false } },
+    // Account pages work without a project (e.g. a new admin configuring the models).
+    { path: '/account', component: SettingsView, meta: { project: false } },
+    { path: '/accounts', component: AccountsView, meta: { project: false } },
     { path: '/models', component: ModelsView, meta: { project: false } },
+    { path: '/settings', redirect: '/account' },
     { path: '/:rest(.*)*', redirect: '/' },
   ],
 })

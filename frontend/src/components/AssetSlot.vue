@@ -13,8 +13,17 @@ const w = inject(workbenchKey)!
 const choices = computed(() =>
   props.kind === 'PRODUCT' ? w.products : w.gifts,
 )
+// Finished results can be reused as material too (ADR-20260930-E); picking one copies it.
+const works = computed(() =>
+  w.history
+    .filter((item) => item.generation_v4 && item.task.status === 'SUCCEEDED')
+    .flatMap((item) =>
+      item.task.artifacts.map((artifact) => ({ task: item.task, artifact })),
+    ),
+)
 const menu = ref(false),
-  picking = ref(false)
+  picking = ref(false),
+  source = ref<'library' | 'works'>('library')
 const root = ref<HTMLElement>(),
   file = ref<HTMLInputElement>()
 const locked = computed(() => w.busy || w.uncertain)
@@ -53,6 +62,10 @@ async function pick(event: Event) {
 function select(id: string) {
   model.value = id
   picking.value = false
+}
+async function reuse(artifact: string) {
+  const copied = await w.reuseWork(artifact, props.kind)
+  if (copied) select(copied.id)
 }
 onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
 </script>
@@ -104,11 +117,54 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
     />
     <ModalDialog
       v-if="picking"
-      :title="`从素材库选择${label}`"
+      :title="`选择${label}`"
       wide
       @close="picking = false"
     >
-      <div v-if="choices.length" class="library-grid">
+      <div class="tabs" role="group" aria-label="图片来源">
+        <button
+          type="button"
+          :aria-pressed="source === 'library'"
+          @click="source = 'library'"
+        >
+          素材库
+        </button>
+        <button
+          type="button"
+          :aria-pressed="source === 'works'"
+          @click="source = 'works'"
+        >
+          我的作品
+        </button>
+      </div>
+      <template v-if="source === 'works'">
+        <div v-if="works.length" class="library-grid">
+          <button
+            v-for="work in works"
+            :key="work.artifact.id"
+            type="button"
+            :aria-label="`使用作品 ${work.artifact.width}×${work.artifact.height}`"
+            :disabled="locked"
+            @click="reuse(work.artifact.id)"
+          >
+            <figure>
+              <PrivateImage
+                :path="`/artifacts/${work.artifact.id}/content`"
+                :alt="`作品 ${work.artifact.width}×${work.artifact.height}`"
+                :api="w.api"
+              />
+            </figure>
+            <small class="num"
+              >{{ work.artifact.width }} × {{ work.artifact.height }}</small
+            >
+          </button>
+        </div>
+        <EmptyState v-else>还没有已完成的作品</EmptyState>
+        <p class="hint">
+          选择作品会复制一份作为新的{{ label }}，原作品不受影响。
+        </p>
+      </template>
+      <div v-else-if="choices.length" class="library-grid">
         <button
           v-for="asset in choices"
           :key="asset.id"
@@ -129,7 +185,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
       </div>
       <EmptyState v-else art="box">素材库里还没有{{ label }}</EmptyState>
       <button
-        v-if="w.assetNext !== null"
+        v-if="source === 'library' && w.assetNext !== null"
         type="button"
         class="btn sm"
         :disabled="w.busy"

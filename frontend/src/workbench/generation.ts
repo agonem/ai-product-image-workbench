@@ -106,7 +106,8 @@ export interface GenerationDraft {
   size: number
   count: number
   giftPosition: string
-  backgroundMode: 'SOLID' | 'CUSTOM'
+  /** ORIGINAL keeps the product photo's own background (ADR-20260930-E). */
+  backgroundMode: 'ORIGINAL' | 'SOLID' | 'CUSTOM'
   backgroundColor: string
   backgroundPrompt: string
   scenePreset: string
@@ -258,7 +259,9 @@ export function buildGeneration(
     value.background =
       draft.backgroundMode === 'CUSTOM'
         ? { mode: 'CUSTOM', prompt: draft.backgroundPrompt }
-        : { mode: 'SOLID', color: draft.backgroundColor }
+        : draft.backgroundMode === 'ORIGINAL'
+          ? { mode: 'ORIGINAL' }
+          : { mode: 'SOLID', color: draft.backgroundColor }
     if (text) value.text = text
   } else if (feature === 'SCENE') {
     if (draft.scenePreset) value.scene_preset = draft.scenePreset

@@ -26,7 +26,12 @@ function open(item: HistoryItem) {
 <template>
   <main class="page">
     <div class="page-head">
-      <h1>任务记录</h1>
+      <div class="intro">
+        <h1>任务记录</h1>
+        <p>
+          所有生成与改字任务；点“查看”回到对应页面，失败的任务可在那里重试。
+        </p>
+      </div>
       <span class="spacer"></span>
       <button
         type="button"

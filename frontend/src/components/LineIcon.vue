@@ -38,6 +38,15 @@ const paths: Record<string, string> = {
   refresh:
     'M20 11a8 8 0 0 0-14.3-4.9M4 5v4h4M4 13a8 8 0 0 0 14.3 4.9M20 19v-4h-4',
   arrow: 'M5 12h14M13 6l6 6-6 6',
+  panel: 'M4 5h16v14H4zM9 5v14',
+  users:
+    'M9 5.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4zM3 19c1-3.2 3.4-4.5 6-4.5s5 1.3 6 4.5M16 6.5a3 3 0 0 1 0 5.8M18 14.8c1.6.6 2.6 1.9 3 4.2',
+  prev: 'M15 6l-6 6 6 6',
+  next: 'M9 6l6 6-6 6',
+  minus: 'M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM20 20l-4.5-4.5M8.5 11h5',
+  zoomin:
+    'M11 5a6 6 0 1 0 0 12 6 6 0 0 0 0-12zM20 20l-4.5-4.5M11 8.5v5M8.5 11h5',
+  copy: 'M8 8h11v11H8zM5 16V5h11',
 }
 withDefaults(defineProps<{ name: string; size?: number }>(), { size: 16 })
 </script>

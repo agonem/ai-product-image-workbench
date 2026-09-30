@@ -17,6 +17,8 @@ export interface Asset {
   width: number
   height: number
   review_status: string
+  /** Set when the original is a copy of a generated result (ADR-20260930-E). */
+  source_artifact_id?: string
 }
 export interface Task {
   id: string
@@ -121,4 +123,6 @@ export const providerNames: Record<string, string> = {
   openrouter: 'OpenRouter',
   openai: 'OpenAI 官方',
   gemini: 'Gemini 官方',
+  'openai-compatible': 'OpenAI 格式（第三方）',
+  'gemini-compatible': 'Gemini 格式（第三方）',
 }

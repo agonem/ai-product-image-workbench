@@ -34,6 +34,14 @@ test('V4: each entry sends only its own fields and defaults to one PNG image', (
   assert.equal('style_prompt' in scene, false)
 })
 
+test('ADR-20260930-E: the gift can keep the product photo background', () => {
+  const draft = ready()
+  draft.backgroundMode = 'ORIGINAL'
+  assert.deepEqual(buildGeneration('GIFT', 'p', draft).background, {
+    mode: 'ORIGINAL',
+  })
+})
+
 test('ADR-20260929-C: a chosen model travels with the task', () => {
   const draft = ready()
   draft.model = 'model-2'

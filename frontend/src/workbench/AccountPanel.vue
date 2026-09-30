@@ -3,10 +3,13 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { json } from '../api/workbench'
 import LineIcon from '../components/LineIcon.vue'
 import ModalDialog from '../components/ModalDialog.vue'
+import { confirmAction } from './confirm'
 
-// Admin-only account management: list, create, enable/disable, reset password.
+// Admin-only account management: list, create, enable/disable, reset password, delete.
 const props = defineProps<{
   api: <T>(path: string, init?: RequestInit) => Promise<T>
+  /** The signed-in admin, who cannot delete themself. */
+  me: string
 }>()
 type Account = { id: string; username: string; role: string; status: string }
 const busy = ref(false),
@@ -85,6 +88,20 @@ async function status(account: Account) {
     notice.value = '状态已更新；该账号原有登录已失效。'
   })
 }
+/** Deletes an account and its images (ADR-20260930-E); the name can be used again. */
+async function remove(account: Account) {
+  const ok = await confirmAction(
+    `删除账号 ${account.username}`,
+    '删除后该账号立即退出且无法再登录，账号名可以重新创建；它上传的原图和生成的图片会一并删除，不可恢复。',
+    '删除账号',
+  )
+  if (!ok) return
+  await action(async () => {
+    await props.api('/admin/accounts/' + account.id, { method: 'DELETE' })
+    await load()
+    notice.value = `账号 ${account.username} 已删除，其图片已一并删除。`
+  })
+}
 async function resetPassword() {
   if (!target.value) return
   const id = target.value.id
@@ -102,31 +119,30 @@ async function resetPassword() {
 </script>
 
 <template>
-  <section class="card" aria-label="账号管理">
-    <div class="card-head">
-      <h2><LineIcon name="user" />账号管理</h2>
-      <span class="muted num">{{ accounts.length }} 个账号</span>
-      <span class="spacer"></span>
-      <button
-        type="button"
-        class="btn primary sm"
-        :disabled="busy"
-        @click="openCreate"
-      >
-        <LineIcon name="plus" :size="14" />新建账号
-      </button>
-    </div>
-    <div class="card-body">
-      <p v-if="error && !creating && !target" class="banner error" role="alert">
-        <LineIcon name="alert" :size="14" />{{ error }}
-      </p>
-      <p v-if="notice" class="banner ok" role="status">
-        <LineIcon name="check" :size="14" />{{ notice }}
-      </p>
-      <p class="hint">
-        停用、启用和重置密码都会让该账号已有的登录失效；至少保留一个启用的管理员。账号管理不授予查看他人素材或任务的权限。
+  <div class="page-head">
+    <div class="intro">
+      <h1>账号管理</h1>
+      <p>
+        停用、启用、重置密码和删除都会让该账号已有的登录失效；至少保留一个启用的管理员。
       </p>
     </div>
+    <span class="spacer"></span>
+    <button
+      type="button"
+      class="btn primary"
+      :disabled="busy"
+      @click="openCreate"
+    >
+      <LineIcon name="plus" :size="14" />新建账号
+    </button>
+  </div>
+  <p v-if="error && !creating && !target" class="banner error" role="alert">
+    <LineIcon name="alert" :size="14" />{{ error }}
+  </p>
+  <p v-if="notice" class="banner ok" role="status">
+    <LineIcon name="check" :size="14" />{{ notice }}
+  </p>
+  <section class="card" aria-label="账号列表">
     <div class="table-wrap">
       <table class="table">
         <thead>
@@ -148,7 +164,8 @@ async function resetPassword() {
                 ><span class="avatar sm" aria-hidden="true">{{
                   account.username.slice(0, 1).toUpperCase()
                 }}</span
-                >{{ account.username }}</span
+                >{{ account.username
+                }}<small v-if="account.id === me">（当前登录）</small></span
               >
             </td>
             <td>{{ account.role === 'ADMIN' ? '管理员' : '普通用户' }}</td>
@@ -178,6 +195,15 @@ async function resetPassword() {
                   @click="((target = account), (replacement = ''))"
                 >
                   重置密码
+                </button>
+                <button
+                  v-if="account.id !== me"
+                  type="button"
+                  class="link-btn danger"
+                  :disabled="busy"
+                  @click="remove(account)"
+                >
+                  删除
                 </button>
               </div>
             </td>

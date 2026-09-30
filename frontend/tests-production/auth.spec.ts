@@ -20,15 +20,15 @@ async function login(page: Page, username: string, secret = password) {
 }
 
 async function settings(page: Page) {
-  await page.getByRole('link', { name: '账号与安全', exact: true }).click()
+  await page.getByRole('link', { name: '我的账号', exact: true }).click()
   await expect(
     page.getByRole('heading', { name: '修改密码', exact: true }),
   ).toBeVisible()
 }
-/** Open (or reload) the admin account list: switching tabs remounts it. */
+/** Open (or reload) the admin account list: leaving the page and coming back reloads it. */
 async function accounts(page: Page) {
-  await page.getByRole('button', { name: '我的账号', exact: true }).click()
-  await page.getByRole('button', { name: '账号管理', exact: true }).click()
+  await page.getByRole('link', { name: '我的账号', exact: true }).click()
+  await page.getByRole('link', { name: '账号管理', exact: true }).click()
   await expect(
     page.getByRole('heading', { name: '账号管理', exact: true }),
   ).toBeVisible()
@@ -76,7 +76,7 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   ).toBe(0)
   await settings(page)
   await expect(
-    page.getByRole('button', { name: '账号管理', exact: true }),
+    page.getByRole('link', { name: '账号管理', exact: true }),
   ).toHaveCount(0)
   await expect(page.getByRole('link', { name: '模型配置' })).toHaveCount(0)
   await page.getByLabel('当前密码', { exact: true }).fill(password)

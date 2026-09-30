@@ -2,12 +2,10 @@
 import { computed, inject, onUnmounted, ref } from 'vue'
 import { json } from '../api/workbench'
 import LineIcon from '../components/LineIcon.vue'
-import AccountPanel from '../workbench/AccountPanel.vue'
 import { workbenchKey } from '../workbench/useWorkbench'
 
 const w = inject(workbenchKey)!
 const admin = computed(() => w.identity?.role === 'ADMIN')
-const tab = ref<'mine' | 'accounts'>('mine')
 const current = ref(''),
   next = ref(''),
   confirmation = ref('')
@@ -49,27 +47,9 @@ async function changePassword() {
 <template>
   <main class="page">
     <div class="page-head">
-      <h1>账号与安全</h1>
-      <div
-        v-if="w.production && admin"
-        class="seg"
-        role="group"
-        aria-label="设置分类"
-      >
-        <button
-          type="button"
-          :aria-pressed="tab === 'mine'"
-          @click="tab = 'mine'"
-        >
-          我的账号
-        </button>
-        <button
-          type="button"
-          :aria-pressed="tab === 'accounts'"
-          @click="tab = 'accounts'"
-        >
-          账号管理
-        </button>
+      <div class="intro">
+        <h1>我的账号</h1>
+        <p>账号信息与登录密码。</p>
       </div>
     </div>
 
@@ -84,7 +64,7 @@ async function changePassword() {
       </div>
     </section>
 
-    <template v-else-if="tab === 'mine'">
+    <template v-else>
       <section class="card">
         <div class="card-head">
           <h2><LineIcon name="user" />账号信息</h2>
@@ -165,7 +145,5 @@ async function changePassword() {
         </form>
       </section>
     </template>
-
-    <AccountPanel v-else :api="w.api" />
   </main>
 </template>

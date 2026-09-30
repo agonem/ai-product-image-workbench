@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue'
 import EmptyState from '../components/EmptyState.vue'
+import ImageViewer from '../components/ImageViewer.vue'
 import LineIcon from '../components/LineIcon.vue'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import { confirmAction } from '../workbench/confirm'
@@ -10,6 +11,18 @@ const w = inject(workbenchKey)!
 const kind = ref<'PRODUCT' | 'GIFT'>('PRODUCT')
 const items = computed(() => (kind.value === 'PRODUCT' ? w.products : w.gifts))
 const label = computed(() => (kind.value === 'PRODUCT' ? '商品图' : '赠品图'))
+const viewing = ref<number | null>(null)
+const viewerItems = computed(() =>
+  items.value.map((asset) => ({
+    path: `/assets/${asset.id}/content`,
+    title: asset.source_artifact_id
+      ? `${label.value}（来自作品）`
+      : label.value,
+    detail: `${asset.width} × ${asset.height}`,
+    download: () =>
+      w.downloadFile(`/assets/${asset.id}/content`, `asset-${asset.id}`),
+  })),
+)
 async function remove(id: string) {
   if (
     await confirmAction(
@@ -31,8 +44,12 @@ async function pick(event: Event) {
 <template>
   <main class="page">
     <div class="page-head">
-      <h1>素材管理</h1>
-      <div class="seg" role="group" aria-label="素材类型">
+      <div class="intro">
+        <h1>素材管理</h1>
+        <p>商品图与赠品图原图；点击图片放大查看。</p>
+      </div>
+      <span class="spacer"></span>
+      <div class="tabs" role="group" aria-label="素材类型">
         <button
           type="button"
           :aria-pressed="kind === 'PRODUCT'"
@@ -48,7 +65,6 @@ async function pick(event: Event) {
           赠品图
         </button>
       </div>
-      <span class="spacer"></span>
       <label class="btn primary" :aria-disabled="w.busy"
         ><LineIcon name="up" :size="14" />上传{{ label
         }}<input
@@ -65,7 +81,10 @@ async function pick(event: Event) {
         <h2><LineIcon name="box" />{{ label }}</h2>
         <span class="muted num">{{ items.length }} 张</span>
         <span class="spacer"></span>
-        <span class="hint">支持 PNG / JPEG，原图按上传内容保存</span>
+        <span class="hint"
+          >支持 JPG、PNG、WebP、GIF、BMP 等，单张最大 50MB；非 JPG/PNG
+          会自动转为 PNG 保存</span
+        >
       </div>
       <div class="card-body">
         <div v-if="items.length" class="image-grid">
@@ -75,7 +94,7 @@ async function pick(event: Event) {
             class="image-card lift"
             data-testid="asset-card"
           >
-            <figure>
+            <figure @click="viewing = items.indexOf(asset)">
               <PrivateImage
                 :path="`/assets/${asset.id}/content`"
                 :alt="`素材 ${asset.id}`"
@@ -84,10 +103,21 @@ async function pick(event: Event) {
             </figure>
             <div class="caption">
               <span class="num">{{ asset.width }} × {{ asset.height }}</span>
+              <span v-if="asset.source_artifact_id" class="tag accent"
+                >来自作品</span
+              >
               <span class="spacer"></span>
               <span class="muted num">{{ asset.id.slice(0, 8) }}</span>
             </div>
             <div class="hover-actions">
+              <button
+                type="button"
+                title="放大查看"
+                aria-label="放大查看"
+                @click="viewing = items.indexOf(asset)"
+              >
+                <LineIcon name="zoomin" :size="14" />
+              </button>
               <button
                 type="button"
                 class="danger"
@@ -116,5 +146,11 @@ async function pick(event: Event) {
         </button>
       </div>
     </section>
+    <ImageViewer
+      v-if="viewing !== null && viewerItems.length"
+      :items="viewerItems"
+      :start="viewing"
+      @close="viewing = null"
+    />
   </main>
 </template>

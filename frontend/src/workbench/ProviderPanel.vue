@@ -7,17 +7,24 @@ import ModalDialog from '../components/ModalDialog.vue'
 import { confirmAction } from './confirm'
 import { providerNames } from './model'
 
-// Admin model catalogue (ADR-20260929-C): several models, one default, per-model proxy.
+// Admin model catalogue (ADR-20260929-C): several models, one default, per-model proxy;
+// third-party endpoints in the OpenAI or Gemini format again since ADR-20260930-E.
 const props = defineProps<{
   api: <T>(path: string, init?: RequestInit) => Promise<T>
 }>()
-type Provider = 'openrouter' | 'openai' | 'gemini'
+type Provider =
+  | 'openrouter'
+  | 'openai'
+  | 'gemini'
+  | 'openai-compatible'
+  | 'gemini-compatible'
 type Item = {
   id: string
   name: string
   provider: Provider
   model: string
   provider_tag?: string
+  base_url?: string
   api_key_mask: string
   enabled: boolean
   use_proxy: boolean
@@ -27,11 +34,22 @@ type Item = {
 type Proxy = { configured: boolean; mask?: string; updated_at?: string }
 type Listing = { default_id: string | null; items: Item[]; proxy: Proxy }
 // Model names are examples only; the vendor's current model list is authoritative.
-const types: { id: Provider; model: string }[] = [
+const types: { id: Provider; model: string; base?: string }[] = [
   { id: 'openrouter', model: 'openai/gpt-image-2' },
   { id: 'openai', model: 'gpt-image-2' },
   { id: 'gemini', model: 'gemini-2.5-flash-image' },
+  {
+    id: 'openai-compatible',
+    model: 'gpt-image-2',
+    base: 'http://10.2.2.110:3000/v1',
+  },
+  {
+    id: 'gemini-compatible',
+    model: 'gemini-2.5-flash-image',
+    base: 'https://relay.example.com',
+  },
 ]
+const tab = ref<'models' | 'proxy'>('models')
 
 const busy = ref(false),
   error = ref(''),
@@ -44,14 +62,43 @@ const form = ref({
   provider: 'openrouter' as Provider,
   model: '',
   tag: '',
+  base: '',
   key: '',
   proxy: false,
   enabled: true,
 })
 const proxyUrl = ref('')
-const placeholder = computed(
-  () => types.find((t) => t.id === form.value.provider)!.model,
+const selectedType = computed(
+  () => types.find((t) => t.id === form.value.provider)!,
 )
+const thirdParty = computed(() => form.value.provider.endsWith('-compatible'))
+const plainHttp = computed(
+  () => thirdParty.value && form.value.base.trim().startsWith('http://'),
+)
+/** Same rule as the server: https anywhere, http only to a private IPv4 address. */
+function baseProblem(value: string): string {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return '接口地址格式不正确，例如 http://10.2.2.110:3000/v1。'
+  }
+  if (url.username || url.password || url.search || url.hash)
+    return '接口地址不能包含账号、查询参数或 #。'
+  if (url.protocol === 'https:') return ''
+  if (url.protocol !== 'http:') return '接口地址只支持 http 或 https。'
+  const parts = url.hostname.split('.').map(Number)
+  const ipv4 =
+    parts.length === 4 && parts.every((n) => Number.isInteger(n) && n <= 255)
+  const intranet =
+    ipv4 &&
+    (parts[0] === 10 ||
+      (parts[0] === 172 && parts[1]! >= 16 && parts[1]! <= 31) ||
+      (parts[0] === 192 && parts[1] === 168))
+  return intranet
+    ? ''
+    : 'http 地址只允许内网 IP（10.x、172.16–31.x、192.168.x）；公网地址请用 https。'
+}
 let alive = true
 
 onMounted(() => void action(load))
@@ -84,6 +131,7 @@ function open(kind: 'create' | 'key' | 'rename', item: Item | null = null) {
     provider: 'openrouter',
     model: '',
     tag: '',
+    base: '',
     key: '',
     proxy: false,
     enabled: true,
@@ -97,6 +145,13 @@ function close() {
   form.value.key = ''
 }
 async function create() {
+  if (thirdParty.value) {
+    const problem = baseProblem(form.value.base.trim())
+    if (problem) {
+      error.value = problem
+      return
+    }
+  }
   await action(async () => {
     const f = form.value
     const body: Record<string, unknown> = {
@@ -108,6 +163,7 @@ async function create() {
       use_proxy: f.proxy,
     }
     if (f.provider === 'openrouter') body.provider_tag = f.tag.trim()
+    if (thirdParty.value) body.base_url = f.base.trim()
     await props.api('/admin/provider-configs', json(body))
     close()
     await load()
@@ -186,7 +242,12 @@ async function clearProxy() {
 
 <template>
   <div class="page-head">
-    <h1>模型配置</h1>
+    <div class="intro">
+      <h1>模型配置</h1>
+      <p>
+        生成时商品图与赠品图会作为参考图发送到所选模型的接口；密钥与代理加密保存，只显示掩码。
+      </p>
+    </div>
     <span class="spacer"></span>
     <button
       type="button"
@@ -197,12 +258,27 @@ async function clearProxy() {
       <LineIcon name="plus" :size="14" />添加模型
     </button>
   </div>
-  <p class="banner">
-    <LineIcon
-      name="info"
-      :size="14"
-    />生成时，商品图与赠品图会作为参考图发送到所选模型的接口。密钥和代理加密保存，页面只显示掩码；已提交的任务按提交时的模型执行。
-  </p>
+  <div
+    class="tabs"
+    role="group"
+    aria-label="配置分类"
+    style="justify-self: start"
+  >
+    <button
+      type="button"
+      :aria-pressed="tab === 'models'"
+      @click="tab = 'models'"
+    >
+      模型
+    </button>
+    <button
+      type="button"
+      :aria-pressed="tab === 'proxy'"
+      @click="tab = 'proxy'"
+    >
+      网络代理
+    </button>
+  </div>
   <p v-if="error && !dialog" class="banner error" role="alert">
     <LineIcon name="alert" :size="14" />{{ error }}
   </p>
@@ -210,7 +286,7 @@ async function clearProxy() {
     <LineIcon name="check" :size="14" />{{ notice }}
   </p>
 
-  <section class="card" aria-label="模型列表">
+  <section v-show="tab === 'models'" class="card" aria-label="模型列表">
     <div class="card-head">
       <h2><LineIcon name="cpu" />模型</h2>
       <span class="muted num">{{ listing?.items.length ?? 0 }} 个</span>
@@ -246,6 +322,9 @@ async function clearProxy() {
             <td>
               <span class="mono">{{ item.model }}</span>
               <small v-if="item.provider_tag"> · {{ item.provider_tag }}</small>
+              <small v-if="item.base_url" class="mono">
+                · {{ item.base_url }}</small
+              >
             </td>
             <td class="mono">{{ item.api_key_mask }}</td>
             <td>
@@ -309,7 +388,7 @@ async function clearProxy() {
     >
   </section>
 
-  <section class="card" aria-label="网络代理">
+  <section v-show="tab === 'proxy'" class="card" aria-label="网络代理">
     <div class="card-head">
       <h2><LineIcon name="globe" />网络代理</h2>
       <span
@@ -389,7 +468,7 @@ async function clearProxy() {
           aria-label="模型标识"
           aria-describedby="model-id-hint"
           v-model="form.model"
-          :placeholder="placeholder"
+          :placeholder="selectedType.model"
           maxlength="200"
           required
           :disabled="busy"
@@ -397,6 +476,20 @@ async function clearProxy() {
           >以接口方当前文档为准，示例仅供参考。</small
         ></label
       >
+      <label v-if="thirdParty" class="form-row"
+        ><span>接口地址</span
+        ><input
+          v-model="form.base"
+          aria-label="接口地址"
+          :placeholder="selectedType.base"
+          maxlength="300"
+          required
+          :disabled="busy"
+      /></label>
+      <p v-if="plainHttp" class="banner warn" role="note">
+        <LineIcon name="alert" :size="14" />http 地址不加密：API Key
+        与商品图会在内网明文传输。
+      </p>
       <label v-if="form.provider === 'openrouter'" class="form-row"
         ><span>路由标签（provider_tag）</span
         ><input
