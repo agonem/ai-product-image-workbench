@@ -43,6 +43,27 @@ for box, color, tolerance in checks.get("regions", []):
 print(json.dumps(result))
 """
 
+# Real-world originals built with Pillow in the image-service environment (ADR-20260930-D).
+PHOTO_MAKER = """
+import sys
+from PIL import Image, ImageDraw
+kind, out, color = sys.argv[1], sys.argv[2], tuple(int(v) for v in sys.argv[3].split(","))
+if kind == "phone":
+    # Stored landscape with EXIF orientation 6: viewed upright, the left band is at the top.
+    image = Image.new("RGB", (300, 200), "white")
+    ImageDraw.Draw(image).rectangle((0, 0, 99, 199), fill=color)
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    image.save(out, "JPEG", quality=95, exif=exif.tobytes())
+elif kind == "webp":
+    # A WebP picture saved under a ".jpg" name, as browsers and chat apps often do.
+    image = Image.new("RGB", (240, 200), "white")
+    ImageDraw.Draw(image).rectangle((70, 40, 170, 170), fill=color)
+    image.save(out, "WEBP", quality=90)
+else:
+    Image.new("RGB", (240, 200), color).convert("CMYK").save(out, "JPEG", quality=95)
+"""
+
 
 def free_port():
     with socket.socket() as listener:
@@ -164,6 +185,22 @@ class Core:
         status, data, _ = self.run.http("GET", f"/api/v1/artifacts/{artifact}/content", token)
         assert status == 200
         return data
+
+    def photo_path(self, kind):
+        self.photo(kind)
+        return self.work / f"photo-{kind}.jpg"
+
+    def photo(self, kind):
+        path = self.work / f"photo-{kind}.jpg"
+        script = self.work / "photo_maker.py"
+        script.write_text(PHOTO_MAKER, encoding="utf-8")
+        subprocess.run(
+            [tool("uv"), "run", "--frozen", "--directory", str(ROOT / "image-service")]
+            + ["python", str(script), kind, str(path), ",".join(map(str, PRODUCT_RGB))],
+            capture_output=True,
+            check=True,
+        )
+        return path.read_bytes()
 
     def inspect(self, data, regions):
         path = self.work / f"inspect-{secrets.token_hex(4)}.image"
@@ -537,6 +574,32 @@ def api_checks(core, admin, alice, bob, project):
     )
     assert deleted == "3" and audited == "3", (deleted, audited)
     evidence["deletion"] = {"artifact": artifact, "asset": product}
+
+    # A14 (ADR-20260930-D): the file content decides the type, metadata stays, and the model
+    # gets an upright RGB copy - a phone JPEG declared as PNG (EXIF orientation 6) and a CMYK
+    # JPEG are both stored unchanged and generate normally.
+    uploads_url = f"/api/v1/projects/{project}/assets?kind=PRODUCT"
+    phone = core.photo("phone")
+    status, asset, _ = run.http("POST", uploads_url, alice, data=phone, mime="image/png")
+    assert status == 201 and (asset["width"], asset["height"]) == (300, 200), (status, asset)
+    assert run.http("GET", f"/api/v1/assets/{asset['id']}/content", alice)[1] == phone
+    state = core.generate(alice, dict(scene, product_asset_id=asset["id"]), "v4-phone")
+    assert state["status"] == "SUCCEEDED", state
+    # The mock pastes the reference at 45%/35% of the canvas: upright, the coloured band spans
+    # the top of the piece (not upright, only its left third would be coloured).
+    checked = core.inspect(
+        core.image(alice, state["artifacts"][0]["id"]),
+        [[[480, 285, 560, 330], list(PRODUCT_RGB), 40]],
+    )
+    assert checked["regions"] == [True], checked
+    cmyk = core.photo("cmyk")
+    status, asset, _ = run.http(
+        "POST", uploads_url, alice, data=cmyk, mime="application/octet-stream"
+    )
+    assert status == 201, (status, asset)
+    state = core.generate(alice, dict(scene, product_asset_id=asset["id"]), "v4-cmyk")
+    assert state["status"] == "SUCCEEDED", state
+    evidence["real_world_uploads"] = {"phone_exif": "upright", "cmyk": "ok"}
     return evidence
 
 
@@ -576,6 +639,7 @@ def browser_checks(core, stack):
             "T06_ARTIFACTS": str(work / "browser"),
             "CORE_PRODUCT_FILE": str(work / "browser-product.png"),
             "CORE_GIFT_FILE": str(work / "browser-gift.png"),
+            "CORE_WEBP_FILE": str(core.photo_path("webp")),
             "CORE_FONT": "1" if core.font else "",
         }
     )

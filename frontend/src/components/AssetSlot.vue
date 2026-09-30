@@ -96,7 +96,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
       ref="file"
       class="sr-only"
       type="file"
-      accept="image/png,image/jpeg"
+      accept="image/*"
       tabindex="-1"
       :aria-label="`上传${label}`"
       :disabled="locked"
@@ -143,7 +143,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
           ><LineIcon name="up" :size="14" />上传新图片<input
             class="sr-only"
             type="file"
-            accept="image/png,image/jpeg"
+            accept="image/*"
             :disabled="locked"
             @change="pick"
         /></label>

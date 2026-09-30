@@ -5,6 +5,7 @@ import { validateContract } from '../contracts/validate'
 import { buildGeneration, newDraft } from './generation'
 import type { GenerationDraft } from './generation'
 import { Submission } from './model'
+import { prepareUpload } from './upload'
 import type {
   Asset,
   Feature,
@@ -435,18 +436,20 @@ export function useWorkbench() {
   ): Promise<Asset | null> {
     let created: Asset | null = null
     await action(async () => {
+      const prepared = await prepareUpload(file)
       const item = await api<Asset>(
         `/projects/${project.value}/assets?kind=${kind}`,
         {
           method: 'POST',
-          headers: { 'Content-Type': file.type || 'application/octet-stream' },
-          body: file,
+          headers: { 'Content-Type': prepared.type },
+          body: prepared.body,
         },
       )
       assets.value.unshift(item)
       created = item
       notice.value =
-        kind === 'PRODUCT' ? '商品原图已保存。' : '赠品原图已保存。'
+        (kind === 'PRODUCT' ? '商品原图已保存' : '赠品原图已保存') +
+        (prepared.converted ? '（已转为 PNG 保存）。' : '。')
     })
     return created
   }

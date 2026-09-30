@@ -54,7 +54,7 @@ async function pick(event: Event) {
         }}<input
           class="sr-only"
           type="file"
-          accept="image/png,image/jpeg"
+          accept="image/*"
           :aria-label="`上传${label}`"
           :disabled="w.busy"
           @change="pick"

@@ -9,7 +9,12 @@ from PIL import Image, ImageDraw, ImageFont
 from image_service import typeset
 from image_service.background import BackgroundError, BackgroundResult
 from image_service.contracts import validate_contract
-from image_service.generation import build_prompt, fit_background, process_generation
+from image_service.generation import (
+    _reference,
+    build_prompt,
+    fit_background,
+    process_generation,
+)
 from image_service.worker import process
 
 PRODUCT, GIFT = (190, 70, 80), (60, 110, 200)
@@ -407,3 +412,45 @@ def test_font_index_selects_a_face_in_a_collection(monkeypatch):
     monkeypatch.setenv("GENERATION_TEXT_FONT", "fonts.ttc")
     monkeypatch.setenv("GENERATION_TEXT_FONT_INDEX", "2")
     assert typeset.font_path() == "fonts.ttc" and seen == [2]
+
+
+def jpeg(image, **options):
+    stream = io.BytesIO()
+    image.save(stream, format="JPEG", **options)
+    return stream.getvalue()
+
+
+def test_small_plain_originals_are_sent_unchanged():
+    raw = png(PRODUCT)
+    assert _reference(raw) == raw
+
+
+def test_phone_photos_are_turned_upright_before_the_model_sees_them():
+    # Stored landscape with EXIF orientation 6 (rotate 90° clockwise to view): shown portrait.
+    image = Image.new("RGB", (120, 60), "white")
+    ImageDraw.Draw(image).rectangle((0, 0, 20, 60), fill=PRODUCT)
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    raw = jpeg(image, exif=exif.tobytes())
+    with Image.open(io.BytesIO(_reference(raw))) as sent:
+        assert sent.format == "PNG" and sent.size == (60, 120)
+        # The red band that was on the left is on top once upright.
+        assert sent.convert("RGB").getpixel((30, 5))[0] > 150
+        assert not sent.getexif().get(0x0112)
+
+
+def test_cmyk_and_very_large_originals_become_rgb_reference_copies():
+    cmyk = jpeg(Image.new("CMYK", (80, 60), (0, 80, 60, 10)))
+    with Image.open(io.BytesIO(_reference(cmyk))) as sent:
+        assert sent.mode == "RGB" and sent.size == (80, 60)
+    large = jpeg(Image.new("RGB", (6000, 4000), PRODUCT), quality=70)
+    with Image.open(io.BytesIO(_reference(large))) as sent:
+        assert max(sent.size) == 1536 and sent.size[0] > sent.size[1]
+
+
+def test_transparent_originals_keep_their_alpha():
+    image = Image.new("RGBA", (2000, 1000), (0, 0, 0, 0))
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    with Image.open(io.BytesIO(_reference(stream.getvalue()))) as sent:
+        assert sent.mode == "RGBA" and sent.size == (1536, 768)

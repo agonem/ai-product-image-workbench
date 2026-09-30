@@ -112,8 +112,21 @@ public final class LocalObjectStore {
     }
   }
 
+  /** Generated outputs: decoded once to prove they are complete PNG/JPEG images. */
   public Info put(String key, byte[] data) {
-    Info info = inspect(key, data);
+    return write(key, data, inspect(key, data));
+  }
+
+  /**
+   * Original uploads: stored byte for byte with the size read from the file header by {@link
+   * UploadValidation}; not decoded here, so large or CMYK images are accepted.
+   */
+  public Info putOriginal(String key, byte[] data, int width, int height) {
+    if (data.length == 0 || data.length > maxBytes) throw new Problem(413, "INVALID_ASSET");
+    return write(key, data, new Info(key, Json.hash(data), width, height));
+  }
+
+  private Info write(String key, byte[] data, Info info) {
     Path temporary = null;
     try {
       Path target = path(key, true);

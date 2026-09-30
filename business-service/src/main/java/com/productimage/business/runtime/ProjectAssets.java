@@ -69,11 +69,11 @@ public final class ProjectAssets {
     if (!"PRODUCT".equals(kind) && !"GIFT".equals(kind)) throw new Problem(400, "INVALID_ASSET");
   }
 
-  JsonNode upload(String actor, String project, String kind, String mime, byte[] data) {
+  JsonNode upload(String actor, String project, String kind, byte[] data) {
     authorizeUpload(actor, project, kind);
-    UploadValidation.validate(data, mime, settings.maxBytes(), settings.maxPixels());
+    var checked = UploadValidation.validate(data, settings.maxBytes(), settings.maxPixels());
     String id = Json.id(), key = "originals/" + project + "/" + id + ".image";
-    var info = store.put(key, data);
+    var info = store.putOriginal(key, data, checked.width(), checked.height());
     return tx.execute(
         status -> {
           access.require(actor, project);

@@ -64,7 +64,7 @@ public class ProjectAssetApi {
                   actor,
                   id,
                   kind,
-                  request.getContentType(),
+                  // The content decides the type; the declared Content-Type is not trusted.
                   HttpInput.bytes(request, settings.maxBytes())));
     } finally {
       uploads.release();

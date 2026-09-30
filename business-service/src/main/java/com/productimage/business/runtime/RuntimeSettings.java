@@ -61,8 +61,9 @@ public record RuntimeSettings(
         number(env, "WORK_MAX_DELIVERIES", 3, 1, 100),
         number(env, "WORK_BACKOFF_SECONDS", 2, 0, 300),
         number(env, "WORK_MAX_ATTEMPTS", 5, 1, 100),
-        number(env, "OBJECT_MAX_BYTES", 10485760, 1, 67108864),
-        number(env, "OBJECT_MAX_PIXELS", 16000000, 1, 100000000));
+        // Safety ceilings, not business rules (ADR-20260930-D): 50 MB and 100 megapixels.
+        number(env, "OBJECT_MAX_BYTES", 52428800, 1, 67108864),
+        number(env, "OBJECT_MAX_PIXELS", 100000000, 1, 400000000));
   }
 
   private static int number(Environment env, String key, int fallback, int min, int max) {

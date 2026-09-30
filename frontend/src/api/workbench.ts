@@ -15,8 +15,7 @@ const messages: Record<string, string> = {
   PROVIDER_DISABLED: '默认模型未启用，请选择其他模型或联系管理员。',
   UNSUPPORTED_CAPABILITY:
     '供应商能力不支持当前参数（模型或比例），请检查配置。',
-  UPLOAD_CONTENT_REJECTED:
-    '图片内容或尺寸不符合要求，或包含未支持的附加元数据。请使用有效 PNG/JPEG。',
+  UPLOAD_CONTENT_REJECTED: '图片文件不完整或已损坏，请重新导出后上传。',
   INVALID_ASSET: '图片内容或尺寸不符合上传要求，请选择有效的 PNG/JPEG。',
   INVALID_LAYOUT:
     '尺寸、比例、数量或文字区域不符合要求（卖点图数量须等于所选风格数）。',
@@ -58,9 +57,9 @@ export async function request<T>(
         : response.status === 404
           ? '资源不存在或当前账号无权访问。'
           : response.status === 413
-            ? '图片超过当前环境的文件或像素预算。'
+            ? '图片超过服务器的安全上限（默认 50MB、1 亿像素），请压缩后再上传。'
             : response.status === 415
-              ? '只支持内容匹配的 PNG/JPEG 图片。'
+              ? '无法识别的图片格式。HEIC、TIFF 等格式请先另存为 JPG 或 PNG 再上传。'
               : response.status === 429
                 ? '请求过于频繁，请稍后重试。'
                 : (messages[code] ?? '服务暂时不可用，请稍后重试。')

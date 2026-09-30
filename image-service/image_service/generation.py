@@ -12,7 +12,7 @@ import math
 import time
 import uuid
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from image_service import typeset
 from image_service.background import BackgroundRequest
@@ -45,6 +45,10 @@ def fit_background(image, width, height):
 
 
 REFERENCE_SIDE = 1536  # references are downscaled for transfer only; outputs are unaffected
+ORIENTATION = 0x0112  # EXIF tag
+# Originals are capped at 100 megapixels by the business service; allow them explicitly instead
+# of Pillow's generic decompression-bomb default.
+Image.MAX_IMAGE_PIXELS = 120_000_000
 PRESERVE = (
     "Reference image 1 is the product photographed on a white background. Show this exact "
     "product: keep its shape, proportions, colours, materials, logo, printed text, markings and "
@@ -82,14 +86,26 @@ def _raw(api, request, lease, field):
 
 
 def _reference(raw):
-    """Keep the original bytes when small enough; otherwise a downscaled PNG copy."""
+    """The model's copy of an original: the original bytes when they are small, upright and in
+    a plain colour mode; otherwise an upright, RGB(A), downscaled PNG. Originals may carry EXIF
+    orientation (phone photos), CMYK or 16-bit data and up to 100 megapixels (ADR-20260930-D)."""
     with Image.open(io.BytesIO(raw)) as image:
         if image.format not in ("PNG", "JPEG"):
             raise ValueError("unsupported reference format")
-        if max(image.size) <= REFERENCE_SIDE and len(raw) <= 4 * 1024 * 1024:
+        upright = image.getexif().get(ORIENTATION, 1) == 1
+        plain = image.mode in ("RGB", "RGBA", "L", "LA", "P")
+        small = max(image.size) <= REFERENCE_SIDE and len(raw) <= 4 * 1024 * 1024
+        if upright and plain and small:
             return raw
+        if image.format == "JPEG":
+            # Decode large JPEGs at a reduced scale (never below the reference size).
+            image.draft("RGB", (REFERENCE_SIDE, REFERENCE_SIDE))
         image.load()
-        copy = image.convert("RGBA" if image.mode in ("RGBA", "LA", "P") else "RGB")
+        copy = ImageOps.exif_transpose(image)
+        transparent = copy.mode in ("RGBA", "LA", "PA") or (
+            copy.mode == "P" and "transparency" in copy.info
+        )
+        copy = copy.convert("RGBA" if transparent else "RGB")
         copy.thumbnail((REFERENCE_SIDE, REFERENCE_SIDE), Image.Resampling.LANCZOS)
         stream = io.BytesIO()
         copy.save(stream, format="PNG")

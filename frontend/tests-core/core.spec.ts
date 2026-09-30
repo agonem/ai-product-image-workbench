@@ -474,6 +474,7 @@ test('V4-B7: owners delete an original and a result; history keeps a placeholder
   })
   await page.getByRole('link', { name: '素材管理' }).click()
   const assets = page.getByTestId('asset-card')
+  await expect(assets.first()).toBeVisible()
   const before = await assets.count()
   await assets.first().hover()
   await assets
@@ -510,4 +511,19 @@ test('V4-B7: owners delete an original and a result; history keeps a placeholder
   await expect(toast(page)).toContainText('生成结果已删除')
   await expect(cards).toHaveCount(results - 1)
   expect(await alert(page).count()).toBe(0)
+})
+
+test('V4-B10: an image the browser can open is accepted whatever its name or format', async ({
+  page,
+}) => {
+  await login(page)
+  await page.getByRole('link', { name: '素材管理' }).click()
+  const cards = page.getByTestId('asset-card')
+  await expect(cards.first()).toBeVisible()
+  const before = await cards.count()
+  // WebP content under a ".jpg" name: stored as a PNG copy of its pixels.
+  await page.getByLabel('上传商品图').setInputFiles(process.env.CORE_WEBP_FILE!)
+  await expect(toast(page)).toContainText('已转为 PNG 保存')
+  await expect(cards).toHaveCount(before + 1)
+  await expect(cards.first().locator('img')).toBeVisible()
 })

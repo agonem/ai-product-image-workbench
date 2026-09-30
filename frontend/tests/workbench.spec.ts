@@ -56,7 +56,7 @@ test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failur
     mimeType: 'image/png',
     buffer: Buffer.from('not an image'),
   })
-  await expect(page.getByRole('alert')).toContainText('图片内容或尺寸')
+  await expect(page.getByRole('alert')).toContainText('无法读取这张图片')
   await page.getByLabel('上传商品图').setInputFiles({
     name: 'synthetic.jpg',
     mimeType: 'image/jpeg',

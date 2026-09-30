@@ -43,9 +43,9 @@ public class RuntimeErrors {
     String message =
         switch (code) {
           case "UNAUTHORIZED" -> "登录信息无效或已过期";
-          case "UPLOAD_TYPE_UNSUPPORTED" -> "请上传与声明类型一致的 PNG 或 JPEG";
-          case "UPLOAD_CONTENT_REJECTED" -> "图片损坏或含未支持元数据，请使用无附加元数据的 PNG/JPEG";
-          case "UPLOAD_BUDGET_EXCEEDED" -> "图片超过开发环境的大小或像素限制";
+          case "UPLOAD_TYPE_UNSUPPORTED" -> "无法识别的图片格式，请在页面上传（会自动转换）或另存为 JPG/PNG";
+          case "UPLOAD_CONTENT_REJECTED" -> "图片文件不完整或已损坏，请重新导出后上传";
+          case "UPLOAD_BUDGET_EXCEEDED" -> "图片超过服务器的安全上限（文件或像素过大）";
           case "MODEL_UNAVAILABLE" -> "所选模型已停用或不存在，请重新选择";
           case "DEFAULT_MODEL" -> "默认模型不能停用，请先把其他模型设为默认";
           case "ASSET_IN_USE" -> "这张原图正在生成中使用，完成后再删除";

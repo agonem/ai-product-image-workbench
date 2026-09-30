@@ -123,9 +123,10 @@ def verify(run):
     endpoint = f"/api/v1/projects/{project}/assets?kind=PRODUCT"
     assert run.http("POST", endpoint, token=bob, data=png(), mime="image/png")[0] == 404
     before = run.sql("SELECT count(*) FROM assets")
+    # ADR-20260930-D: the content decides the type and metadata is kept; unknown, damaged and
+    # oversized inputs are still refused before anything is stored.
     malformed = [
-        (png(), "image/jpeg", 415),
-        (b"not an image", "image/png", 422),
+        (b"not an image", "image/png", 415),
         (png()[:-6], "image/png", 422),
         (png() + b"trailer", "image/png", 422),
         (b"x" * 2049, "image/png", 413),
@@ -135,11 +136,6 @@ def verify(run):
             + png()[33:],
             "image/png",
             413,
-        ),
-        (
-            png()[:-12] + chunk(b"zTXt", b"secret\0\0" + zlib.compress(b"x" * 10000)) + png()[-12:],
-            "image/png",
-            422,
         ),
     ]
     for data, mime, expected in malformed:
@@ -153,6 +149,19 @@ def verify(run):
         == 400
     )
     assert run.sql("SELECT count(*) FROM assets") == before
+    accepted = [
+        (png(), "image/jpeg"),  # declared type wrong: the PNG content wins
+        (
+            png()[:-12] + chunk(b"zTXt", b"note\0\0" + zlib.compress(b"x" * 10000)) + png()[-12:],
+            "application/octet-stream",
+        ),
+    ]
+    for data, mime in accepted:
+        status, value, _ = run.http("POST", endpoint, token=alice, data=data, mime=mime)
+        assert status == 201, ("accepted upload", status, value)
+        content = run.http("GET", f"/api/v1/assets/{value['id']}/content", token=alice)[1]
+        assert content == data, "original bytes must be kept unchanged"
+    assert int(run.sql("SELECT count(*) FROM assets")) == int(before) + len(accepted)
     print(
         "PASS ACC-T04-DEV A1/A2/A3/A5: local identity, project isolation and invalid uploads",
         flush=True,
