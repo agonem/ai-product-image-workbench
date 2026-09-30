@@ -3,15 +3,22 @@ import { computed, inject, ref } from 'vue'
 import EmptyState from '../components/EmptyState.vue'
 import LineIcon from '../components/LineIcon.vue'
 import PrivateImage from '../workbench/PrivateImage.vue'
+import { confirmAction } from '../workbench/confirm'
 import { workbenchKey } from '../workbench/useWorkbench'
 
 const w = inject(workbenchKey)!
 const kind = ref<'PRODUCT' | 'GIFT'>('PRODUCT')
 const items = computed(() => (kind.value === 'PRODUCT' ? w.products : w.gifts))
 const label = computed(() => (kind.value === 'PRODUCT' ? '商品图' : '赠品图'))
-function remove(id: string) {
-  if (confirm('确定删除这张原图？删除后不可恢复；用它生成过的结果仍保留。'))
-    void w.deleteAsset(id)
+async function remove(id: string) {
+  if (
+    await confirmAction(
+      '删除原图',
+      '删除后不可恢复，也不能再用它生成；用它生成过的结果仍保留。',
+      '删除',
+    )
+  )
+    await w.deleteAsset(id)
 }
 async function pick(event: Event) {
   const input = event.target as HTMLInputElement

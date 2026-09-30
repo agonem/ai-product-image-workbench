@@ -25,6 +25,7 @@ import {
 } from '../workbench/generation'
 import type { Feature, Generation, Task } from '../workbench/model'
 import { providerNames } from '../workbench/model'
+import { confirmAction } from '../workbench/confirm'
 import { workbenchKey } from '../workbench/useWorkbench'
 
 const w = inject(workbenchKey)!
@@ -50,6 +51,8 @@ function toggle(id: string) {
 const view = ref<{ task: string; ordinal: number } | null>(null)
 const mode = ref<'plan' | 'result'>('plan')
 const compare = ref(false)
+// The canvas measures the text like the server does; see StudioCanvas.
+const textOverflow = ref(false)
 watch(feature, () => {
   view.value = null
   mode.value = 'plan'
@@ -235,9 +238,15 @@ async function retry(task: string) {
   await w.select(task)
   await w.retry()
 }
-function remove(artifact: string) {
-  if (confirm('确定删除这张生成结果？删除后不可恢复，也不能再免费改字。'))
-    void w.deleteArtifact(artifact)
+async function remove(artifact: string) {
+  if (
+    await confirmAction(
+      '删除生成结果',
+      '删除后不可恢复，也不能再免费修改这张图的文字。',
+      '删除',
+    )
+  )
+    await w.deleteArtifact(artifact)
 }
 watch(
   () => [w.selected?.id, w.selected?.status] as const,
@@ -591,6 +600,14 @@ onMounted(() => {
         >
           {{ blocked }}
         </p>
+        <p
+          v-else-if="hasText && textOverflow"
+          class="reason warn"
+          role="note"
+          data-testid="text-overflow"
+        >
+          文字在文字框里放不下，生成后会失败：请缩短文字、调小字号或放大文字框。
+        </p>
         <button
           type="button"
           class="btn primary generate-button"
@@ -640,6 +657,7 @@ onMounted(() => {
         :api="w.api"
         @moved="draft.textPosition = ''"
         @apply="applyText"
+        @overflow="textOverflow = $event"
         @retry="shown && retry(shown.id)"
       />
       <div class="results">

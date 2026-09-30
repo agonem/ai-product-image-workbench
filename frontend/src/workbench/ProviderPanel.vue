@@ -4,6 +4,7 @@ import { json } from '../api/workbench'
 import EmptyState from '../components/EmptyState.vue'
 import LineIcon from '../components/LineIcon.vue'
 import ModalDialog from '../components/ModalDialog.vue'
+import { confirmAction } from './confirm'
 import { providerNames } from './model'
 
 // Admin model catalogue (ADR-20260929-C): several models, one default, per-model proxy.
@@ -167,7 +168,14 @@ async function saveProxy() {
   })
 }
 async function clearProxy() {
-  if (!confirm('确定清除代理？勾选了“走代理”的模型将改为直连。')) return
+  if (
+    !(await confirmAction(
+      '清除代理',
+      '清除后，勾选了“走代理”的模型将改为直连。',
+      '清除',
+    ))
+  )
+    return
   await action(async () => {
     await props.api('/admin/network-proxy', { method: 'DELETE' })
     await load()

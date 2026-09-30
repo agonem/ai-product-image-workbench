@@ -6,14 +6,21 @@ import LineIcon from '../components/LineIcon.vue'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import { featureName, features } from '../workbench/generation'
 import type { Feature } from '../workbench/model'
+import { confirmAction } from '../workbench/confirm'
 import { workbenchKey } from '../workbench/useWorkbench'
 
 const w = inject(workbenchKey)!
 const filter = ref<Feature | ''>('')
 const comparing = ref<{ task: string; artifact: string } | null>(null)
-function remove(artifact: string) {
-  if (confirm('确定删除这张生成结果？删除后不可恢复，也不能再免费改字。'))
-    void w.deleteArtifact(artifact)
+async function remove(artifact: string) {
+  if (
+    await confirmAction(
+      '删除生成结果',
+      '删除后不可恢复，也不能再免费修改这张图的文字。',
+      '删除',
+    )
+  )
+    await w.deleteArtifact(artifact)
 }
 const time = (value: string) =>
   new Date(value).toLocaleString('zh-CN', {

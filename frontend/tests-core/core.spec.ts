@@ -52,6 +52,12 @@ async function section(page: Page, title: string) {
   const head = page.getByRole('button', { name: new RegExp(`^${title}`) })
   if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
 }
+/** Answer the in-page confirmation dialog with its action button. */
+async function confirm(page: Page, title: string) {
+  const dialog = page.getByRole('dialog', { name: title })
+  await dialog.getByTestId('confirm-action').click()
+  await expect(dialog).toHaveCount(0)
+}
 function watchErrors(page: Page) {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
@@ -287,6 +293,77 @@ test('V4-B5: a lost response is resent with the same key and body', async ({
   await expect(resend).toHaveCount(0)
 })
 
+test('V4-B8: a new result finishes on screen while another result is being viewed', async ({
+  page,
+}) => {
+  await login(page)
+  await page.getByRole('link', { name: '场景主图' }).click()
+  const tiles = page.getByTestId('result-card')
+  await expect(tiles.first()).toBeVisible()
+  const older = new Set(
+    await tiles.evaluateAll((items) =>
+      items.map((item) => item.getAttribute('data-task')!),
+    ),
+  )
+  // Hold the new task at QUEUED in every response until the user has moved to another result.
+  let hold = true
+  await page.route('**/api/v4/generation-tasks/*', async (route) => {
+    const id = new URL(route.request().url()).pathname.split('/').pop()!
+    if (route.request().method() !== 'GET' || !hold || older.has(id))
+      return route.continue()
+    const response = await route.fetch()
+    const detail = await response.json()
+    await route.fulfill({
+      response,
+      json: { ...detail, status: 'QUEUED', artifacts: [], bases: [] },
+    })
+  })
+  await page.route('**/api/v1/projects/*/tasks*', async (route) => {
+    if (!hold) return route.continue()
+    const response = await route.fetch()
+    const listing = await response.json()
+    for (const item of listing.items)
+      if (!older.has(item.task.id))
+        item.task = { ...item.task, status: 'QUEUED', artifacts: [] }
+    await route.fulfill({ response, json: listing })
+  })
+  const { id } = await submitAndTrack(page, () =>
+    page.getByTestId('generate').click(),
+  )
+  const fresh = page.locator(`[data-testid="result-card"][data-task="${id}"]`)
+  await expect(fresh).toHaveAttribute('data-status', 'QUEUED')
+  await expect(page.getByTestId('design-stage')).toContainText('正在生成')
+  await tiles
+    .and(page.locator(`[data-status="SUCCEEDED"]`))
+    .first()
+    .getByRole('button', { name: /^查看结果/ })
+    .click()
+  hold = false
+  // No manual refresh: the background check picks up the finished task.
+  await expect(done(page, id)).toHaveCount(1, { timeout: 20000 })
+})
+
+test('V4-B9: text that cannot fit its box is flagged before generating', async ({
+  page,
+}) => {
+  await login(page)
+  await page.getByRole('link', { name: '赠品+文字主图' }).click()
+  await section(page, '营销文字')
+  await page.getByLabel('标题').fill('测'.repeat(60))
+  await expect(page.getByTestId('text-overflow')).toBeVisible()
+  await expect(page.getByTestId('text-layer')).toHaveAttribute(
+    'data-overflow',
+    'true',
+  )
+  await page.screenshot({ path: join(artifacts, 'gift-overflow.png') })
+  await page.getByLabel('标题').fill('下单即送')
+  await expect(page.getByTestId('text-overflow')).toHaveCount(0)
+  await expect(page.getByTestId('text-layer')).toHaveAttribute(
+    'data-overflow',
+    'false',
+  )
+})
+
 test('V4-B6: history, works, account page and the admin model settings', async ({
   page,
   browser,
@@ -366,8 +443,8 @@ test('V4-B6: history, works, account page and the admin model settings', async (
     path: join(artifacts, 'models-admin.png'),
     fullPage: true,
   })
-  admin.once('dialog', (confirm) => void confirm.accept())
   await admin.getByRole('button', { name: '清除代理' }).click()
+  await confirm(admin, '清除代理')
   await expect(admin.getByTestId('proxy-state')).toHaveText('未设置')
   // Operators pick any enabled model on the create pages.
   await admin.getByRole('link', { name: '场景主图' }).click()
@@ -391,7 +468,10 @@ test('V4-B7: owners delete an original and a result; history keeps a placeholder
   page,
 }) => {
   await login(page)
-  page.on('dialog', (dialog) => void dialog.accept())
+  // Every confirmation is an in-page dialog; a native browser box would fail this test.
+  page.on('dialog', (dialog) => {
+    throw new Error(`unexpected native dialog: ${dialog.message()}`)
+  })
   await page.getByRole('link', { name: '素材管理' }).click()
   const assets = page.getByTestId('asset-card')
   const before = await assets.count()
@@ -400,6 +480,7 @@ test('V4-B7: owners delete an original and a result; history keeps a placeholder
     .first()
     .getByRole('button', { name: /^删除素材/ })
     .click()
+  await confirm(page, '删除原图')
   await expect(toast(page)).toContainText('原图已删除')
   await expect(assets).toHaveCount(before - 1)
   await page.screenshot({ path: join(artifacts, 'assets-desktop.png') })
@@ -417,6 +498,15 @@ test('V4-B7: owners delete an original and a result; history keeps a placeholder
   const results = await cards.count()
   await cards.first().hover()
   await cards.first().getByRole('button', { name: '删除' }).click()
+  // Cancelling keeps the result.
+  await page
+    .getByRole('dialog', { name: '删除生成结果' })
+    .getByRole('button', { name: '取消' })
+    .click()
+  await expect(cards).toHaveCount(results)
+  await cards.first().hover()
+  await cards.first().getByRole('button', { name: '删除' }).click()
+  await confirm(page, '删除生成结果')
   await expect(toast(page)).toContainText('生成结果已删除')
   await expect(cards).toHaveCount(results - 1)
   expect(await alert(page).count()).toBe(0)

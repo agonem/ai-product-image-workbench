@@ -1596,7 +1596,7 @@ dialog.modal::backdrop {
 .textbox {
   position: absolute;
   border: 1px dashed transparent;
-  padding: 0.6cqw;
+  padding: 0;
   cursor: move;
   touch-action: none;
   display: grid;
@@ -1605,30 +1605,41 @@ dialog.modal::backdrop {
 .stage.edit .textbox {
   border-color: var(--accent);
 }
+/* Geometry mirrors image-service typeset.py (in units of the point size): gap after the
+   title 1, between points 0.6, pill height 1.9, padding 0.6 / 0.72, icon 1.15. */
+.textbox .tb-content {
+  width: max-content;
+}
 .textbox .ttl {
   font-weight: 700;
-  line-height: 1.18;
-  white-space: pre-line;
-  word-break: break-word;
+  line-height: 1.25;
+  white-space: pre;
 }
 .textbox .pills {
   display: flex;
   flex-direction: column;
-  gap: 0.5em;
-  margin-top: 0.7em;
+  gap: 0.6em;
+  margin-top: 1em;
+}
+.textbox .ttl + .pills {
+  margin-top: 1em;
+}
+.textbox .pills:first-child {
+  margin-top: 0;
 }
 .textbox .pill {
   display: inline-flex;
   align-items: center;
-  gap: 0.45em;
+  gap: 0.48em;
+  height: 1.9em;
   border-radius: 999px;
-  padding: 0.28em 0.8em;
+  padding: 0 0.72em 0 0.6em;
   font-weight: 500;
   white-space: pre;
 }
 .textbox .pill i {
-  width: 1.1em;
-  height: 1.1em;
+  width: 1.15em;
+  height: 1.15em;
   border-radius: 50%;
   display: inline-grid;
   place-items: center;
@@ -2068,4 +2079,28 @@ label.btn[aria-disabled='true'] {
     top: 12px;
     right: 16px;
   }
+}
+.confirm-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--ink-2);
+  line-height: 1.6;
+}
+.confirm-message .icon {
+  color: var(--danger);
+  margin-top: 2px;
+}
+.btn.primary.danger-fill {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.btn.primary.danger-fill:hover:enabled {
+  background: #c1322a;
+  border-color: #c1322a;
+}
+.textbox.overflow,
+.stage.edit .textbox.overflow {
+  border-color: var(--danger);
+  background: rgba(216, 58, 48, 0.06);
 }

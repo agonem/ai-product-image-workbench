@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { provide, reactive } from 'vue'
 import { useRoute } from 'vue-router'
+import ConfirmHost from './components/ConfirmHost.vue'
 import LineIcon from './components/LineIcon.vue'
 import SideNav from './components/SideNav.vue'
 import LoginView from './views/LoginView.vue'
@@ -46,5 +47,6 @@ provide(workbenchKey, w)
       />
       <p v-else class="loading-screen">正在准备工作区…</p>
     </div>
+    <ConfirmHost />
   </div>
 </template>

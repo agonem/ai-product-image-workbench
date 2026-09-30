@@ -113,8 +113,49 @@ export function useWorkbench() {
     if (value) noticeTimer = setTimeout(() => (notice.value = ''), 6000)
   })
 
+  // Tasks submitted in this session keep being checked while another result is on screen,
+  // so a new image never stays "generating" just because the user looked elsewhere.
+  const watched = new Set<string>()
+  let watchTimer: ReturnType<typeof setTimeout> | undefined
+
   function stopPolling() {
     clearTimeout(timer)
+  }
+  function scheduleWatch() {
+    clearTimeout(watchTimer)
+    if (signedIn.value && [...watched].some((id) => id !== selected.value?.id))
+      watchTimer = setTimeout(() => void checkWatched(), 4000)
+  }
+  async function checkWatched() {
+    const current = projectEpoch
+    let finished = false
+    for (const id of [...watched]) {
+      if (id === selected.value?.id) continue // polled by refreshTask
+      try {
+        const detail = checked(
+          await api<Generation>(`/v4/generation-tasks/${id}`),
+        )
+        if (current !== projectEpoch) return
+        const item = history.value.find((entry) => entry.task.id === id)
+        if (item)
+          item.task = {
+            ...item.task,
+            status: detail.status,
+            attempt: detail.attempt,
+            artifacts: detail.artifacts,
+            error: detail.error,
+          }
+        if (!['QUEUED', 'RUNNING'].includes(detail.status)) {
+          watched.delete(id)
+          finished = true
+        }
+      } catch {
+        // Background check only: the next round retries; the on-screen task reports errors.
+        if (current !== projectEpoch) return
+      }
+    }
+    if (finished) await refreshHistory().catch(() => undefined)
+    scheduleWatch()
   }
   function resetDrafts() {
     for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const)
@@ -150,6 +191,8 @@ export function useWorkbench() {
     abort.abort()
     abort = new AbortController()
     stopPolling()
+    watched.clear()
+    clearTimeout(watchTimer)
     signedIn.value = false
     password.value = ''
     project.value = ''
@@ -463,6 +506,7 @@ export function useWorkbench() {
     if (current !== projectEpoch || sequence !== refreshSequence) return
     selected.value = detail
     schedule()
+    scheduleWatch()
   }
   async function refreshTask() {
     const id = selected.value?.id,
@@ -481,7 +525,10 @@ export function useWorkbench() {
       )
         return
       selected.value = detail
-      if (!['QUEUED', 'RUNNING'].includes(detail.status)) await refreshHistory()
+      if (!['QUEUED', 'RUNNING'].includes(detail.status)) {
+        watched.delete(id)
+        await refreshHistory()
+      }
       schedule()
     } catch (cause) {
       if (current === projectEpoch && selected.value?.id === id) {
@@ -508,6 +555,7 @@ export function useWorkbench() {
       )
       submission.resolve()
       uncertain.value = false
+      watched.add(task.id)
       await refreshHistory()
       await select(task.id)
     } catch (cause) {
@@ -542,12 +590,14 @@ export function useWorkbench() {
         `/tasks/${task.id}/retry`,
         json({ attempt: task.attempt }),
       )
+      watched.add(task.id)
       await select(task.id)
     })
   }
 
   onUnmounted(() => {
     clearTimeout(noticeTimer)
+    clearTimeout(watchTimer)
     reset()
   })
   void restore()

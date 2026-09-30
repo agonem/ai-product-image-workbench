@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { Box, Feature, TextSpec } from '../workbench/model'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import DropSelect from './DropSelect.vue'
@@ -29,7 +29,12 @@ const props = defineProps<{
 const mode = defineModel<'plan' | 'result'>('mode', { required: true })
 const compare = defineModel<boolean>('compare', { required: true })
 const box = defineModel<Box>('box', { required: true })
-const emit = defineEmits<{ apply: []; moved: []; retry: [] }>()
+const emit = defineEmits<{
+  apply: []
+  moved: []
+  retry: []
+  overflow: [value: boolean]
+}>()
 
 const hasText = computed(() => props.feature !== 'SCENE')
 const textOn = ref(true),
@@ -93,13 +98,55 @@ const layerStyle = computed(() => ({
         ? 'end'
         : 'start',
 }))
-// Same proportions as the Worker's typesetting (points 0.55 × title); approximate.
+// Same rules as the Worker's typesetting: points are 0.55 × the title, nothing wraps, and the
+// whole block shrinks until it fits its box; below a 12px title the server refuses
+// (TEXT_OVERFLOW, after the paid model call), so the page warns first. Browser fonts differ
+// slightly from the deployment font, so this is an approximation.
+const layer = ref<HTMLElement>(),
+  content = ref<HTMLElement>()
+const fit = ref(1),
+  overflow = ref(false)
+function measure() {
+  const block = content.value,
+    frame = layer.value
+  if (!block || !frame || !props.text) {
+    fit.value = 1
+    overflow.value = false
+    return
+  }
+  const naturalWidth = block.offsetWidth / fit.value,
+    naturalHeight = block.offsetHeight / fit.value
+  if (!naturalWidth || !naturalHeight || !frame.clientWidth) return
+  const next = Math.min(
+    1,
+    frame.clientWidth / naturalWidth,
+    frame.clientHeight / naturalHeight,
+  )
+  const minimum = 12 / Math.max(12, props.text.size)
+  overflow.value = next < minimum
+  const value = Math.max(next, minimum)
+  if (Math.abs(value - fit.value) > 0.004) fit.value = value
+}
+const remeasure = () => void nextTick(measure)
+watch(() => [props.text, box.value, props.width, zoom.value], remeasure)
+watch(overflow, (value) => emit('overflow', value))
+let observer: ResizeObserver | undefined
+onMounted(() => {
+  observer = new ResizeObserver(remeasure)
+  if (board.value) observer.observe(board.value)
+  void document.fonts?.ready.then(remeasure)
+})
+onUnmounted(() => {
+  observer?.disconnect()
+  emit('overflow', false)
+})
 const titleEm = computed(
-  () => `${((props.text?.size ?? 56) / Math.max(64, props.width)) * 100}cqw`,
+  () =>
+    `${((props.text?.size ?? 56) * fit.value * 100) / Math.max(64, props.width)}cqw`,
 )
 const pointEm = computed(
   () =>
-    `${((props.text?.size ?? 56) * 0.55 * 100) / Math.max(64, props.width)}cqw`,
+    `${((props.text?.size ?? 56) * 0.55 * fit.value * 100) / Math.max(64, props.width)}cqw`,
 )
 
 let drag: { mode: 'move' | 'resize'; x: number; y: number; start: Box } | null =
@@ -240,15 +287,18 @@ function nudge(event: KeyboardEvent) {
         <div
           v-if="hasText && (text || (!showResult && textOn))"
           v-show="textOn || showResult"
+          ref="layer"
           class="textbox"
+          :class="{ overflow }"
           data-testid="text-layer"
+          :data-overflow="overflow"
           :style="layerStyle"
           @pointerdown="down('move', $event)"
           @pointermove="move"
           @pointerup="up"
           @pointercancel="up"
         >
-          <template v-if="text">
+          <div v-if="text" ref="content" class="tb-content">
             <div
               v-if="text.title"
               class="ttl"
@@ -278,7 +328,7 @@ function nudge(event: KeyboardEvent) {
                 >{{ point }}</span
               >
             </div>
-          </template>
+          </div>
           <span v-else class="zone" style="inset: 0">文字</span>
           <span
             class="grip"
