@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  inject,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  watch,
+} from 'vue'
 import { useRoute } from 'vue-router'
 import AssetSlot from '../components/AssetSlot.vue'
 import DropSelect from '../components/DropSelect.vue'
@@ -8,6 +16,7 @@ import ImageViewer from '../components/ImageViewer.vue'
 import LineIcon from '../components/LineIcon.vue'
 import ParamSection from '../components/ParamSection.vue'
 import SceneArt from '../components/SceneArt.vue'
+import TemplateMenu from '../components/TemplateMenu.vue'
 import StudioCanvas from '../components/StudioCanvas.vue'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import {
@@ -24,6 +33,7 @@ import {
   textPositions,
   textSpec,
 } from '../workbench/generation'
+import type { GenerationDraft } from '../workbench/generation'
 import type { Feature, Generation, Task } from '../workbench/model'
 import { providerNames } from '../workbench/model'
 import { confirmAction } from '../workbench/confirm'
@@ -290,6 +300,93 @@ function openFromQuery() {
   if (typeof task === 'string') void open(task, 0)
 }
 watch(() => route.query.task, openFromQuery)
+// Undo/redo (ADR-20260930-F): every setting except the chosen images, per entry. A burst of
+// edits (typing, dragging) becomes one step once it pauses.
+const stacks = reactive<Record<Feature, { past: string[]; future: string[] }>>({
+  GIFT: { past: [], future: [] },
+  SCENE: { past: [], future: [] },
+  SELLING_POINT: { past: [], future: [] },
+})
+const stack = computed(() => stacks[feature.value])
+const tracked = (value: GenerationDraft) =>
+  JSON.stringify(value, (key, item) =>
+    key === 'product' || key === 'gift' ? undefined : item,
+  )
+let settled = tracked(draft.value),
+  restoring = false,
+  pause: ReturnType<typeof setTimeout> | undefined
+const pending = ref<string | null>(null)
+function commit() {
+  clearTimeout(pause)
+  if (pending.value === null) return
+  const now = tracked(draft.value)
+  if (now !== pending.value) {
+    stack.value.past.push(pending.value)
+    if (stack.value.past.length > 50) stack.value.past.shift()
+    stack.value.future = []
+  }
+  settled = now
+  pending.value = null
+}
+watch(
+  () => tracked(draft.value),
+  (now) => {
+    if (restoring) {
+      restoring = false
+      settled = now
+      return
+    }
+    if (pending.value === null) pending.value = settled
+    clearTimeout(pause)
+    pause = setTimeout(commit, 400)
+  },
+)
+watch(feature, () => {
+  clearTimeout(pause)
+  pending.value = null
+  settled = tracked(draft.value)
+})
+function restore(snapshot: string) {
+  if (snapshot === tracked(draft.value)) return
+  restoring = true
+  Object.assign(draft.value, JSON.parse(snapshot))
+  settled = snapshot
+}
+function undo() {
+  commit()
+  const previous = stack.value.past.pop()
+  if (previous === undefined) return
+  stack.value.future.push(settled)
+  restore(previous)
+}
+function redo() {
+  commit()
+  const next = stack.value.future.pop()
+  if (next === undefined) return
+  stack.value.past.push(settled)
+  restore(next)
+}
+const canUndo = computed(
+  () => stack.value.past.length > 0 || pending.value !== null,
+)
+const canRedo = computed(() => stack.value.future.length > 0)
+function shortcut(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+  const target = event.target as HTMLElement | null
+  // Text fields keep the browser's own undo for what is being typed.
+  if (target?.closest('input, textarea, select, [contenteditable]')) return
+  const key = event.key.toLowerCase()
+  if (key === 'z' && !event.shiftKey) undo()
+  else if (key === 'y' || (key === 'z' && event.shiftKey)) redo()
+  else return
+  event.preventDefault()
+}
+onMounted(() => window.addEventListener('keydown', shortcut))
+onUnmounted(() => {
+  window.removeEventListener('keydown', shortcut)
+  clearTimeout(pause)
+})
+
 onMounted(() => {
   void w.refreshOptions()
   openFromQuery()
@@ -300,7 +397,14 @@ onMounted(() => {
   <main class="board">
     <section class="card studio-left" aria-label="素材与参数">
       <div class="sec">
-        <h2 class="sec-head">素材</h2>
+        <div class="sec-head">
+          <h2>素材</h2>
+          <TemplateMenu
+            :feature="feature"
+            :draft="draft"
+            @apply="Object.assign(draft, $event)"
+          />
+        </div>
         <div class="slots" :class="{ one: feature !== 'GIFT' }">
           <AssetSlot v-model="draft.product" label="商品图" kind="PRODUCT" />
           <AssetSlot
@@ -683,6 +787,10 @@ onMounted(() => {
         @moved="draft.textPosition = ''"
         @apply="applyText"
         @overflow="textOverflow = $event"
+        :can-undo="canUndo"
+        :can-redo="canRedo"
+        @undo="undo"
+        @redo="redo"
         @retry="shown && retry(shown.id)"
       />
       <div class="results">

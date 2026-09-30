@@ -25,6 +25,9 @@ const props = defineProps<{
   canApply: boolean
   disabled: boolean
   api: <T>(path: string, init?: RequestInit) => Promise<T>
+  /** Undo/redo live in the page (they cover every setting); the canvas offers the buttons. */
+  canUndo?: boolean
+  canRedo?: boolean
 }>()
 const mode = defineModel<'plan' | 'result'>('mode', { required: true })
 const compare = defineModel<boolean>('compare', { required: true })
@@ -34,12 +37,59 @@ const emit = defineEmits<{
   moved: []
   retry: []
   overflow: [value: boolean]
+  undo: []
+  redo: []
 }>()
 
 const hasText = computed(() => props.feature !== 'SCENE')
 const textOn = ref(true),
   zoom = ref(1),
   split = ref(50)
+// Layers (ADR-20260930-F): the text can be hidden or locked; guides and layout zones toggle.
+const layers = ref({ locked: false, zones: true, guides: false })
+const layerMenu = ref(false),
+  layerRoot = ref<HTMLElement>()
+function outsideLayers(event: PointerEvent) {
+  if (!layerRoot.value?.contains(event.target as Node)) layerMenu.value = false
+}
+watch(layerMenu, (open) =>
+  open
+    ? document.addEventListener('pointerdown', outsideLayers, true)
+    : document.removeEventListener('pointerdown', outsideLayers, true),
+)
+// Snap lines shown while the text box is dragged (share of the canvas; null = none).
+const snap = ref<{ x: number | null; y: number | null }>({ x: null, y: null })
+const SNAP_TARGETS = [0.05, 0.5, 0.95]
+const SNAP_DISTANCE = 0.012
+/** Moves a span so one of its edges or its centre lands on a guide when close enough. */
+function snapSpan(
+  start: number,
+  size: number,
+): { value: number; line: number | null } {
+  let best: { shift: number; line: number } | null = null
+  for (const edge of [start, start + size / 2, start + size])
+    for (const target of SNAP_TARGETS) {
+      const shift = target - edge
+      if (
+        Math.abs(shift) < SNAP_DISTANCE &&
+        (!best || Math.abs(shift) < Math.abs(best.shift))
+      )
+        best = { shift, line: target }
+    }
+  return best
+    ? { value: start + best.shift, line: best.line }
+    : { value: start, line: null }
+}
+/** Snaps the far edge of a span (resizing). */
+function snapEdge(
+  start: number,
+  size: number,
+): { value: number; line: number | null } {
+  for (const target of SNAP_TARGETS)
+    if (Math.abs(start + size - target) < SNAP_DISTANCE)
+      return { value: target - start, line: target }
+  return { value: size, line: null }
+}
 const board = ref<HTMLElement>()
 const showResult = computed(() => mode.value === 'result' && props.hasResult)
 const zooms = [
@@ -137,6 +187,7 @@ onMounted(() => {
   void document.fonts?.ready.then(remeasure)
 })
 onUnmounted(() => {
+  document.removeEventListener('pointerdown', outsideLayers, true)
   observer?.disconnect()
   emit('overflow', false)
 })
@@ -152,7 +203,7 @@ const pointEm = computed(
 let drag: { mode: 'move' | 'resize'; x: number; y: number; start: Box } | null =
   null
 function down(kind: 'move' | 'resize', event: PointerEvent) {
-  if (props.disabled || !textOn.value) return
+  if (props.disabled || !textOn.value || layers.value.locked) return
   event.stopPropagation()
   drag = {
     mode: kind,
@@ -170,24 +221,42 @@ function move(event: PointerEvent) {
   if (!dx && !dy) return
   const start = drag.start
   const round = (value: number) => Math.round(value * 1000) / 1000
-  box.value =
-    drag.mode === 'move'
-      ? {
-          ...start,
-          x: round(Math.max(0, Math.min(1 - start.width, start.x + dx))),
-          y: round(Math.max(0, Math.min(1 - start.height, start.y + dy))),
-        }
-      : {
-          ...start,
-          width: round(Math.max(0.12, Math.min(1 - start.x, start.width + dx))),
-          height: round(
-            Math.max(0.08, Math.min(1 - start.y, start.height + dy)),
-          ),
-        }
+  if (drag.mode === 'move') {
+    const x = snapSpan(
+      Math.max(0, Math.min(1 - start.width, start.x + dx)),
+      start.width,
+    )
+    const y = snapSpan(
+      Math.max(0, Math.min(1 - start.height, start.y + dy)),
+      start.height,
+    )
+    snap.value = { x: x.line, y: y.line }
+    box.value = {
+      ...start,
+      x: round(Math.max(0, Math.min(1 - start.width, x.value))),
+      y: round(Math.max(0, Math.min(1 - start.height, y.value))),
+    }
+  } else {
+    const width = snapEdge(
+      start.x,
+      Math.max(0.12, Math.min(1 - start.x, start.width + dx)),
+    )
+    const height = snapEdge(
+      start.y,
+      Math.max(0.08, Math.min(1 - start.y, start.height + dy)),
+    )
+    snap.value = { x: width.line, y: height.line }
+    box.value = {
+      ...start,
+      width: round(Math.max(0.12, Math.min(1 - start.x, width.value))),
+      height: round(Math.max(0.08, Math.min(1 - start.y, height.value))),
+    }
+  }
   emit('moved')
 }
 function up() {
   drag = null
+  snap.value = { x: null, y: null }
 }
 function slide(event: PointerEvent) {
   if (!board.value || (event.type === 'pointermove' && !event.buttons)) return
@@ -208,7 +277,10 @@ function nudge(event: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="stage" :class="{ edit: hasText && textOn && !disabled }">
+  <div
+    class="stage"
+    :class="{ edit: hasText && textOn && !disabled && !layers.locked }"
+  >
     <div class="stage-bar">
       <div class="seg" role="group" aria-label="画布内容">
         <button
@@ -229,6 +301,26 @@ function nudge(event: KeyboardEvent) {
       </div>
       <div class="tools">
         <button
+          type="button"
+          class="tool icon-only"
+          aria-label="撤销"
+          title="撤销（Ctrl+Z）"
+          :disabled="!canUndo"
+          @click="emit('undo')"
+        >
+          <LineIcon name="undo" />
+        </button>
+        <button
+          type="button"
+          class="tool icon-only"
+          aria-label="重做"
+          title="重做（Ctrl+Y）"
+          :disabled="!canRedo"
+          @click="emit('redo')"
+        >
+          <LineIcon name="redo2" />
+        </button>
+        <button
           v-if="hasText"
           type="button"
           class="tool"
@@ -238,6 +330,45 @@ function nudge(event: KeyboardEvent) {
         >
           <LineIcon name="text" /><span class="label">文字框</span>
         </button>
+        <div
+          ref="layerRoot"
+          class="dd layer-menu"
+          @keydown.esc="layerMenu = false"
+        >
+          <button
+            type="button"
+            class="tool"
+            aria-haspopup="true"
+            :aria-expanded="layerMenu"
+            title="图层与参考线"
+            @click="layerMenu = !layerMenu"
+          >
+            <LineIcon name="layers" /><span class="label">图层</span>
+          </button>
+          <div v-if="layerMenu" class="menu" role="group" aria-label="图层">
+            <label v-if="hasText" class="menu-item check"
+              ><input v-model="textOn" type="checkbox" />显示文字</label
+            >
+            <label v-if="hasText" class="menu-item check"
+              ><input
+                v-model="layers.locked"
+                type="checkbox"
+              />锁定文字位置</label
+            >
+            <label class="menu-item check"
+              ><input
+                v-model="layers.zones"
+                type="checkbox"
+              />显示构图区域</label
+            >
+            <label class="menu-item check"
+              ><input
+                v-model="layers.guides"
+                type="checkbox"
+              />显示参考线</label
+            >
+          </div>
+        </div>
         <button
           type="button"
           class="tool"
@@ -278,7 +409,7 @@ function nudge(event: KeyboardEvent) {
             :api="api"
           />
         </template>
-        <template v-else-if="!showResult">
+        <template v-else-if="!showResult && layers.zones">
           <div class="zone" :style="pct(productZone)">商品</div>
           <div v-if="feature === 'GIFT'" class="zone" :style="pct(giftZone)">
             赠品
@@ -381,6 +512,26 @@ function nudge(event: KeyboardEvent) {
             @keydown="nudge"
           ></div>
         </template>
+        <div v-if="layers.guides" class="guides" aria-hidden="true">
+          <i class="v" style="left: 33.333%"></i
+          ><i class="v" style="left: 50%"></i
+          ><i class="v" style="left: 66.667%"></i
+          ><i class="h" style="top: 33.333%"></i
+          ><i class="h" style="top: 50%"></i
+          ><i class="h" style="top: 66.667%"></i>
+          <span class="safe"></span>
+        </div>
+        <i
+          v-if="snap.x !== null"
+          class="snap v"
+          data-testid="snap-line"
+          :style="{ left: `${snap.x * 100}%` }"
+        ></i>
+        <i
+          v-if="snap.y !== null"
+          class="snap h"
+          :style="{ top: `${snap.y * 100}%` }"
+        ></i>
         <div v-if="generating && !showResult" class="generating" role="status">
           <span class="spinner"></span>正在生成…
         </div>

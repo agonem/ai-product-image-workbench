@@ -49,11 +49,13 @@ function done(page: Page, task: string) {
 }
 /** Open a collapsed parameter group (its header also shows the current summary). */
 async function section(page: Page, title: string) {
-  const head = page.getByRole('button', { name: new RegExp(`^${title}`) })
+  const head = page
+    .locator('button.acc-head')
+    .filter({ hasText: new RegExp(`^${title}`) })
   if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
 }
 /** Answer the in-page confirmation dialog with its action button. */
-async function confirm(page: Page, title: string) {
+async function confirm(page: Page, title: string | RegExp) {
   const dialog = page.getByRole('dialog', { name: title })
   await dialog.getByTestId('confirm-action').click()
   await expect(dialog).toHaveCount(0)
@@ -622,4 +624,150 @@ test('V4-B12: images open full-screen with zoom and previous/next', async ({
   await page.screenshot({ path: join(artifacts, 'viewer.png') })
   await page.keyboard.press('Escape')
   await expect(viewer).toHaveCount(0)
+})
+
+test('V4-B13: admins edit scene presets; saving publishes and a rollback restores', async ({
+  page,
+}) => {
+  await login(page, 'admin')
+  await page.getByRole('link', { name: '模板管理' }).click()
+  const scenes = page.getByTestId('preset-scene')
+  await expect(scenes.first()).toBeVisible()
+  const before = await scenes.count()
+  await page.getByRole('button', { name: '添加场景' }).click()
+  await expect(scenes).toHaveCount(before + 1)
+  await page.getByLabel(`场景名称 ${before + 1}`).fill('露台花园')
+  await page
+    .getByLabel(`场景描述 ${before + 1}`)
+    .fill('a sunny balcony garden with potted plants')
+  await page.getByLabel('修改说明').fill('新增露台花园')
+  await page.getByRole('button', { name: '保存并发布' }).click()
+  await expect(page.locator('.banner[role="status"]')).toContainText(
+    '已发布版本',
+  )
+  await page.screenshot({
+    path: join(artifacts, 'presets-admin.png'),
+    fullPage: true,
+  })
+  // The new scene is offered on the scene page right away.
+  await page.getByRole('link', { name: '场景主图' }).click()
+  await section(page, '场景')
+  await expect(page.getByRole('button', { name: '露台花园' })).toBeVisible()
+  await page.getByRole('link', { name: '模板管理' }).click()
+  await page.getByRole('button', { name: '版本记录' }).click()
+  await expect(page.getByTestId('preset-version').first()).toContainText(
+    '新增露台花园',
+  )
+  await page.getByRole('button', { name: '恢复内置默认' }).click()
+  await confirm(page, '恢复内置默认')
+  await expect(page.locator('.banner[role="status"]')).toContainText(
+    '已发布版本',
+  )
+  await page.getByRole('link', { name: '场景主图' }).click()
+  await section(page, '场景')
+  await expect(page.getByRole('button', { name: '露台花园' })).toHaveCount(0)
+})
+
+test('V4-B14: personal templates, undo/redo and layers on the gift page', async ({
+  page,
+}) => {
+  await login(page)
+  await page.getByRole('link', { name: '赠品+文字主图' }).click()
+  // The accordion header; the colour swatches are also named "背景 …".
+  const background = page
+    .locator('button.acc-head')
+    .filter({ hasText: /^背景/ })
+  await section(page, '背景')
+  await page.getByRole('button', { name: '保持原图' }).click()
+  await section(page, '营销文字')
+  await page.getByRole('button', { name: '右上' }).click()
+  // Save the settings as a personal template.
+  await page.getByRole('button', { name: '我的模板' }).click()
+  await page.getByRole('button', { name: '保存当前参数为模板' }).click()
+  const dialog = page.getByRole('dialog', { name: '保存为模板' })
+  await dialog.getByLabel('模板名称').fill('原图背景右上字')
+  await dialog.getByRole('button', { name: '保存模板' }).click()
+  await expect(toast(page)).toContainText('已保存模板')
+  // Change the settings, then apply the template again.
+  await section(page, '背景')
+  await page.getByRole('button', { name: '纯色' }).click()
+  await expect(background).toContainText('纯白')
+  await page.waitForTimeout(600) // let the edit settle into its own undo step
+  await page.getByRole('button', { name: '我的模板' }).click()
+  await page
+    .getByTestId('template-row')
+    .filter({ hasText: '原图背景右上字' })
+    .getByRole('button', { name: '原图背景右上字', exact: true })
+    .click()
+  await expect(toast(page)).toContainText('已套用模板')
+  await expect(background).toContainText('保持原图背景')
+  await page.waitForTimeout(600)
+  // Undo returns to the solid background, redo applies the template again.
+  await page.getByRole('button', { name: '撤销' }).click()
+  await expect(background).toContainText('纯白')
+  await page.getByRole('button', { name: '重做' }).click()
+  await expect(background).toContainText('保持原图背景')
+  // Layers: guides on, text locked (dragging no longer moves it).
+  await page.getByRole('button', { name: '图层' }).click()
+  await page.getByLabel('显示参考线').check()
+  await page.getByLabel('锁定文字位置').check()
+  await expect(page.locator('.guides')).toBeVisible()
+  const layer = page.getByTestId('text-layer')
+  const box = (await layer.boundingBox())!
+  await page.mouse.move(box.x + 20, box.y + 20)
+  await page.mouse.down()
+  await page.mouse.move(box.x - 60, box.y + 60, { steps: 5 })
+  await page.mouse.up()
+  expect((await layer.boundingBox())!.x).toBeCloseTo(box.x, 0)
+  await page.screenshot({ path: join(artifacts, 'gift-tools.png') })
+  // Templates are personal and can be deleted.
+  await page.getByRole('button', { name: '我的模板' }).click()
+  await page.getByRole('button', { name: '删除模板 原图背景右上字' }).click()
+  await confirm(page, '删除模板“原图背景右上字”')
+  await expect(page.getByTestId('template-row')).toHaveCount(0)
+})
+
+test('V4-B15: image management, dashboard and operation log for admins', async ({
+  page,
+}) => {
+  await login(page, 'admin')
+  await page.getByRole('link', { name: '图片管理' }).click()
+  const images = page.getByTestId('admin-image')
+  await expect(images.first()).toBeVisible()
+  await page.getByRole('button', { name: '作品', exact: true }).click()
+  await page
+    .getByLabel('账号', { exact: true })
+    .selectOption({ label: 'alice' })
+  await expect(images.first()).toContainText('alice')
+  const count = await images.count()
+  await images.first().hover()
+  await images.first().getByRole('button', { name: '删除' }).click()
+  await confirm(page, /^删除 alice 的/)
+  await expect(page.locator('.banner[role="status"]')).toContainText(
+    '图片已删除',
+  )
+  await expect(images).toHaveCount(count - 1)
+  await page.screenshot({ path: join(artifacts, 'images-admin.png') })
+  await page.getByRole('link', { name: '数据看板' }).click()
+  await expect(page.getByTestId('stat-tasks')).not.toContainText(
+    /生成任务\s*0\b/,
+  )
+  await expect(page.locator('.daily-chart')).toBeVisible()
+  await expect(
+    page.getByRole('table').filter({ hasText: 'alice' }),
+  ).toBeVisible()
+  await page.screenshot({
+    path: join(artifacts, 'dashboard-admin.png'),
+    fullPage: true,
+  })
+  await page.getByRole('link', { name: '操作日志' }).click()
+  const rows = page.getByTestId('audit-row')
+  await expect(rows.first()).toBeVisible()
+  await page.getByLabel('动作').selectOption({ label: '删除作品' })
+  await expect(rows.first()).toContainText('删除作品')
+  await expect(rows.first()).toContainText('admin')
+  await page.screenshot({
+    path: join(artifacts, 'audit-admin.png'),
+    fullPage: true,
+  })
 })

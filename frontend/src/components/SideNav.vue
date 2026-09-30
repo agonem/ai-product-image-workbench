@@ -34,8 +34,12 @@ const groups = computed(() => [
         {
           name: '管理员',
           items: [
+            { to: '/admin/dashboard', label: '数据看板', icon: 'chart' },
             { to: '/accounts', label: '账号管理', icon: 'users' },
             { to: '/models', label: '模型配置', icon: 'cpu' },
+            { to: '/admin/presets', label: '模板管理', icon: 'layers' },
+            { to: '/admin/images', label: '图片管理', icon: 'images' },
+            { to: '/admin/audit', label: '操作日志', icon: 'log' },
           ],
         },
       ]

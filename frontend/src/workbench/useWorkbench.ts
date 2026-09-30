@@ -162,11 +162,24 @@ export function useWorkbench() {
     for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const)
       Object.assign(drafts[key], newDraft(key), { model: defaultModel.value })
   }
-  /** Keep each draft on a model that still exists; otherwise fall back to the default. */
+  /** Keep each draft on models, scenes and styles that still exist (the admin may change them). */
   function syncModels() {
     const ids = new Set(models.value.map((item) => item.id))
-    for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const)
-      if (!ids.has(drafts[key].model)) drafts[key].model = defaultModel.value
+    const scenes = new Set(
+      (generation.value?.scene_presets ?? []).map((item) => item.id),
+    )
+    const styles = (generation.value?.styles ?? []).map((item) => item.id)
+    for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const) {
+      const draft = drafts[key]
+      if (!ids.has(draft.model)) draft.model = defaultModel.value
+      if (scenes.size && draft.scenePreset && !scenes.has(draft.scenePreset))
+        draft.scenePreset = [...scenes][0]!
+      if (styles.length) {
+        const kept = draft.styles.filter((id) => styles.includes(id))
+        if (kept.length !== draft.styles.length)
+          draft.styles = kept.length ? kept : [styles[0]!]
+      }
+    }
   }
   /** Models can change while signed in (the admin adds or disables one). */
   async function refreshOptions() {
