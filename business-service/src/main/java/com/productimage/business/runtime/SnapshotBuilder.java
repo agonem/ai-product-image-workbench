@@ -24,6 +24,8 @@ final class SnapshotBuilder {
    */
   ObjectNode buildGeneration(JsonNode request) {
     generation.validate(request);
+    // One catalogue version for every id in this request, even if an admin saves meanwhile.
+    var presets = generation.presets();
     String project = request.path("project_id").asText();
     String feature = request.path("feature_type").asText();
     var worker = Json.object().put("schema_version", 4).put("feature_type", feature);
@@ -36,7 +38,7 @@ final class SnapshotBuilder {
     } else if (feature.equals("SCENE")) {
       ObjectNode scene;
       if (request.has("scene_preset")) {
-        scene = (ObjectNode) generation.scene(request.path("scene_preset").asText());
+        scene = (ObjectNode) presets.scene(request.path("scene_preset").asText());
         if (request.has("scene_prompt"))
           scene.put(
               "prompt",
@@ -45,11 +47,11 @@ final class SnapshotBuilder {
       worker.set("scene", scene);
     } else {
       var styles = worker.putArray("styles");
-      request.path("styles").forEach(id -> styles.add(generation.style(id.asText())));
+      request.path("styles").forEach(id -> styles.add(presets.style(id.asText())));
     }
     if (request.has("style_prompt")) worker.set("style_prompt", request.get("style_prompt"));
     if (request.has("text")) worker.set("text", request.get("text"));
-    worker.put("presets_version", generation.version());
+    worker.put("presets_version", presets.version());
     worker.set("output", request.get("output"));
     freezeOutput(worker, request.get("output"));
     return worker;

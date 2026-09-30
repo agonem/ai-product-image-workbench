@@ -700,6 +700,110 @@ def api_checks(core, admin, alice, bob, project):
     assert run.http("POST", "/api/v1/admin/accounts", admin, member)[0] == 201  # name is free again
     assert run.http("DELETE", target, admin)[0] == 404
     evidence["account_deletion"] = {"removed_files": len(removed)}
+
+    # A17 (ADR-20260930-F): template management. Saving publishes a new version at once; a
+    # rollback publishes a copy; tasks keep the prompt they were created with.
+    presets_url = "/api/v1/admin/presets"
+    assert run.http("GET", presets_url, alice)[0] == 403
+    catalog = run.http("GET", presets_url, admin)[1]
+    assert catalog["current"]["version"] == 0 and catalog["current"]["label"] == "presets-v1"
+    scenes = catalog["current"]["scenes"] + [
+        {"id": "garden", "name": "花园草坪", "prompt": "a sunny garden lawn with soft shade"}
+    ]
+    styles = catalog["current"]["styles"]
+    twice = {"scenes": scenes + [scenes[0]], "styles": styles}
+    assert run.http("PUT", presets_url, admin, twice)[0] == 400
+    body = {"scenes": scenes, "styles": styles, "note": "新增花园"}
+    status, saved, _ = run.http("PUT", presets_url, admin, body)
+    assert status == 201 and saved["version"] == 1, (status, saved)
+    offered = run.http("GET", "/api/v1/workbench/options", alice)[1]["generation"]
+    assert offered["presets_version"] == "catalog-v1"
+    assert "garden" in {item["id"] for item in offered["scene_presets"]}
+    garden = core.generate(
+        alice, dict(scene, product_asset_id=asset["id"], scene_preset="garden"), "v4-garden"
+    )
+    assert garden["status"] == "SUCCEEDED", garden
+    prompt = core.generations(garden["id"])[1][0]["provenance"]["prompt"]
+    assert "a sunny garden lawn with soft shade" in prompt
+    status, restored, _ = run.http("POST", f"{presets_url}/0/restore", admin)
+    assert status == 201 and restored["version"] == 2, (status, restored)
+    offered = run.http("GET", "/api/v1/workbench/options", alice)[1]["generation"]
+    assert "garden" not in {item["id"] for item in offered["scene_presets"]}
+    refused = core.post(alice, "/api/v4/generation-tasks", dict(scene, scene_preset="garden"))
+    assert refused[0] == 422, refused
+    history = run.http("GET", presets_url, admin)[1]["history"]
+    assert [item["version"] for item in history] == [2, 1]
+    assert history[1]["note"] == "新增花园" and history[0]["published_by"] == "admin"
+    status, back, _ = run.http("POST", f"{presets_url}/1/restore", admin)
+    assert status == 201 and back["version"] == 3
+    assert run.http("GET", presets_url, admin)[1]["history"][0]["restored_from"] == 1
+    assert run.http("POST", f"{presets_url}/0/restore", admin)[0] == 201
+
+    # A18: personal templates - own only, same name replaces, settings without images.
+    templates = "/api/v1/templates"
+    mine = {
+        "name": "常用赠品",
+        "feature_type": "GIFT",
+        "settings": {"backgroundMode": "ORIGINAL", "textPosition": "TR", "textLevel": 2},
+    }
+    status, first, _ = run.http("POST", templates, alice, mine)
+    assert status == 201, (status, first)
+    changed = dict(mine, settings={"backgroundMode": "SOLID", "backgroundColor": "#FFF6EC"})
+    status, second, _ = run.http("POST", templates, alice, changed)
+    assert status == 200 and second["id"] == first["id"], (status, second)
+    listed = run.http("GET", f"{templates}?feature=GIFT", alice)[1]["items"]
+    assert [item["settings"] for item in listed] == [changed["settings"]]
+    assert run.http("GET", templates, bob)[1]["items"] == []
+    assert run.http("DELETE", f"{templates}/{first['id']}", bob)[0] == 404
+    leaky = dict(mine, settings={"product": asset["id"]})
+    assert run.http("POST", templates, alice, leaky)[0] == 400
+    assert run.http("DELETE", f"{templates}/{first['id']}", alice)[0] == 204
+    assert run.http("GET", templates, alice)[1]["items"] == []
+
+    # A19: image management - admins see and delete anyone's images, same rules as owners.
+    images = "/api/v1/admin/images"
+    assert run.http("GET", f"{images}?category=ORIGINAL", alice)[0] == 403
+    assert run.http("GET", f"{images}?category=OTHER", admin)[0] == 400
+    alice_id = run.sql("SELECT user_id FROM local_credentials WHERE username='alice'")
+    originals = run.http("GET", f"{images}?category=ORIGINAL&owner={alice_id}", admin)[1]
+    assert originals["items"] and {i["owner"] for i in originals["items"]} == {"alice"}
+    first_original = originals["items"][0]
+    content = run.http("GET", f"{images}/{first_original['id']}/content", admin)[1]
+    own = run.http("GET", f"/api/v1/assets/{first_original['id']}/content", alice)[1]
+    assert content == own
+    works = run.http("GET", f"{images}?category=WORK", admin)[1]["items"]
+    target = next(item for item in works if item["id"] == garden["artifacts"][0]["id"])
+    assert target["owner"] == "alice" and target["feature_type"] == "SCENE"
+    assert run.http("DELETE", f"{images}/{target['id']}", admin)[0] == 204
+    assert run.http("GET", f"/api/v1/artifacts/{target['id']}/content", alice)[0] == 404
+    admin_id = run.sql("SELECT user_id FROM local_credentials WHERE username='admin'")
+    assert run.sql(f"SELECT deleted_by FROM deletions WHERE target_id='{target['id']}'") == admin_id
+    held = core.post(alice, "/api/v4/generation-tasks", dict(scene, product_asset_id=asset["id"]))
+    assert held[0] == 202
+    status, body, _ = run.http("DELETE", f"{images}/{asset['id']}", admin)
+    assert status == 409 and body["code"] == "ASSET_IN_USE", (status, body)
+    core.worker()
+    assert run.http("DELETE", f"{images}/{asset['id']}", admin)[0] == 204
+    assert run.http("GET", f"/api/v1/assets/{asset['id']}/content", alice)[0] == 404
+
+    # A20: data dashboard and operation log (admins only).
+    assert run.http("GET", "/api/v1/admin/metrics", alice)[0] == 403
+    assert run.http("GET", "/api/v1/admin/metrics?days=0", admin)[0] == 400
+    metrics = run.http("GET", "/api/v1/admin/metrics?days=7", admin)[1]
+    assert metrics["totals"]["tasks"] > 0 and metrics["totals"]["succeeded"] > 0, metrics
+    assert metrics["totals"]["images"] > 0 and len(metrics["daily"]) == 7
+    assert metrics["daily"][-1]["tasks"] > 0
+    assert "SCENE" in {row["name"] for row in metrics["by_feature"]}
+    assert "alice" in {row["name"] for row in metrics["by_user"]}
+    assert metrics["now"] == {"queued": 0, "running": 0}, metrics["now"]
+    assert run.http("GET", "/api/v1/admin/audit?action=bad", admin)[0] == 400
+    log = run.http("GET", "/api/v1/admin/audit?action=PRESETS_PUBLISHED", admin)[1]["items"]
+    assert len(log) == 1 and log[0]["actor"] == "admin", log
+    everything = run.http("GET", "/api/v1/admin/audit", admin)[1]
+    recorded = int(run.sql("SELECT count(*) FROM audit_events"))
+    assert len(everything["items"]) == min(recorded, 50)
+    assert everything["next_offset"] == (50 if recorded > 50 else None), everything["next_offset"]
+    evidence["phase_two"] = {"catalog_versions": 4, "garden_task": garden["id"]}
     return evidence
 
 
@@ -822,9 +926,11 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A16: three entries, references, text, retypeset, isolation, "
+            "PASS V4-A1..A20: three entries, references, text, retypeset, isolation, "
             "withdrawn routes, model catalog and proxy, owner deletion, real-world uploads, "
-            "reuse, original background, third-party endpoint, account deletion",
+            "reuse, original background, third-party endpoint, account deletion, "
+            "template management, personal templates, image management, dashboard, "
+            "operation log",
             flush=True,
         )
         if browser_checks(core, stack):

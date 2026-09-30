@@ -11,6 +11,8 @@ import schema7 from '../../../contracts/scene-create.schema.json' with { type: '
 import schema8 from '../../../contracts/scene-v3-create.schema.json' with { type: 'json' }
 import schema9 from '../../../contracts/generation-v4-create.schema.json' with { type: 'json' }
 import schema10 from '../../../contracts/generation-v4-retypeset.schema.json' with { type: 'json' }
+import schema11 from '../../../contracts/preset-catalog.schema.json' with { type: 'json' }
+import schema12 from '../../../contracts/user-template.schema.json' with { type: 'json' }
 
 const ajv = new Ajv2020({ strict: true, allErrors: true })
 addFormats(ajv, { mode: 'full' })
@@ -26,9 +28,15 @@ for (const schema of [
   schema8,
   schema9,
   schema10,
+  schema11,
+  schema12,
 ])
   ajv.addSchema(schema)
 const contracts: Record<string, string> = {
+  'preset-catalog':
+    'https://schemas.product-image-workbench.invalid/v4/preset-catalog.json',
+  'user-template':
+    'https://schemas.product-image-workbench.invalid/v4/user-template.json',
   'generation-v4-create':
     'https://schemas.product-image-workbench.invalid/v4/generation-create.json',
   'generation-v4-retypeset':

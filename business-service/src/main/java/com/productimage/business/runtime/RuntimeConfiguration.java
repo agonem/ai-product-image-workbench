@@ -72,8 +72,13 @@ public class RuntimeConfiguration {
   }
 
   @Bean
-  GenerationPolicy generationPolicy(Environment env) {
-    return new GenerationPolicy(env);
+  PresetCatalog presetCatalog(JdbcTemplate jdbc, PlatformTransactionManager manager) {
+    return new PresetCatalog(jdbc, new TransactionTemplate(manager));
+  }
+
+  @Bean
+  GenerationPolicy generationPolicy(Environment env, PresetCatalog catalog) {
+    return new GenerationPolicy(env, catalog::current);
   }
 
   @Bean

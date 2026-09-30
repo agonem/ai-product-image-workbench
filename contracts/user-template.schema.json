@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.product-image-workbench.invalid/v4/user-template.json",
+  "title": "A personal template: saved create-page settings without images (ADR-20260930-F)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "[^\\s]"
+    },
+    "feature_type": {
+      "enum": [
+        "GIFT",
+        "SCENE",
+        "SELLING_POINT"
+      ]
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "giftPosition": {
+          "enum": [
+            "BOTTOM_RIGHT",
+            "BOTTOM_LEFT",
+            "RIGHT",
+            "LEFT"
+          ]
+        },
+        "backgroundMode": {
+          "enum": [
+            "ORIGINAL",
+            "SOLID",
+            "CUSTOM"
+          ]
+        },
+        "backgroundColor": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "backgroundPrompt": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "scenePreset": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "scenePrompt": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "styles": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,31}$"
+          }
+        },
+        "textColor": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "textLevel": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "textPosition": {
+          "enum": [
+            "TL",
+            "TC",
+            "TR",
+            ""
+          ]
+        },
+        "textAlign": {
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ]
+        },
+        "textBox": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "y": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "width": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            },
+            "height": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ]
+        }
+      }
+    }
+  },
+  "required": [
+    "name",
+    "feature_type",
+    "settings"
+  ]
+}

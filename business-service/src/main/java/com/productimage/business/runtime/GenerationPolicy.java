@@ -2,17 +2,15 @@ package com.productimage.business.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.io.IOException;
 import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.function.Supplier;
 import org.springframework.core.env.Environment;
 
 /**
  * v4 whole-image generation rules (ADR-20260929): deployment ratios/formats/count budget and the
- * versioned internal presets (scene presets, selling-point styles). Sizes and counts are local
- * technical budgets, never marketplace rules.
+ * versioned presets (scene presets, selling-point styles; admin-edited since ADR-20260930-F). Sizes
+ * and counts are local technical budgets, never marketplace rules.
  */
 final class GenerationPolicy {
   static final String PRESET = "generation_v4";
@@ -20,11 +18,15 @@ final class GenerationPolicy {
   private final boolean enabled;
   private final int maximum;
   private final List<String> ratios, formats;
-  private final String version;
-  private final Map<String, JsonNode> scenes = new LinkedHashMap<>();
-  private final Map<String, JsonNode> styles = new LinkedHashMap<>();
+  private final Supplier<Presets> presets;
 
+  /** With the bundled defaults only (tests and tools without a database). */
   GenerationPolicy(Environment env) {
+    this(env, Presets.bundled()::self);
+  }
+
+  GenerationPolicy(Environment env, Supplier<Presets> presets) {
+    this.presets = presets;
     enabled = env.getProperty("GENERATION_ENABLED", Boolean.class, true);
     maximum = env.getProperty("GENERATION_MAX_COUNT", Integer.class, 4);
     ratios = values(env, "GENERATION_ASPECT_RATIOS", "1:1,3:4,4:3,2:3,3:2,9:16,16:9");
@@ -34,17 +36,6 @@ final class GenerationPolicy {
         || ratios.stream().anyMatch(v -> !v.matches("[1-9][0-9]?:[1-9][0-9]?"))
         || formats.stream().anyMatch(v -> !List.of("png", "jpeg").contains(v)))
       throw new IllegalArgumentException("Invalid generation deployment capabilities");
-    try (var input = GenerationPolicy.class.getResourceAsStream("/contracts/presets.json")) {
-      if (input == null) throw new IllegalStateException("Missing bundled presets");
-      JsonNode presets = Json.MAPPER.readTree(input);
-      version = presets.path("version").asText();
-      presets.path("scenes").forEach(item -> scenes.put(item.path("id").asText(), item));
-      presets.path("styles").forEach(item -> styles.put(item.path("id").asText(), item));
-    } catch (IOException ex) {
-      throw new IllegalStateException("Cannot load bundled presets", ex);
-    }
-    if (version.isBlank() || scenes.isEmpty() || styles.isEmpty())
-      throw new IllegalStateException("Empty bundled presets");
   }
 
   private static List<String> values(Environment env, String key, String fallback) {
@@ -58,21 +49,22 @@ final class GenerationPolicy {
     return values;
   }
 
+  /** The presets in force now; take one and resolve every id of a request from it. */
+  Presets presets() {
+    return presets.get();
+  }
+
   String version() {
-    return version;
+    return presets().version();
   }
 
   /** Resolved preset/style copies are frozen into the task snapshot. */
   JsonNode scene(String id) {
-    var scene = scenes.get(id);
-    if (scene == null) throw new Problem(422, "INVALID_LAYOUT");
-    return scene.deepCopy();
+    return presets().scene(id);
   }
 
   JsonNode style(String id) {
-    var style = styles.get(id);
-    if (style == null) throw new Problem(422, "INVALID_LAYOUT");
-    return style.deepCopy();
+    return presets().style(id);
   }
 
   void validate(JsonNode request) {
@@ -102,18 +94,19 @@ final class GenerationPolicy {
   }
 
   JsonNode options() {
+    var current = presets();
     ObjectNode result =
         Json.object()
             .put("enabled", enabled)
             .put("max_count", maximum)
             .put("max_side", 2048)
             .put("max_pixels", MAX_PIXELS)
-            .put("presets_version", version);
+            .put("presets_version", current.version());
     ratios.forEach(result.putArray("aspect_ratios")::add);
     formats.forEach(result.putArray("formats")::add);
     var sceneList = result.putArray("scene_presets");
-    scenes
-        .values()
+    current
+        .scenes()
         .forEach(
             s ->
                 sceneList
@@ -121,7 +114,7 @@ final class GenerationPolicy {
                     .put("id", s.path("id").asText())
                     .put("name", s.path("name").asText()));
     var styleList = result.putArray("styles");
-    for (var style : styles.values()) {
+    for (var style : current.styles()) {
       var item = styleList.addObject();
       for (String field :
           new String[] {

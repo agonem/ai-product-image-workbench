@@ -317,13 +317,19 @@ public final class TaskService {
    * image is really gone and can no longer be re-typeset. Rows stay for history and audit.
    */
   public void deleteArtifact(String actor, String id) {
+    deleteArtifact(actor, id, false);
+  }
+
+  /** {@code asAdmin}: an admin deletes anyone's result (ADR-20260930-F), same rules otherwise. */
+  public void deleteArtifact(String actor, String id, boolean asAdmin) {
     java.util.List<String> keys =
         tx.execute(
             status -> {
               var rows =
                   jdbc.queryForList(
-                      "SELECT a.attempt_id,a.ordinal FROM artifacts a JOIN generation_tasks t ON t.id=a.task_id JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND a.kind='COMPOSITE' AND p.owner_id=? AND u.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) FOR UPDATE OF t",
+                      "SELECT a.attempt_id,a.ordinal FROM artifacts a JOIN generation_tasks t ON t.id=a.task_id JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND a.kind='COMPOSITE' AND (?::boolean OR (p.owner_id=? AND u.status='ACTIVE')) AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) FOR UPDATE OF t",
                       id,
+                      asAdmin,
                       actor);
               if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
               Object attempt = rows.getFirst().get("attempt_id");

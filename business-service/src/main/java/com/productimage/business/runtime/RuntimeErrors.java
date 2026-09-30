@@ -15,7 +15,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
       ProductionAuthApi.class,
       ProviderConfigApi.class,
       ProjectAssetApi.class,
-      WorkbenchApi.class
+      WorkbenchApi.class,
+      PresetCatalogApi.class,
+      UserTemplateApi.class,
+      AdminImagesApi.class,
+      AdminInsightsApi.class
     })
 @Profile("runtime")
 public class RuntimeErrors {

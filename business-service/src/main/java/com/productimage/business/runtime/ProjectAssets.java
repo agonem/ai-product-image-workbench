@@ -177,13 +177,19 @@ public final class ProjectAssets {
    * are removed and every read path hides it. Not while a queued or running task uses it.
    */
   void delete(String actor, String id) {
+    delete(actor, id, false);
+  }
+
+  /** {@code asAdmin}: an admin deletes anyone's original (ADR-20260930-F), same rules otherwise. */
+  void delete(String actor, String id, boolean asAdmin) {
     String key =
         tx.execute(
             status -> {
               var rows =
                   jdbc.queryForList(
-                      "SELECT a.object_key FROM assets a JOIN projects p ON p.id=a.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND p.owner_id=? AND u.status='ACTIVE' AND a.kind IN ('PRODUCT','GIFT') AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) FOR UPDATE OF a",
+                      "SELECT a.object_key FROM assets a JOIN projects p ON p.id=a.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND (?::boolean OR (p.owner_id=? AND u.status='ACTIVE')) AND a.kind IN ('PRODUCT','GIFT') AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) FOR UPDATE OF a",
                       id,
+                      asAdmin,
                       actor);
               if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
               if (jdbc.queryForObject(

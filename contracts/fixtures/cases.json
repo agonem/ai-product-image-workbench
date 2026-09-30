@@ -2822,5 +2822,114 @@
       },
       "count": 2
     }
+  },
+  {
+    "name": "preset-catalog-valid",
+    "contract": "preset-catalog",
+    "valid": true,
+    "payload": {
+      "scenes": [
+        {
+          "id": "nursery",
+          "name": "婴儿房",
+          "prompt": "a bright nursery"
+        }
+      ],
+      "styles": [
+        {
+          "id": "warm",
+          "name": "暖木奶油",
+          "prompt": "warm cream and light wood tones",
+          "title_color": "#4A2E1F",
+          "badge_color": "#F6E9DA",
+          "badge_text_color": "#4A2E1F",
+          "accent_color": "#C8814E"
+        }
+      ],
+      "note": "新增场景"
+    }
+  },
+  {
+    "name": "preset-catalog-empty-scenes-invalid",
+    "contract": "preset-catalog",
+    "valid": false,
+    "payload": {
+      "scenes": [],
+      "styles": [
+        {
+          "id": "warm",
+          "name": "暖木奶油",
+          "prompt": "warm cream and light wood tones",
+          "title_color": "#4A2E1F",
+          "badge_color": "#F6E9DA",
+          "badge_text_color": "#4A2E1F",
+          "accent_color": "#C8814E"
+        }
+      ],
+      "note": "新增场景"
+    }
+  },
+  {
+    "name": "preset-catalog-bad-colour-invalid",
+    "contract": "preset-catalog",
+    "valid": false,
+    "payload": {
+      "scenes": [
+        {
+          "id": "nursery",
+          "name": "婴儿房",
+          "prompt": "a bright nursery"
+        }
+      ],
+      "styles": [
+        {
+          "id": "warm",
+          "name": "暖木奶油",
+          "prompt": "warm cream and light wood tones",
+          "title_color": "red",
+          "badge_color": "#F6E9DA",
+          "badge_text_color": "#4A2E1F",
+          "accent_color": "#C8814E"
+        }
+      ],
+      "note": "新增场景"
+    }
+  },
+  {
+    "name": "user-template-valid",
+    "contract": "user-template",
+    "valid": true,
+    "payload": {
+      "name": "奶油底右上文字",
+      "feature_type": "GIFT",
+      "settings": {
+        "size": 0,
+        "count": 1,
+        "giftPosition": "BOTTOM_RIGHT",
+        "backgroundMode": "ORIGINAL",
+        "textColor": "#4A2E1F",
+        "textLevel": 1,
+        "textPosition": "TR",
+        "textAlign": "right",
+        "textBox": {
+          "x": 0.49,
+          "y": 0.06,
+          "width": 0.46,
+          "height": 0.44
+        }
+      }
+    }
+  },
+  {
+    "name": "user-template-unknown-setting-invalid",
+    "contract": "user-template",
+    "valid": false,
+    "payload": {
+      "name": "x",
+      "feature_type": "SCENE",
+      "settings": {
+        "product": "asset-id"
+      }
+    }
   }
 ]

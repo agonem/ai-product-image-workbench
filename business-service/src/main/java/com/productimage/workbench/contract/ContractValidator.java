@@ -41,7 +41,9 @@ public final class ContractValidator {
             "generation-v4-retypeset",
             "generation-v4-request",
             "generation-v4-completed",
-            "generation-v4-failed")) {
+            "generation-v4-failed",
+            "preset-catalog",
+            "user-template")) {
       try (var input =
           ContractValidator.class.getResourceAsStream("/contracts/" + name + ".schema.json")) {
         if (input == null) throw new IllegalStateException("Missing bundled schema");
