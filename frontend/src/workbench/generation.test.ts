@@ -207,6 +207,13 @@ test('ADR-20261008-H: gift card request, no model on the original background', (
   assert.equal(callsNoModel('GIFT', draft), true)
   draft.giftLabel = ''
   assert.deepEqual(buildGeneration('GIFT', 'p', draft).gift_card, { size: 'M' })
+  // ADR-20261008-J: the gift separated onto white inside the card.
+  draft.giftCardBackground = 'WHITE'
+  assert.deepEqual(buildGeneration('GIFT', 'p', draft).gift_card, {
+    size: 'M',
+    background: 'WHITE',
+  })
+  draft.giftCardBackground = 'ORIGINAL'
   draft.giftCard = false
   assert.equal('gift_card' in buildGeneration('GIFT', 'p', draft), false)
   assert.equal(callsNoModel('GIFT', draft), false)

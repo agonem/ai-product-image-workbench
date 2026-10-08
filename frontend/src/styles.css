@@ -3017,3 +3017,18 @@ dialog.viewer::backdrop {
     flex-wrap: wrap;
   }
 }
+/* White card background (ADR-20261008-J): the plan preview only hints at the cut-out */
+.gift-card .gc-picture.white img {
+  filter: drop-shadow(0 0 1px #bec5cf) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.2));
+}
+.gift-card .gc-note {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  font-size: 10px;
+  line-height: 1.4;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+}

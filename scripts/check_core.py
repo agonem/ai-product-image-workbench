@@ -926,6 +926,7 @@ def api_checks(core, admin, alice, bob, project):
     solid = dict(card, background={"mode": "SOLID", "color": "#FFFFFF"}, gift_card={"size": "M"})
     state = core.generate(alice, solid, "v4-gift-card-solid")
     assert state["status"] == "SUCCEEDED", state
+    solid_task = state["id"]
     attempt, gens = core.generations(state["id"])
     provenance = gens[0]["provenance"]
     assert core.fences(attempt) == "1" and provenance["parameters"]["input_references"] == 1
@@ -936,7 +937,30 @@ def api_checks(core, admin, alice, bob, project):
         [[[560, 752, 750, 764], [255] * 3, 6], [[630, 645, 680, 720], list(GIFT_RGB), 12]],
     )
     assert checked["regions"] == [True, True], checked
-    evidence["gift_card"] = {"original": task, "solid": state["id"]}
+    # White card background (ADR-20261008-J): the gift leaves its photo backdrop and grows.
+    white_task = None
+    if core.font:
+        white = dict(card, gift_card={"size": "M", "label": "洗头刷", "background": "WHITE"})
+        state = core.generate(alice, white, "v4-gift-card-white")
+        assert state["status"] == "SUCCEEDED", state
+        white_task = state["id"]
+        attempt, gens = core.generations(white_task)
+        assert core.fences(attempt) == "0"
+        assert gens[0]["provenance"]["gift_card"] == {
+            "background": "WHITE",
+            "separated": True,
+            "light": False,
+        }
+        checked = core.inspect(
+            core.image(alice, state["artifacts"][0]["id"]),
+            # Blue reaches x 616 / y 582 only when cut out and enlarged (as a photo: 622 / 594).
+            [
+                [[612, 600, 619, 660], list(GIFT_RGB), 12],
+                [[630, 578, 680, 586], list(GIFT_RGB), 12],
+            ],
+        )
+        assert checked["regions"] == [True, True], checked
+    evidence["gift_card"] = {"original": task, "solid": solid_task, "white": white_task}
 
     # A23: the selling product goes where the user asked (ADR-20261008-H).
     if core.font:

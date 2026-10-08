@@ -17,7 +17,12 @@ const props = defineProps<{
   /** Plan layer: the product image itself when no model is called. */
   backdrop?: string | null
   /** Gift card preview on the gift page (ADR-20261008-H). */
-  giftCard?: { size: GiftCardSize; label: string; gift: string } | null
+  giftCard?: {
+    size: GiftCardSize
+    label: string
+    gift: string
+    white: boolean
+  } | null
   /** Selling page: where the model is asked to put the product. */
   productPosition?: ProductPosition
   imageAlt: string
@@ -576,7 +581,11 @@ function nudge(event: KeyboardEvent) {
           <span class="gc-badge" :style="card.badge" aria-hidden="true"
             ><LineIcon name="plus" :size="12"
           /></span>
-          <div class="gc-picture" :style="card.picture">
+          <div
+            class="gc-picture"
+            :class="{ white: giftCard?.white }"
+            :style="card.picture"
+          >
             <PrivateImage
               v-if="giftCard?.gift"
               :path="`/assets/${giftCard.gift}/content`"
@@ -584,6 +593,9 @@ function nudge(event: KeyboardEvent) {
               :api="api"
               missing="原图已删除"
             />
+            <small v-if="giftCard?.white" class="gc-note"
+              >纯白·生成时去底</small
+            >
           </div>
           <span v-if="giftCard?.label" class="gc-label" :style="card.label">{{
             giftCard.label

@@ -135,6 +135,7 @@ const giftCard = computed(() =>
         size: draft.value.giftCardSize,
         label: draft.value.giftLabel.trim(),
         gift: draft.value.gift,
+        white: draft.value.giftCardBackground === 'WHITE',
       }
     : null,
 )
@@ -267,6 +268,7 @@ const summary = computed(() => {
       ? [
           '方框',
           giftCardSizes.find((item) => item.id === d.giftCardSize)?.name,
+          d.giftCardBackground === 'WHITE' ? '纯白' : '',
           d.giftLabel.trim(),
         ]
           .filter(Boolean)
@@ -637,6 +639,28 @@ onMounted(() => {
                   </button>
                 </div>
               </div>
+              <div class="form-row">
+                <span>方框底色</span>
+                <div class="seg" role="group" aria-label="方框底色">
+                  <button
+                    type="button"
+                    :aria-pressed="draft.giftCardBackground === 'ORIGINAL'"
+                    @click="draft.giftCardBackground = 'ORIGINAL'"
+                  >
+                    原图背景
+                  </button>
+                  <button
+                    type="button"
+                    :aria-pressed="draft.giftCardBackground === 'WHITE'"
+                    @click="draft.giftCardBackground = 'WHITE'"
+                  >
+                    纯白
+                  </button>
+                </div>
+              </div>
+              <p v-if="draft.giftCardBackground === 'WHITE'" class="hint">
+                自动去掉赠品图的纯色底色并放大赠品；米白等浅色赠品会自动加浅灰描边和投影，避免和白底混在一起。赠品图背景复杂时保留原图背景。效果以生成结果为准（保持原图背景时不花钱、几秒出图）。
+              </p>
               <label class="form-row"
                 ><span>方框文字（可选，显示在赠品下方）</span
                 ><input

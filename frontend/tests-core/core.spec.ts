@@ -806,9 +806,16 @@ test('V4-B17: the gift in a card on the original background, without a model', a
     .getByRole('button', { name: '大' })
     .click()
   await page.getByLabel('方框文字').fill('洗头刷')
+  // ADR-20261008-J: the gift on white inside the card.
+  await page
+    .getByRole('group', { name: '方框底色' })
+    .getByRole('button', { name: '纯白' })
+    .click()
+  await expect(page.getByText('自动去掉赠品图的纯色底色')).toBeVisible()
   // The plan shows the original under the card preview, and no model is used.
   const card = page.getByTestId('gift-card')
   await expect(card).toContainText('洗头刷')
+  await expect(card).toContainText('纯白·生成时去底')
   await expect(card.locator('img')).toBeVisible()
   await expect(page.locator('.artboard img.base')).toBeVisible()
   await expect(
@@ -820,7 +827,11 @@ test('V4-B17: the gift in a card on the original background, without a model', a
   const { body, id } = await submitAndTrack(page, () =>
     page.getByTestId('generate').click(),
   )
-  expect(body.gift_card).toEqual({ size: 'L', label: '洗头刷' })
+  expect(body.gift_card).toEqual({
+    size: 'L',
+    label: '洗头刷',
+    background: 'WHITE',
+  })
   expect(body.background).toEqual({ mode: 'ORIGINAL' })
   expect(body.model_id).toBeUndefined()
   await expect(done(page, id)).toHaveCount(1, { timeout: 60000 })

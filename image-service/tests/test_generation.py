@@ -685,3 +685,106 @@ def test_custom_edit_sends_the_picture_first_then_product_and_references(font):
     inputs = receipt["generations"][0]["provenance"]["inputs"]
     assert inputs["edit_sha256"] == edit["sha256"]
     assert inputs["reference_sha256"] == [extra["sha256"]]
+
+
+# ADR-20261008-J: white card background - the gift is separated from a plain backdrop.
+
+
+def backdrop_photo(gift=(244, 242, 236), text=True, horizon=True):
+    """Beige wall/table backdrop with light falloff, a light rounded gift and printed words."""
+    image = Image.new("RGB", (300, 240))
+    draw = ImageDraw.Draw(image)
+    for y in range(240):
+        base = (214, 197, 185) if y < 170 else (234, 216, 206)
+        for x in range(300):
+            fall = x // 30
+            draw.point((x, y), tuple(c - fall for c in base))
+    if horizon:
+        draw.line((0, 170, 300, 170), fill=(196, 180, 166), width=2)
+    draw.rounded_rectangle((70, 70, 230, 190), 40, fill=gift)
+    if text:
+        for i in range(6):
+            draw.rectangle((200 + i * 14, 12, 208 + i * 14, 24), fill=(60, 50, 45))
+    return image
+
+
+def test_separate_finds_a_light_gift_on_a_two_tone_backdrop():
+    from image_service import giftcard
+
+    photo = backdrop_photo()
+    mask = giftcard.separate(photo)
+    assert mask is not None
+    assert mask.getpixel((150, 130)) > 200  # the gift
+    assert mask.getpixel((20, 120)) < 40 and mask.getpixel((20, 220)) < 40  # wall and table
+    assert mask.getpixel((236, 18)) < 40  # printed words are not the gift
+    assert mask.getpixel((150, 172)) > 200  # the horizon behind the gift stays gift
+    assert mask.getpixel((260, 171)) < 40  # the horizon line elsewhere is backdrop
+    assert giftcard._is_light(photo, mask)
+
+
+def test_separate_gives_up_on_a_busy_backdrop():
+    import random
+
+    from image_service import giftcard
+
+    rng = random.Random(7)
+    photo = Image.new("RGB", (200, 160))
+    for y in range(160):
+        for x in range(200):
+            photo.putpixel((x, y), tuple(rng.randrange(256) for _ in range(3)))
+    assert giftcard.separate(photo) is None
+
+
+def card_on_original(local, background, **card):
+    return gift_request(
+        local,
+        background={"mode": "ORIGINAL"},
+        gift_card={"size": "M", "background": background, **card},
+        keep_original=True,
+    )
+
+
+def test_white_card_shows_the_separated_gift_larger(font):
+    local = api()
+    local.inputs["gift"] = png(GIFT, size=(160, 160))
+    receipt = process_generation(local, card_on_original(local, "WHITE"), "lease", None)
+    assert not validate_contract("generation-v4-completed", receipt)
+    info = receipt["generations"][0]["provenance"]["gift_card"]
+    assert info == {"background": "WHITE", "separated": True, "light": False}
+    white = Image.open(io.BytesIO(local.outputs[0])).convert("RGB")
+    local.outputs.clear()
+    receipt = process_generation(local, card_on_original(local, "ORIGINAL"), "lease", None)
+    assert receipt["generations"][0]["provenance"]["gift_card"]["separated"] is False
+    original = Image.open(io.BytesIO(local.outputs[0])).convert("RGB")
+
+    def gift_pixels(image):
+        return sum(
+            n
+            for n, c in image.crop((272, 271, 384, 384)).getcolors(1 << 16)
+            if max(abs(a - b) for a, b in zip(c, GIFT, strict=True)) < 30
+        )
+
+    assert gift_pixels(white) > 1.3 * gift_pixels(original)
+
+
+def test_light_gift_on_white_gets_an_outline(font):
+    from image_service import giftcard
+
+    stream = io.BytesIO()
+    backdrop_photo(text=False).save(stream, format="PNG")
+    card = {"size": "L", "background": "WHITE"}
+    box = giftcard.geometry(card, 800, 800, "BOTTOM_RIGHT")
+    sticker, _, info = giftcard.render(stream.getvalue(), card, box, None)
+    assert info == {"background": "WHITE", "separated": True, "light": True}
+    counts = sticker.convert("RGB").getcolors(1 << 18)
+
+    def near(colour, tolerance):
+        return sum(
+            n
+            for n, c in counts
+            if max(abs(a - b) for a, b in zip(c, colour, strict=True)) <= tolerance
+        )
+
+    # The grey outline colour is drawn; the beige backdrop is gone (only blended edge pixels).
+    assert near(giftcard.OUTLINE, 12) > 50
+    assert near((214, 197, 185), 6) < 0.005 * sticker.width * sticker.height

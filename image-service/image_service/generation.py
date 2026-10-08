@@ -349,7 +349,7 @@ def process_generation(api, request, lease, adapter, *, cancelled=None):
         if card:
             # The card shows the gift photo itself; the model never draws it (ADR-20261008-H).
             box = giftcard.geometry(card, width, height, request["gift_position"])
-            sticker, offset = giftcard.render(
+            sticker, offset, card_info = giftcard.render(
                 _raw(api, request, lease, "gift_asset"), card, box, font
             )
         elif not retypeset and not original:
@@ -414,6 +414,8 @@ def process_generation(api, request, lease, adapter, *, cancelled=None):
 
         artifacts.append(put(ordinal, "COMPOSITE", encode(final, output["format"])))
         base = put(count + ordinal, "BACKGROUND", content)
+        if card:
+            provenance["gift_card"] = card_info
         provenance.update(
             sha256=digest,
             inputs=inputs,

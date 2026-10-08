@@ -165,6 +165,13 @@
           "minLength": 1,
           "maxLength": 10,
           "pattern": "[^\\s]"
+        },
+        "background": {
+          "enum": [
+            "ORIGINAL",
+            "WHITE"
+          ],
+          "description": "Inside the card: the gift photo as it is, or the gift separated onto white (ADR-20261008-J)."
         }
       },
       "required": [

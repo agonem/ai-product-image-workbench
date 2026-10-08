@@ -160,6 +160,29 @@
               },
               "review_status": {
                 "const": "PENDING"
+              },
+              "gift_card": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "background": {
+                    "enum": [
+                      "ORIGINAL",
+                      "WHITE"
+                    ]
+                  },
+                  "separated": {
+                    "type": "boolean"
+                  },
+                  "light": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "background",
+                  "separated",
+                  "light"
+                ]
               }
             },
             "required": [

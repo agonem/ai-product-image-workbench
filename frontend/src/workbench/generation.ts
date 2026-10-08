@@ -199,6 +199,8 @@ export interface GenerationDraft {
   /** Gift shown in a program-drawn card (ADR-20261008-H). */
   giftCard: boolean
   giftCardSize: GiftCardSize
+  /** Inside the card: the gift photo as it is, or the gift separated onto white (ADR-20261008-J). */
+  giftCardBackground: 'ORIGINAL' | 'WHITE'
   /** Optional words under the gift in the card (text content, not kept in templates). */
   giftLabel: string
   scenePreset: string
@@ -231,6 +233,7 @@ export function newDraft(feature: Feature = 'GIFT'): GenerationDraft {
     backgroundPrompt: '',
     giftCard: false,
     giftCardSize: 'M',
+    giftCardBackground: 'ORIGINAL',
     giftLabel: '',
     scenePreset: 'nursery',
     scenePrompt: '',
@@ -409,6 +412,9 @@ export function buildGeneration(
       value.gift_card = {
         size: draft.giftCardSize,
         ...(label ? { label } : {}),
+        ...(draft.giftCardBackground === 'WHITE'
+          ? { background: 'WHITE' }
+          : {}),
       }
     }
   } else if (feature === 'SCENE') {

@@ -34,6 +34,7 @@ const FIELDS: Record<Feature, (keyof GenerationDraft)[]> = {
     'backgroundPrompt',
     'giftCard',
     'giftCardSize',
+    'giftCardBackground',
   ],
   SCENE: ['scenePreset', 'scenePrompt'],
   SELLING_POINT: [

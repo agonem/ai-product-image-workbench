@@ -69,6 +69,12 @@
             "L"
           ]
         },
+        "giftCardBackground": {
+          "enum": [
+            "ORIGINAL",
+            "WHITE"
+          ]
+        },
         "scenePreset": {
           "type": "string",
           "maxLength": 32
