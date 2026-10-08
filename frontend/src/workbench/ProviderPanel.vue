@@ -167,7 +167,8 @@ async function create() {
       use_proxy: f.proxy,
     }
     if (f.purpose === 'TEXT') body.purpose = 'TEXT'
-    if (f.provider === 'openrouter') body.provider_tag = f.tag.trim()
+    if (f.provider === 'openrouter' && (f.tag.trim() || f.purpose !== 'TEXT'))
+      body.provider_tag = f.tag.trim()
     if (thirdParty.value) body.base_url = f.base.trim()
     await props.api('/admin/provider-configs', json(body))
     close()
@@ -505,14 +506,23 @@ async function clearProxy() {
         与商品图会在内网明文传输。
       </p>
       <label v-if="form.provider === 'openrouter'" class="form-row"
-        ><span>路由标签（provider_tag）</span
+        ><span>{{
+          form.purpose === 'TEXT'
+            ? '路由标签（可留空）'
+            : '路由标签（provider_tag）'
+        }}</span
         ><input
           v-model="form.tag"
-          placeholder="openai"
+          :placeholder="
+            form.purpose === 'TEXT' ? '留空由 OpenRouter 自动选择' : 'openai'
+          "
           maxlength="100"
-          required
+          :required="form.purpose !== 'TEXT'"
           :disabled="busy"
-      /></label>
+        /><small v-if="form.purpose === 'TEXT'"
+          >文本模型只发送文字描述；填了会优先使用该服务商，不支持时自动换其他服务商。</small
+        ></label
+      >
       <label class="form-row"
         ><span>API Key</span
         ><input

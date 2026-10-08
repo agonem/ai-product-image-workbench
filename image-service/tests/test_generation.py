@@ -910,7 +910,8 @@ def test_text_models_speak_each_format(provider, extra, payload, url):
         assert sent.headers["authorization"] == "Bearer " + "k" * 20
         assert body["messages"][0] == {"role": "system", "content": "系统"}
     if provider == "openrouter":
-        assert body["provider"] == {"only": ["openai"], "allow_fallbacks": False}
+        # The tag is a preference: other providers serve the model when that one does not.
+        assert body["provider"] == {"order": ["openai"], "allow_fallbacks": True}
 
 
 def test_text_model_errors_are_fixed_codes():
@@ -929,3 +930,39 @@ def test_text_model_errors_are_fixed_codes():
     )
     with pytest.raises(BackgroundError, match="INVALID_RESPONSE"):
         text_models.rewrite(config, "s", "u", transport=empty)
+
+
+def test_text_model_without_a_tag_lets_openrouter_route(monkeypatch):
+    """The 404 seen on 2026-10-08: a DeepSeek model pinned to the "openai" provider. Untagged
+    text models are routed by OpenRouter; image models still need their tag."""
+    from image_service import openrouter, text_models
+    from image_service.background_config import config_from_mapping
+
+    config = config_from_mapping(
+        {"provider": "openrouter", "model": "deepseek/deepseek-v4.1-flash", "api_key": "k" * 20}
+    )
+    assert config.provider_tag is None
+    seen = []
+    payload = {"choices": [{"message": {"content": "奶油色卧室"}}]}
+    brief, _ = text_models.rewrite(config, "s", "u", transport=text_reply("x", payload, seen))
+    assert brief == "奶油色卧室" and "provider" not in json.loads(seen[0].content)
+    with pytest.raises(BackgroundError, match="CONFIGURATION"):
+        openrouter.OpenRouterAdapter(config)
+
+
+def test_a_failed_rewrite_is_reported_as_the_rewrite(font, monkeypatch):
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    def missing(config, system, user):
+        raise BackgroundError("PROVIDER_HTTP_404")
+
+    monkeypatch.setattr(text_models, "rewrite", missing)
+    local, adapter = api(), Adapter()
+    text = ModelConfig("k" * 20, "vendor/text", "openai")
+    with pytest.raises(BackgroundError) as error:
+        process_generation(
+            local, custom_request(local, rewrite=True), "lease", adapter, text_config=text
+        )
+    assert error.value.code == "TEXT_PROVIDER_HTTP_404"
+    assert adapter.requests == []  # no paid image call after a failed rewrite

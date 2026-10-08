@@ -24,6 +24,9 @@ MAX_PIXELS = 16_000_000
 
 class OpenRouterAdapter:
     def __init__(self, config, *, transport=None):
+        if not config.provider_tag:
+            # Images only go to the pinned provider; a missing tag is a configuration error.
+            raise BackgroundError("CONFIGURATION")
         self.config = config
         self.client = httpx.Client(
             base_url="https://openrouter.ai/api/v1/",

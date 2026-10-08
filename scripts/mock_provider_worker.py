@@ -87,6 +87,9 @@ class MockModel:
 def mock_rewrite(config, system, user):
     """Deterministic stand-in for the agent text model: no paid call (ADR-20261008-L)."""
     need = user.splitlines()[0].removeprefix("需求：")
+    if "模拟改写失败" in need:
+        # A text model that the provider does not serve (the 2026-10-08 404).
+        raise BackgroundError("PROVIDER_HTTP_404")
     persona = system.split("。")[0].removeprefix("你是")
     return f"[{persona}改写] {need}，柔和自然光，奶油色调", {}
 

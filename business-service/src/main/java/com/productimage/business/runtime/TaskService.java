@@ -225,7 +225,7 @@ public final class TaskService {
     // A fresh READ COMMITTED statement sees the attempt installed by the previous lock holder.
     var rows =
         jdbc.queryForList(
-            "SELECT t.*,a.attempt_no,a.error_code,a.retryable FROM generation_tasks t JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id JOIN task_attempts a ON a.id=t.current_attempt_id WHERE t.id=? AND p.owner_id=? AND u.status='ACTIVE'",
+            "SELECT t.*,a.attempt_no,a.error_code,a.retryable,a.safe_message FROM generation_tasks t JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id JOIN task_attempts a ON a.id=t.current_attempt_id WHERE t.id=? AND p.owner_id=? AND u.status='ACTIVE'",
             id,
             actor);
     if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
@@ -261,7 +261,11 @@ public final class TaskService {
       result
           .putObject("error")
           .put("code", code)
-          .put("message", safeMessage(code))
+          .put(
+              "message",
+              row.get("safe_message") != null
+                  ? row.get("safe_message").toString()
+                  : safeMessage(code))
           .put("correlation_id", id);
     } else result.putNull("error");
     Json.validate("task-response", result);
@@ -414,6 +418,33 @@ public final class TaskService {
     if (!Json.hash(bytes).equals(rows.getFirst().get("sha256")))
       throw new Problem(422, "OUTPUT_VALIDATION_FAILED");
     return bytes;
+  }
+
+  /**
+   * A clearer message when the Worker said why (codes only, never provider text): which model
+   * failed (picture, or the magic-wand rewrite) and the likely fix.
+   */
+  static String safeMessage(String code, String diagnosis) {
+    if (diagnosis == null || !diagnosis.matches("[A-Z][A-Z0-9_]{1,60}")) return safeMessage(code);
+    boolean text = diagnosis.startsWith("TEXT_");
+    String cause = text ? diagnosis.substring(5) : diagnosis;
+    String which = text ? "魔法棒改写失败：文本模型" : "出图模型";
+    String detail =
+        switch (cause) {
+          case "PROVIDER_HTTP_404" -> "不存在或路由标签不匹配（HTTP 404），请检查模型标识和路由标签";
+          case "PROVIDER_HTTP_401", "PROVIDER_HTTP_403" ->
+              "的 API Key 无效或无权限（" + cause.substring(14) + "）";
+          case "PROVIDER_HTTP_402" -> "账户余额不足（HTTP 402）";
+          case "PROVIDER_HTTP_429" -> "请求太频繁或额度用尽（HTTP 429），请稍后重试";
+          case "PROVIDER_NETWORK" -> "连接失败，请检查网络或代理设置";
+          case "CONFIGURATION" -> "未配置或配置不完整";
+          case "INVALID_RESPONSE", "RESPONSE_BUDGET" -> "返回的内容无法使用";
+          default ->
+              cause.startsWith("PROVIDER_HTTP_")
+                  ? "调用失败（HTTP " + cause.substring(14) + "）"
+                  : "调用失败（" + cause + "）";
+        };
+    return which + detail;
   }
 
   static String safeMessage(String code) {

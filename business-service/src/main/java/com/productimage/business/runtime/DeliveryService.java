@@ -297,7 +297,8 @@ public final class DeliveryService {
             fail(
                 row,
                 receipt.path("error").path("code").asText(),
-                receipt.path("error").path("retryable").asBoolean());
+                receipt.path("error").path("retryable").asBoolean(),
+                receipt.path("error").path("safe_message").asText());
           jdbc.update(
               "INSERT INTO worker_receipts(event_id,task_id,attempt_id,event_type,payload_sha256,payload,lease_token,disposition,processed_at) VALUES (?,?,?,?,?,?::jsonb,?,?,now())",
               receipt.path("event_id").asText(),
@@ -341,10 +342,15 @@ public final class DeliveryService {
   }
 
   private void fail(Map<String, Object> row, String code, boolean retryable) {
+    fail(row, code, retryable, "");
+  }
+
+  /** The Worker's allowlisted diagnosis (e.g. PROVIDER_HTTP_404) refines the message. */
+  private void fail(Map<String, Object> row, String code, boolean retryable, String diagnosis) {
     jdbc.update(
         "UPDATE task_attempts SET status='FAILED',started_at=coalesce(started_at,now()),ended_at=now(),error_code=?,safe_message=?,retryable=? WHERE id=?",
         code,
-        TaskService.safeMessage(code),
+        TaskService.safeMessage(code, diagnosis),
         retryable,
         row.get("attempt_id"));
     jdbc.update(

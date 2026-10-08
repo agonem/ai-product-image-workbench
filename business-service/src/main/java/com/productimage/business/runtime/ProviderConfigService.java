@@ -150,7 +150,10 @@ public final class ProviderConfigService {
       throw new Problem(400, "INVALID_CONTRACT");
     var expected = new HashSet<>(BASE);
     if (body.has("purpose")) expected.add("purpose");
-    if (provider.equals("openrouter")) expected.add("provider_tag");
+    // OpenRouter image models pin a provider; a text model may leave routing to OpenRouter.
+    boolean text = "TEXT".equals(body.path("purpose").asText());
+    if (provider.equals("openrouter") && !(text && !body.has("provider_tag")))
+      expected.add("provider_tag");
     if (provider.endsWith("-compatible")) expected.add("base_url");
     var names = new HashSet<String>();
     body.fieldNames().forEachRemaining(names::add);

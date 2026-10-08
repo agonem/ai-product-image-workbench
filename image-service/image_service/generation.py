@@ -397,10 +397,14 @@ def process_generation(api, request, lease, adapter, *, cancelled=None, text_con
     if request.get("rewrite") and not retypeset and not original:
         # One text-model call per attempt, before any paid image call (ADR-20261008-L).
         if text_config is None:
-            raise BackgroundError("CONFIGURATION")
+            raise BackgroundError("TEXT_CONFIGURATION")
         api.call("POST", f"/internal/v1/work/{request['attempt_id']}/heartbeat", lease=lease)
         system, user = _rewrite_messages(request)
-        brief, _usage = text_models.rewrite(text_config, system, user)
+        try:
+            brief, _usage = text_models.rewrite(text_config, system, user)
+        except BackgroundError as error:
+            # Tell the page it was the rewrite, not the picture, that failed.
+            raise BackgroundError("TEXT_" + error.code, retryable=error.retryable) from None
         agent_info.update(rewritten=brief, text_model=text_config.model)
     artifacts, generations, hashes = [], [], set()
     for ordinal in range(count):

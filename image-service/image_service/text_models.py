@@ -5,7 +5,9 @@ model's own proxy setting), the call is never retried here, the response is size
 errors carry fixed codes without provider bodies. The rewritten brief is only a prompt for the
 image model; the product guard is appended afterwards by the generation code.
 
-- OpenRouter: POST https://openrouter.ai/api/v1/chat/completions (provider pinned by its tag).
+- OpenRouter: POST https://openrouter.ai/api/v1/chat/completions. The routing tag is only a
+  preference (other providers of the model are used when that one does not serve it); without
+  a tag OpenRouter chooses. Only the brief travels here, never an image.
 - OpenAI format (official or third-party): POST {root}/chat/completions.
 - Gemini format (official or third-party): POST {root}/models/{model}:generateContent.
 """
@@ -27,16 +29,13 @@ TIMEOUT = httpx.Timeout(90, connect=10)
 def _request(config, system, user):
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     if config.provider == "openrouter":
+        body = {"model": config.model, "messages": messages, "max_tokens": 800, "temperature": 0.7}
+        if config.provider_tag:
+            body["provider"] = {"order": [config.provider_tag], "allow_fallbacks": True}
         return (
             "https://openrouter.ai/api/v1/chat/completions",
             {"Authorization": "Bearer " + config.api_key},
-            {
-                "model": config.model,
-                "messages": messages,
-                "max_tokens": 800,
-                "temperature": 0.7,
-                "provider": {"only": [config.provider_tag], "allow_fallbacks": False},
-            },
+            body,
         )
     if config.provider in ("openai", "openai-compatible"):
         return (

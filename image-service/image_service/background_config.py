@@ -86,8 +86,10 @@ def config_from_mapping(mapping):
             provider not in PROVIDERS
             or not re.fullmatch(r"[\x21-\x7e]{1,4096}", key)
             or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./:-]{0,199}", model)
-            or (provider == "openrouter")
-            != (isinstance(tag, str) and bool(re.fullmatch(r"[a-zA-Z0-9_./-]{1,100}", tag)))
+            # OpenRouter image models carry a routing tag (the adapter insists); a text model
+            # may leave routing to OpenRouter (ADR-20261008-L). Other providers have none.
+            or (tag is not None and provider != "openrouter")
+            or (tag is not None and not re.fullmatch(r"[a-zA-Z0-9_./-]{1,100}", str(tag)))
             or (
                 provider == "openrouter"
                 and not re.fullmatch(r"[a-zA-Z0-9_-]+/[a-zA-Z0-9_.:-]+", model)

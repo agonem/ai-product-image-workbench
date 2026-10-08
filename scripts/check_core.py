@@ -1105,6 +1105,17 @@ def api_checks(core, admin, alice, bob, project):
     assert core.fences(attempt) == "1"
     detail = core.get(alice, state["id"])[1]
     assert detail["agent"]["rewrite"] is True and detail["agent"]["rewritten"] == agent["rewritten"]
+    # A failed rewrite says so, and why (ADR-20261008-L follow-up).
+    state = core.generate(alice, dict(wand, prompt="模拟改写失败"), "v4-agent-wand-404")
+    assert state["status"] == "FAILED" and state["artifacts"] == [], state
+    assert state["error"]["message"].startswith("魔法棒改写失败：文本模型不存在或路由标签不匹配")
+    attempt = run.sql(f"SELECT current_attempt_id FROM generation_tasks WHERE id='{state['id']}'")
+    assert core.fences(attempt) == "0"
+    # An OpenRouter text model may leave routing to OpenRouter; an image model may not.
+    untagged = {k: v for k, v in writer.items() if k != "provider_tag"}
+    assert run.http("POST", "/api/v1/admin/provider-configs", admin, untagged)[0] == 201
+    image = dict(untagged, purpose="IMAGE")
+    assert run.http("POST", "/api/v1/admin/provider-configs", admin, image)[0] == 400
     evidence["agents"] = {"guided": state["id"], "text_model": text_model["id"]}
     return evidence
 
