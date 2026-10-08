@@ -4,6 +4,10 @@ The product image (and the gift image for the gift entry) is sent to the configu
 reference; the model returns the whole image. The result is exported locally to the exact size
 with a deterministic cover-centre crop, then the verbatim manual text is overlaid by the program.
 A re-typeset request reuses a stored model output and never calls the model.
+
+Selling points (ADR-20261008-G): one image per point; image i carries the shared title and point i.
+With ``keep_original`` the product image itself, cropped to size, is the base of every image and
+no model is called.
 """
 
 import hashlib
@@ -112,6 +116,43 @@ def _reference(raw):
         return stream.getvalue()
 
 
+def _original(raw, width, height):
+    """The product image as the base for keep-original selling images: upright, transparent
+    areas on white, then the same cover-centre crop as model outputs. Returns the PNG of the
+    cropped image and how it was cut from the original."""
+    with Image.open(io.BytesIO(raw)) as image:
+        if image.format not in ("PNG", "JPEG"):
+            raise ValueError("unsupported original format")
+        if image.format == "JPEG":
+            # Decode large JPEGs at a reduced scale, never below the output size.
+            image.draft("RGB", (width, height))
+        image.load()
+        upright = ImageOps.exif_transpose(image)
+        if upright.mode in ("RGBA", "LA", "PA") or (
+            upright.mode == "P" and "transparency" in upright.info
+        ):
+            rgba = upright.convert("RGBA")
+            flat = Image.new("RGB", rgba.size, (255, 255, 255))
+            flat.paste(rgba, mask=rgba.getchannel("A"))
+        else:
+            flat = upright.convert("RGB")
+        cropped, transform = fit_background(flat, width, height)
+    return encode(cropped, "png"), transform
+
+
+def _text_for(request, ordinal):
+    """The text drawn on image ``ordinal``: per-point tasks show the title and that one point."""
+    text = request.get("text")
+    if text and request.get("per_point") and "base_image" not in request:
+        return {**text, "points": [text["points"][ordinal]]}
+    return text
+
+
+def _style(request, ordinal):
+    styles = request["styles"]
+    return styles[0] if request.get("per_point") else styles[ordinal]
+
+
 def _text_area(box):
     cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
     horizontal = "left" if cx < 0.4 else "right" if cx > 0.6 else "centre"
@@ -178,8 +219,14 @@ def build_prompt(request, ordinal):
     elif feature == "SCENE":
         parts.append(f"Place the product naturally in this setting: {request['scene']['prompt']}.")
     else:
-        style = request["styles"][ordinal]
+        style = _style(request, ordinal)
         parts.append(f"Setting and mood: {style['prompt']}. The product is the clear hero.")
+        if request.get("per_point"):
+            point = request["text"]["points"][ordinal]
+            parts.append(
+                "Express this selling point through the setting, props or composition, without "
+                f"writing it anywhere in the image: {point}."
+            )
     if request.get("style_prompt"):
         parts.append(f"Additional style: {request['style_prompt']}.")
     if request.get("text"):
@@ -191,7 +238,7 @@ def build_prompt(request, ordinal):
 def _palette(request, ordinal):
     text = request["text"]
     if request.get("styles"):
-        style = request["styles"][ordinal]
+        style = _style(request, ordinal)
         return {key: style[key] for key in ("badge_color", "badge_text_color", "accent_color")}
     return {**DEFAULT_PALETTE, "badge_text_color": text["color"], "accent_color": text["color"]}
 
@@ -205,20 +252,32 @@ def process_generation(api, request, lease, adapter, *, cancelled=None):
     font = typeset.font_path() if text else None
     inputs = {"product_sha256": request["product_asset"]["sha256"]}
     retypeset = "base_image" in request
+    original = not retypeset and bool(request.get("keep_original"))
     if retypeset:
         base_raw = _raw(api, request, lease, "base_image")
         inputs["base_sha256"] = request["base_image"]["sha256"]
+    elif original:
+        base_raw, source_transform = _original(
+            _raw(api, request, lease, "product_asset"), width, height
+        )
     else:
         references = [_reference(_raw(api, request, lease, "product_asset"))]
     if "gift_asset" in request:
         inputs["gift_sha256"] = request["gift_asset"]["sha256"]
-        if not retypeset:
+        if not retypeset and not original:
             references.append(_reference(_raw(api, request, lease, "gift_asset")))
     artifacts, generations, hashes = [], [], set()
     for ordinal in range(count):
         if retypeset:
             content = base_raw
             provenance = {"schema_version": 1, "output_source": "retypeset"}
+        elif original:
+            content = base_raw
+            provenance = {
+                "schema_version": 1,
+                "output_source": "original",
+                "source_transform": source_transform,
+            }
         else:
             if time.monotonic() - started >= 600 or (cancelled is not None and cancelled()):
                 raise ValueError("generation lease or time budget exhausted")
@@ -240,14 +299,17 @@ def process_generation(api, request, lease, adapter, *, cancelled=None):
             content = generated.content
             provenance = dict(generated.provenance)
         digest = hashlib.sha256(content).hexdigest()
-        if digest in hashes:
+        # Keep-original images share one base by design; model outputs must all differ.
+        if digest in hashes and not original:
             raise ValueError("duplicate generated image")
         hashes.add(digest)
         with Image.open(io.BytesIO(content)) as image:
             budget(image.size)
             final, transform = fit_background(image.convert("RGBA"), width, height)
         if text:
-            final = typeset.render(final, text, _palette(request, ordinal), font)
+            final = typeset.render(
+                final, _text_for(request, ordinal), _palette(request, ordinal), font
+            )
 
         def put(index, kind, data):
             info = api.call(

@@ -126,9 +126,11 @@ public final class TaskService {
           if (!existing.isEmpty()) return existing(actor, existing.getFirst(), hash);
           ObjectNode worker = build.get();
           // Model tasks freeze the chosen (or default) model; retries reuse the frozen column.
-          // Text-only re-renders call no model.
+          // Text-only re-renders and keep-original selling images call no model.
           String configVersion =
-              worker.path("schema_version").asInt() >= 2 && !worker.has("base_image")
+              worker.path("schema_version").asInt() >= 2
+                      && !worker.has("base_image")
+                      && !worker.path("keep_original").asBoolean()
                   ? configs.binding(request.get("model_id"))
                   : null;
           String id = Json.id();

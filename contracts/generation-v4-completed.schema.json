@@ -64,6 +64,7 @@
                   "openai-images-api",
                   "gemini-generate-content",
                   "retypeset",
+                  "original",
                   "mock-acceptance-only"
                 ]
               },
@@ -137,6 +138,9 @@
                 ]
               },
               "transform": {
+                "type": "object"
+              },
+              "source_transform": {
                 "type": "object"
               },
               "text_rendered": {

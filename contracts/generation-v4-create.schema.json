@@ -403,15 +403,14 @@
         "feature_type": {
           "const": "SELLING_POINT"
         },
-        "styles": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 10,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_]{0,31}$"
-          }
+        "style": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "description": "One selling-point style; one image per point (ADR-20261008-G)."
+        },
+        "keep_original": {
+          "const": true,
+          "description": "No model call: the product image itself is cropped and the text overlaid (ADR-20261008-G)."
         },
         "text": {
           "allOf": [
@@ -503,9 +502,66 @@
         "project_id",
         "product_asset_id",
         "feature_type",
-        "styles",
         "text",
         "output"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "style"
+          ],
+          "properties": {
+            "style": {}
+          },
+          "not": {
+            "required": [
+              "keep_original"
+            ],
+            "properties": {
+              "keep_original": {}
+            }
+          }
+        },
+        {
+          "required": [
+            "keep_original"
+          ],
+          "properties": {
+            "keep_original": {}
+          },
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "style"
+                ],
+                "properties": {
+                  "style": {}
+                }
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "model_id"
+                ],
+                "properties": {
+                  "model_id": {}
+                }
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "style_prompt"
+                ],
+                "properties": {
+                  "style_prompt": {}
+                }
+              }
+            }
+          ]
+        }
       ]
     }
   ]

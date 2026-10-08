@@ -74,7 +74,7 @@ test('V4-B1: home shows three independent entries and navigation', async ({
   await expect(
     page.getByRole('heading', { name: '选择功能开始生成' }),
   ).toBeVisible()
-  for (const name of ['赠品+文字主图', '场景主图', '卖点主图'])
+  for (const name of ['赠品主图', '场景主图', '卖点主图'])
     await expect(
       page.getByRole('button', { name: `${name} 立即生成` }),
     ).toBeVisible()
@@ -163,12 +163,12 @@ test('V4-B2: scene - upload, preset, model and size, compare, download', async (
   expect(errors).toEqual([])
 })
 
-test('V4-B3: gift with text, then a free text-only re-render', async ({
+test('V4-B3: gift - position and background only, no text', async ({
   page,
 }) => {
   const errors = watchErrors(page)
   await login(page)
-  await page.getByRole('link', { name: '赠品+文字主图' }).click()
+  await page.getByRole('link', { name: '赠品主图' }).click()
   // The product comes from the library picker, the gift from a new upload.
   await page.getByRole('button', { name: /^商品图/ }).click()
   await page.getByRole('menuitem', { name: '从素材库选择' }).click()
@@ -184,19 +184,11 @@ test('V4-B3: gift with text, then a free text-only re-render', async ({
   await page.getByRole('button', { name: '左下' }).click()
   await section(page, '背景')
   await page.getByRole('button', { name: '背景 奶油' }).click()
-  if (withText) {
-    await section(page, '营销文字')
-    await page.getByLabel('标题').fill('下单即送\n防撞护角')
-    await page.getByLabel('标签（每行一条）').fill('安全材质')
-    await page.getByRole('button', { name: '右上' }).click()
-    const layer = page.getByTestId('text-layer')
-    await expect(layer).toContainText('防撞护角')
-    const box = (await layer.boundingBox())!
-    await page.mouse.move(box.x + 20, box.y + 20)
-    await page.mouse.down()
-    await page.mouse.move(box.x - 30, box.y + 40, { steps: 5 })
-    await page.mouse.up()
-  }
+  // No text settings and no text box on the gift page (ADR-20261008-G).
+  await expect(
+    page.locator('button.acc-head').filter({ hasText: /文字/ }),
+  ).toHaveCount(0)
+  await expect(page.getByTestId('text-layer')).toHaveCount(0)
   await page.screenshot({ path: join(artifacts, 'gift-plan.png') })
   const { body, id } = await submitAndTrack(page, () =>
     page.getByTestId('generate').click(),
@@ -205,31 +197,12 @@ test('V4-B3: gift with text, then a free text-only re-render', async ({
   expect(body.gift_position).toBe('BOTTOM_LEFT')
   expect(body.background).toEqual({ mode: 'SOLID', color: '#FFF6EC' })
   expect(body.output.count).toBe(1)
-  if (withText) {
-    expect(body.text.title).toBe('下单即送\n防撞护角')
-    expect(body.text.points).toEqual(['安全材质'])
-    expect(body.text.align).toBe('right')
-    expect(body.text.box.x).toBeLessThan(0.49)
-    expect(body.text.size).toBe(56)
-  }
+  expect(body.text).toBeUndefined()
   await expect(done(page, id)).toHaveCount(1, { timeout: 60000 })
-  if (withText) {
-    await expect(
-      page.getByText('拖动虚线框调整文字位置，改完点右侧按钮'),
-    ).toBeVisible()
-    await page.screenshot({ path: join(artifacts, 'gift-result.png') })
-    // The model output stays; only the text is re-rendered and no model is called.
-    await section(page, '营销文字')
-    await page.getByLabel('标题').fill('新标题')
-    const retype = await submitAndTrack(
-      page,
-      () => page.getByRole('button', { name: '应用文字修改' }).click(),
-      (r) => r.url().endsWith(`/api/v4/generation-tasks/${id}/retypeset`),
-    )
-    expect(retype.body.ordinal).toBe(0)
-    expect(retype.body.text.title).toBe('新标题')
-    await expect(done(page, retype.id)).toHaveCount(1, { timeout: 60000 })
-  }
+  await expect(page.getByRole('button', { name: '应用文字修改' })).toHaveCount(
+    0,
+  )
+  await page.screenshot({ path: join(artifacts, 'gift-result.png') })
   await page.setViewportSize({ width: 390, height: 844 })
   await noHorizontalScroll(page)
   await page.screenshot({
@@ -239,30 +212,42 @@ test('V4-B3: gift with text, then a free text-only re-render', async ({
   expect(errors).toEqual([])
 })
 
-test('V4-B4: selling points - one image per chosen style, verbatim points', async ({
+test('V4-B4: selling points - one image per point in one style, verbatim text', async ({
   page,
 }) => {
   test.skip(!withText, 'needs a deployment font for text overlay')
   const errors = watchErrors(page)
   await login(page)
   await page.getByRole('link', { name: '卖点主图' }).click()
-  await page.getByLabel('标题').fill('轻松喂养')
-  await page
-    .getByLabel('卖点（每行一条）')
-    .fill(' 安全材质 \n防胀气设计\n易清洗')
+  await page.getByLabel('标题').fill('宝宝奶瓶')
+  await page.getByLabel('卖点（每行一条').fill(' 安全材质 \n防胀气设计\n易清洗')
   await section(page, '风格')
   await page.getByRole('button', { name: '自然绿' }).click()
-  await expect(page.getByText('已选 2 种')).toBeVisible()
-  await expect(page.getByTestId('generate')).toHaveText('生成 2 张')
+  await expect(page.getByRole('button', { name: '暖木奶油' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+  await expect(page.getByTestId('generate')).toHaveText('生成 3 张')
+  // The plan preview shows the title and the point needing the most room (spaces count).
+  const layer = page.getByTestId('text-layer')
+  await expect(layer).toContainText('安全材质')
+  await expect(layer).not.toContainText('易清洗')
+  await expect(layer).not.toContainText('防胀气设计')
   const { body, id } = await submitAndTrack(page, () =>
     page.getByTestId('generate').click(),
   )
-  expect(body.styles).toEqual(['warm', 'green'])
-  expect(body.output.count).toBe(2)
+  expect(body.style).toBe('green')
+  expect(body.styles).toBeUndefined()
+  expect(body.output.count).toBe(3)
+  expect(body.text.title).toBe('宝宝奶瓶')
   expect(body.text.points).toEqual([' 安全材质 ', '防胀气设计', '易清洗'])
-  // No colour choice here: the title takes the first style's colour.
-  expect(body.text.color).toBe('#4A2E1F')
-  await expect(done(page, id)).toHaveCount(2, { timeout: 60000 })
+  // No colour choice for a style: the title takes the style's colour.
+  expect(body.text.color).toBe('#2F5D3A')
+  await expect(done(page, id)).toHaveCount(3, { timeout: 60000 })
+  // Each result previews its own point for further text edits.
+  await page.getByRole('button', { name: '查看结果 3' }).first().click()
+  await expect(layer).toContainText('易清洗')
+  await expect(layer).not.toContainText('防胀气设计')
   await page.screenshot({ path: join(artifacts, 'selling-desktop.png') })
   expect(errors).toEqual([])
 })
@@ -349,15 +334,16 @@ test('V4-B9: text that cannot fit its box is flagged before generating', async (
   page,
 }) => {
   await login(page)
-  await page.getByRole('link', { name: '赠品+文字主图' }).click()
-  await section(page, '营销文字')
+  await page.getByRole('link', { name: '卖点主图' }).click()
+  await section(page, '卖点文字')
+  await page.getByLabel('卖点（每行一条').fill('安全材质')
   await page.getByLabel('标题').fill('测'.repeat(60))
   await expect(page.getByTestId('text-overflow')).toBeVisible()
   await expect(page.getByTestId('text-layer')).toHaveAttribute(
     'data-overflow',
     'true',
   )
-  await page.screenshot({ path: join(artifacts, 'gift-overflow.png') })
+  await page.screenshot({ path: join(artifacts, 'selling-overflow.png') })
   await page.getByLabel('标题').fill('下单即送')
   await expect(page.getByTestId('text-overflow')).toHaveCount(0)
   await expect(page.getByTestId('text-layer')).toHaveAttribute(
@@ -573,7 +559,7 @@ test('V4-B11: a finished work becomes the product image; the gift keeps the orig
   page,
 }) => {
   await login(page)
-  await page.getByRole('link', { name: '赠品+文字主图' }).click()
+  await page.getByRole('link', { name: '赠品主图' }).click()
   await page.getByRole('button', { name: /^商品图/ }).click()
   await page.getByRole('menuitem', { name: '从素材库选择' }).click()
   const picker = page.getByRole('dialog', { name: '选择商品图' })
@@ -668,24 +654,22 @@ test('V4-B13: admins edit scene presets; saving publishes and a rollback restore
   await expect(page.getByRole('button', { name: '露台花园' })).toHaveCount(0)
 })
 
-test('V4-B14: personal templates, undo/redo and layers on the gift page', async ({
+test('V4-B14: personal templates and undo/redo (gift), layers (selling)', async ({
   page,
 }) => {
   await login(page)
-  await page.getByRole('link', { name: '赠品+文字主图' }).click()
+  await page.getByRole('link', { name: '赠品主图' }).click()
   // The accordion header; the colour swatches are also named "背景 …".
   const background = page
     .locator('button.acc-head')
     .filter({ hasText: /^背景/ })
   await section(page, '背景')
   await page.getByRole('button', { name: '保持原图' }).click()
-  await section(page, '营销文字')
-  await page.getByRole('button', { name: '右上' }).click()
   // Save the settings as a personal template.
   await page.getByRole('button', { name: '我的模板' }).click()
   await page.getByRole('button', { name: '保存当前参数为模板' }).click()
   const dialog = page.getByRole('dialog', { name: '保存为模板' })
-  await dialog.getByLabel('模板名称').fill('原图背景右上字')
+  await dialog.getByLabel('模板名称').fill('原图背景')
   await dialog.getByRole('button', { name: '保存模板' }).click()
   await expect(toast(page)).toContainText('已保存模板')
   // Change the settings, then apply the template again.
@@ -696,8 +680,8 @@ test('V4-B14: personal templates, undo/redo and layers on the gift page', async 
   await page.getByRole('button', { name: '我的模板' }).click()
   await page
     .getByTestId('template-row')
-    .filter({ hasText: '原图背景右上字' })
-    .getByRole('button', { name: '原图背景右上字', exact: true })
+    .filter({ hasText: '原图背景' })
+    .getByRole('button', { name: '原图背景', exact: true })
     .click()
   await expect(toast(page)).toContainText('已套用模板')
   await expect(background).toContainText('保持原图背景')
@@ -707,7 +691,13 @@ test('V4-B14: personal templates, undo/redo and layers on the gift page', async 
   await expect(background).toContainText('纯白')
   await page.getByRole('button', { name: '重做' }).click()
   await expect(background).toContainText('保持原图背景')
+  // Templates are personal and can be deleted.
+  await page.getByRole('button', { name: '我的模板' }).click()
+  await page.getByRole('button', { name: '删除模板 原图背景' }).click()
+  await confirm(page, '删除模板“原图背景”')
+  await expect(page.getByTestId('template-row')).toHaveCount(0)
   // Layers: guides on, text locked (dragging no longer moves it).
+  await page.getByRole('link', { name: '卖点主图' }).click()
   await page.getByRole('button', { name: '图层' }).click()
   await page.getByLabel('显示参考线').check()
   await page.getByLabel('锁定文字位置').check()
@@ -719,12 +709,62 @@ test('V4-B14: personal templates, undo/redo and layers on the gift page', async 
   await page.mouse.move(box.x - 60, box.y + 60, { steps: 5 })
   await page.mouse.up()
   expect((await layer.boundingBox())!.x).toBeCloseTo(box.x, 0)
-  await page.screenshot({ path: join(artifacts, 'gift-tools.png') })
-  // Templates are personal and can be deleted.
-  await page.getByRole('button', { name: '我的模板' }).click()
-  await page.getByRole('button', { name: '删除模板 原图背景右上字' }).click()
-  await confirm(page, '删除模板“原图背景右上字”')
-  await expect(page.getByTestId('template-row')).toHaveCount(0)
+  await page.screenshot({ path: join(artifacts, 'selling-tools.png') })
+})
+
+test('V4-B16: selling text on a finished work with "keep original" (no model)', async ({
+  page,
+}) => {
+  test.skip(!withText, 'needs a deployment font for text overlay')
+  const errors = watchErrors(page)
+  await login(page)
+  await page.getByRole('link', { name: '卖点主图' }).click()
+  // A finished gift image becomes the product image.
+  await page.getByRole('button', { name: /^商品图/ }).click()
+  await page.getByRole('menuitem', { name: '从素材库选择' }).click()
+  const picker = page.getByRole('dialog', { name: '选择商品图' })
+  await picker.getByRole('button', { name: '我的作品' }).click()
+  await picker
+    .getByRole('button', { name: /^使用作品/ })
+    .first()
+    .click()
+  await expect(picker).toHaveCount(0)
+  await page.getByLabel('标题').fill('下单即送')
+  await page.getByLabel('卖点（每行一条').fill('防撞护角\n安全材质')
+  await section(page, '风格')
+  await page.getByRole('button', { name: '保持原图' }).click()
+  await expect(
+    page.locator('button.acc-head').filter({ hasText: /^输出设置/ }),
+  ).toContainText('不调用模型')
+  await section(page, '卖点文字')
+  await page.getByRole('button', { name: '文字 深蓝' }).click()
+  // The plan shows the image itself under the text box.
+  await expect(page.locator('.artboard img.base')).toBeVisible()
+  await expect(page.getByTestId('generate')).toHaveText('生成 2 张')
+  await page.screenshot({ path: join(artifacts, 'selling-original-plan.png') })
+  const { body, id } = await submitAndTrack(page, () =>
+    page.getByTestId('generate').click(),
+  )
+  expect(body.keep_original).toBe(true)
+  expect(body.style).toBeUndefined()
+  expect(body.model_id).toBeUndefined()
+  expect(body.output.count).toBe(2)
+  expect(body.text.color).toBe('#1E3A5F')
+  await expect(done(page, id)).toHaveCount(2, { timeout: 60000 })
+  await page.screenshot({ path: join(artifacts, 'selling-original.png') })
+  // A text-only edit of one image, again without the model.
+  await section(page, '卖点文字')
+  await page.getByLabel('标题').fill('新标题')
+  const retype = await submitAndTrack(
+    page,
+    () => page.getByRole('button', { name: '应用文字修改' }).click(),
+    (r) => r.url().endsWith(`/api/v4/generation-tasks/${id}/retypeset`),
+  )
+  expect(retype.body.ordinal).toBe(0)
+  expect(retype.body.text.title).toBe('新标题')
+  expect(retype.body.text.points).toEqual(['防撞护角'])
+  await expect(done(page, retype.id)).toHaveCount(1, { timeout: 60000 })
+  expect(errors).toEqual([])
 })
 
 test('V4-B15: image management, dashboard and operation log for admins', async ({

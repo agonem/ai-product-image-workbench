@@ -32,15 +32,12 @@ const FIELDS: Record<Feature, (keyof GenerationDraft)[]> = {
     'backgroundMode',
     'backgroundColor',
     'backgroundPrompt',
-    'textColor',
-    'textLevel',
-    'textPosition',
-    'textAlign',
-    'textBox',
   ],
   SCENE: ['scenePreset', 'scenePrompt'],
   SELLING_POINT: [
     'styles',
+    'keepOriginal',
+    'textColor',
     'textLevel',
     'textPosition',
     'textAlign',
@@ -109,8 +106,9 @@ function apply(template: Template) {
     if (key === 'count' && (value as number) > (w.generation?.max_count ?? 4))
       continue
     if (key === 'styles') {
+      // One style per selling task now (ADR-20261008-G); older templates may hold several.
       const kept = (value as string[]).filter((id) => styles.has(id))
-      if (kept.length) next.styles = kept
+      if (kept.length) next.styles = kept.slice(0, 1)
       continue
     }
     Object.assign(next, { [key]: plain(value) })

@@ -12,6 +12,8 @@ const props = defineProps<{
   height: number
   /** Result layer (model output under the text, or the final image for scenes). */
   image: string | null
+  /** Plan layer: the product image itself when selling points keep the original. */
+  backdrop?: string | null
   imageAlt: string
   text: TextSpec | null
   textAlign: 'left' | 'center' | 'right'
@@ -41,7 +43,7 @@ const emit = defineEmits<{
   redo: []
 }>()
 
-const hasText = computed(() => props.feature !== 'SCENE')
+const hasText = computed(() => props.feature === 'SELLING_POINT')
 const textOn = ref(true),
   zoom = ref(1),
   split = ref(50)
@@ -109,10 +111,9 @@ const productZone = computed<Zone>(() => {
   const side = props.textAlign
   if (props.feature === 'SCENE')
     return { left: 28, top: 18, width: 44, height: 66 }
+  // The gift page has no text (ADR-20261008-G).
   if (props.feature === 'GIFT')
-    return side === 'center'
-      ? { left: 30, top: 40, width: 40, height: 52 }
-      : { left: side === 'left' ? 46 : 14, top: 24, width: 40, height: 58 }
+    return { left: 18, top: 14, width: 50, height: 60 }
   return side === 'center'
     ? { left: 29, top: 42, width: 42, height: 52 }
     : { left: side === 'left' ? 52 : 6, top: 22, width: 42, height: 60 }
@@ -407,6 +408,16 @@ function nudge(event: KeyboardEvent) {
             :path="image"
             :alt="imageAlt"
             :api="api"
+          />
+        </template>
+        <template v-else-if="!showResult && backdrop">
+          <PrivateImage
+            :key="backdrop"
+            class="base"
+            :path="backdrop"
+            alt="商品图（保持原图）"
+            :api="api"
+            missing="原图已删除"
           />
         </template>
         <template v-else-if="!showResult && layers.zones">

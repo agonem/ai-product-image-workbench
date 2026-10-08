@@ -24,6 +24,8 @@ final class GenerationOutputs {
     int count = output.path("count").asInt();
     int width = output.path("width").asInt(), height = output.path("height").asInt();
     boolean retypeset = request.has("base_image");
+    // Keep-original selling images (ADR-20261008-G): every base is the same cropped original.
+    boolean original = !retypeset && request.path("keep_original").asBoolean();
     if (receipt.path("artifacts").size() != count || receipt.path("generations").size() != count)
       invalid();
     var hashes = new HashSet<String>();
@@ -38,7 +40,7 @@ final class GenerationOutputs {
       if (generation.path("ordinal").asInt(-1) != i
           || artifact.path("width").asInt() != width
           || artifact.path("height").asInt() != height
-          || !hashes.add(base.path("sha256").asText())
+          || (!original && !hashes.add(base.path("sha256").asText()))
           || !provenance.path("sha256").equals(base.path("sha256"))
           || !inputs.path("product_sha256").equals(request.path("product_asset").path("sha256"))
           || (request.has("gift_asset")
@@ -50,6 +52,9 @@ final class GenerationOutputs {
             || !base.path("sha256").equals(request.path("base_image").path("sha256"))
             || !inputs.path("base_sha256").equals(request.path("base_image").path("sha256")))
           invalid();
+      } else if (original) {
+        if (!"original".equals(provenance.path("output_source").asText())
+            || !provenance.path("source_transform").isObject()) invalid();
       } else if (!MODEL_SOURCES.contains(provenance.path("output_source").asText())
           || !provenance
               .path("correlation_id")

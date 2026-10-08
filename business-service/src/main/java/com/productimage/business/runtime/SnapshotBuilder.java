@@ -46,8 +46,11 @@ final class SnapshotBuilder {
       } else scene = Json.object().put("prompt", request.path("scene_prompt").asText());
       worker.set("scene", scene);
     } else {
-      var styles = worker.putArray("styles");
-      request.path("styles").forEach(id -> styles.add(presets.style(id.asText())));
+      // One image per selling point (ADR-20261008-G): the chosen style, or the product image
+      // itself with no model call.
+      worker.put("per_point", true);
+      if (request.path("keep_original").asBoolean()) worker.put("keep_original", true);
+      else worker.putArray("styles").add(presets.style(request.path("style").asText()));
     }
     if (request.has("style_prompt")) worker.set("style_prompt", request.get("style_prompt"));
     if (request.has("text")) worker.set("text", request.get("text"));
@@ -66,9 +69,13 @@ final class SnapshotBuilder {
     worker.set("base_image", base);
     worker.putObject("source").put("task_id", sourceTask).put("ordinal", ordinal);
     if (worker.has("styles")) {
-      var style = worker.path("styles").get(ordinal).deepCopy();
+      // Per-point tasks share one style; legacy tasks had one style per image.
+      boolean shared = worker.path("per_point").asBoolean();
+      var style = worker.path("styles").get(shared ? 0 : ordinal).deepCopy();
       worker.putArray("styles").add(style);
     }
+    // The re-render text is already this image's own text; nothing is split per point.
+    worker.remove("per_point");
     var output = ((ObjectNode) worker.get("output").deepCopy()).put("count", 1);
     worker.set("output", output);
     freezeOutput(worker, output);

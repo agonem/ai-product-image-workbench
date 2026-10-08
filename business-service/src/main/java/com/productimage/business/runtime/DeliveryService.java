@@ -132,6 +132,7 @@ public final class DeliveryService {
           int version = request.path("schema_version").asInt();
           if (version != 4
               || request.has("base_image")
+              || request.path("keep_original").asBoolean()
               || ordinal < 0
               || ordinal >= request.path("output").path("count").asInt())
             throw new Problem(400, "INVALID_CONTRACT");

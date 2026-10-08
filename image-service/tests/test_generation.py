@@ -10,6 +10,7 @@ from image_service import typeset
 from image_service.background import BackgroundError, BackgroundResult
 from image_service.contracts import validate_contract
 from image_service.generation import (
+    _original,
     _reference,
     build_prompt,
     fit_background,
@@ -220,6 +221,105 @@ def test_selling_points_one_style_per_image_with_verbatim_text(font):
             for c in colours
         )
     assert all(g["provenance"]["text_rendered"] for g in receipt["generations"])
+
+
+def capture_text(monkeypatch):
+    drawn = []
+    render = typeset.render
+
+    def spy(image, text, palette, font):
+        drawn.append((text, palette))
+        return render(image, text, palette, font)
+
+    monkeypatch.setattr(typeset, "render", spy)
+    return drawn
+
+
+def test_selling_points_one_image_per_point_in_one_style(font, monkeypatch):
+    """ADR-20261008-G: image i shows the shared title and point i; every prompt uses the one
+    chosen style and asks the model to express that point without writing it."""
+    drawn = capture_text(monkeypatch)
+    local, adapter = api(), Adapter()
+    value = request(local, "SELLING_POINT", count=2, styles=STYLES[:1], per_point=True)
+    receipt = process_generation(local, value, "lease", adapter)
+    assert not validate_contract("generation-v4-completed", receipt)
+    assert [r.prompt.count("warm mood") for r in adapter.requests] == [1, 1]
+    assert "selling point" in adapter.requests[0].prompt
+    assert "Safe." in adapter.requests[0].prompt and "Anti-colic" not in adapter.requests[0].prompt
+    assert "Anti-colic." in adapter.requests[1].prompt and "Safe." not in adapter.requests[1].prompt
+    assert all("Do not add any text" in r.prompt for r in adapter.requests)
+    assert [text["points"] for text, _ in drawn] == [["Safe"], ["Anti-colic"]]
+    assert {text["title"] for text, _ in drawn} == {TEXT["title"]}
+    assert [palette["badge_color"] for _, palette in drawn] == ["#F6E9DA", "#F6E9DA"]
+    assert local.posts.count("generation-calls/0") == local.posts.count("generation-calls/1") == 1
+
+
+def keep_original_request(local, **extra):
+    value = request(local, "SELLING_POINT", count=2, per_point=True, keep_original=True, **extra)
+    value.pop("styles")
+    assert not validate_contract("generation-v4-request", value)
+    return value
+
+
+def test_keep_original_puts_text_on_the_cropped_product_image_without_a_model(font, monkeypatch):
+    drawn = capture_text(monkeypatch)
+    local = api()
+    receipt = process_generation(local, keep_original_request(local), "lease", None)
+    assert not validate_contract("generation-v4-completed", receipt)
+    assert local.posts == []  # no heartbeat, no paid-call permit
+    bases = [g["base"]["sha256"] for g in receipt["generations"]]
+    assert bases[0] == bases[1]  # one cropped original for every image
+    assert local.outputs[2] == local.outputs[3]
+    assert local.outputs[0] != local.outputs[1]  # different points
+    for generation in receipt["generations"]:
+        provenance = generation["provenance"]
+        assert provenance["output_source"] == "original"
+        assert provenance["source_transform"]["source_size"] == [96, 80]
+        assert provenance["source_transform"]["target_size"] == [400, 400]
+        assert provenance["transform"]["crop"] == [0, 0, 400, 400]  # base is already exact
+        assert "model" not in provenance and "prompt" not in provenance
+    with Image.open(io.BytesIO(local.outputs[2])) as base:
+        assert base.size == (400, 400)
+        # The product rectangle of the original survives unchanged in colour.
+        assert base.convert("RGB").getpixel((200, 250)) == PRODUCT
+    assert [text["points"] for text, _ in drawn] == [["Safe"], ["Anti-colic"]]
+    # No style: the text colour comes from the request, the badges are white.
+    assert drawn[0][1] == {
+        "badge_color": "#FFFFFF",
+        "badge_text_color": TEXT["color"],
+        "accent_color": TEXT["color"],
+    }
+
+
+def test_keep_original_skips_the_provider_entirely(font, monkeypatch):
+    from image_service import providers
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("keep-original must never build a model client")
+
+    monkeypatch.setattr(providers, "model_adapter", forbidden)
+    local = api()
+    receipt = process(local, keep_original_request(local), "lease", False, provider_config=None)
+    assert receipt["event_type"] == "image.task.completed.v4", receipt
+
+
+def test_keep_original_base_is_upright_and_transparency_becomes_white():
+    image = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
+    ImageDraw.Draw(image).rectangle((80, 20, 120, 80), fill=PRODUCT + (255,))
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    data, transform = _original(stream.getvalue(), 100, 100)
+    with Image.open(io.BytesIO(data)) as base:
+        assert base.mode == "RGB" and base.size == (100, 100)
+        assert base.getpixel((2, 2)) == (255, 255, 255)
+        assert base.getpixel((50, 50)) == PRODUCT
+    assert transform["source_size"] == [200, 100] and transform["crop"] == [50, 0, 150, 100]
+    photo = Image.new("RGB", (120, 60), "white")
+    ImageDraw.Draw(photo).rectangle((0, 0, 20, 60), fill=PRODUCT)
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    data, transform = _original(jpeg(photo, exif=exif.tobytes()), 60, 120)
+    assert transform["source_size"] == [60, 120]
 
 
 def test_identical_model_outputs_are_rejected():

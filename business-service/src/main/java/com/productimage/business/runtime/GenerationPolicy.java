@@ -73,15 +73,16 @@ final class GenerationPolicy {
     int count = output.path("count").asInt();
     long width = output.path("width").asLong(), height = output.path("height").asLong();
     String[] ratio = output.path("aspect_ratio").asText().split(":");
+    // Selling points: one image per point (ADR-20261008-G), bounded by the 6-point contract
+    // rather than the per-entry count limit.
+    boolean selling = request.path("feature_type").asText().equals("SELLING_POINT");
     if (!ratios.contains(output.path("aspect_ratio").asText())
         || !formats.contains(output.path("format").asText())
         || count < 1
-        || count > maximum
+        || (!selling && count > maximum)
+        || (selling && count != request.path("text").path("points").size())
         || width * Long.parseLong(ratio[1]) != height * Long.parseLong(ratio[0])
         || width * height > MAX_PIXELS) throw new Problem(422, "INVALID_LAYOUT");
-    // Selling points: exactly one image per selected style, so no image is a repeat.
-    if (request.path("feature_type").asText().equals("SELLING_POINT")
-        && request.path("styles").size() != count) throw new Problem(422, "INVALID_LAYOUT");
     validateText(request.path("text"));
   }
 

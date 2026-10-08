@@ -230,6 +230,14 @@
         ]
       }
     },
+    "per_point": {
+      "const": true,
+      "description": "Selling points: image i shows the title and point i (ADR-20261008-G)."
+    },
+    "keep_original": {
+      "const": true,
+      "description": "No model call: every base is the product image cropped to size."
+    },
     "text": {
       "type": "object",
       "additionalProperties": false,

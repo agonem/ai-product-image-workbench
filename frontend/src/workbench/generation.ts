@@ -13,8 +13,8 @@ export const features: {
     id: 'GIFT',
     route: 'gift',
     no: '01',
-    name: '赠品+文字主图',
-    lines: ['商品与赠品同框，叠加营销文字', '赠品位置可选，文字可拖动调整'],
+    name: '赠品主图',
+    lines: ['商品与赠品同框，赠品位置可选', '背景可保持原图、纯色或按描述生成'],
     tone: 'gift',
   },
   {
@@ -30,7 +30,7 @@ export const features: {
     route: 'selling',
     no: '03',
     name: '卖点主图',
-    lines: ['按原文排版标题与卖点', '每种风格生成一张，互不重复'],
+    lines: ['每条卖点生成一张，标题共用', '可选风格，或保持原图直接加字'],
     tone: 'selling',
   },
 ]
@@ -112,7 +112,10 @@ export interface GenerationDraft {
   backgroundPrompt: string
   scenePreset: string
   scenePrompt: string
+  /** Selling points use one style (the first entry); ADR-20261008-G. */
   styles: string[]
+  /** Selling points: no model call, the text goes on the product image itself. */
+  keepOriginal: boolean
   title: string
   points: string
   textColor: string
@@ -137,6 +140,7 @@ export function newDraft(feature: Feature = 'GIFT'): GenerationDraft {
     scenePreset: 'nursery',
     scenePrompt: '',
     styles: ['warm'],
+    keepOriginal: false,
     title: '',
     points: '',
     textColor: '#4A2E1F',
@@ -182,6 +186,30 @@ export function textSpec(
     align: draft.textAlign,
     box: { ...draft.textBox },
   }
+}
+
+/** One selling image's text: the shared title and point ``index`` (ADR-20261008-G). */
+export function pointText(
+  text: TextSpec | null,
+  index: number,
+): TextSpec | null {
+  const points = text?.points
+  if (!text || !points?.length) return text
+  return { ...text, points: [points[Math.min(index, points.length - 1)]!] }
+}
+
+/** The point that needs the most room (CJK counts double), for the plan preview. */
+export function widestPoint(points: string[]) {
+  const width = (line: string) =>
+    [...line].reduce(
+      (sum, char) => sum + (/[\u2E80-\uFFEF]/.test(char) ? 1 : 0.55),
+      0,
+    )
+  let best = 0
+  points.forEach((line, index) => {
+    if (width(line) > width(points[best] ?? '')) best = index
+  })
+  return best
 }
 
 /** Continue editing from exactly what was rendered for a result. */
@@ -230,12 +258,16 @@ export function buildGeneration(
   if (feature === 'SCENE' && !draft.scenePreset && !draft.scenePrompt.trim())
     throw new Error('请选择场景或填写场景描述。')
   if (feature === 'SELLING_POINT') {
-    if (!draft.styles.length) throw new Error('请至少选择一种风格。')
+    if (!draft.keepOriginal && !draft.styles.length)
+      throw new Error('请选择一种风格或“保持原图”。')
     if (!pointLines(draft).length)
       throw new Error('请输入至少一条卖点（每行一条）。')
   }
   const box = draft.textBox
-  if (box.x + box.width > 1.000001 || box.y + box.height > 1.000001)
+  if (
+    feature === 'SELLING_POINT' &&
+    (box.x + box.width > 1.000001 || box.y + box.height > 1.000001)
+  )
     throw new Error('文字区域必须在画布范围内。')
   const size = canvasSizes[draft.size]!
   const value: Record<string, unknown> = {
@@ -248,12 +280,16 @@ export function buildGeneration(
       height: size.height,
       // The pages offer PNG only (ADR-20260929-C); the contract still accepts JPEG.
       format: 'png',
-      count: feature === 'SELLING_POINT' ? draft.styles.length : draft.count,
+      // Selling points: one image per point (ADR-20261008-G).
+      count:
+        feature === 'SELLING_POINT' ? pointLines(draft).length : draft.count,
     },
   }
-  if (draft.model) value.model_id = draft.model
-  const text = textSpec(draft, size.width)
+  const original = feature === 'SELLING_POINT' && draft.keepOriginal
+  // Keep-original selling images call no model, so none is chosen.
+  if (draft.model && !original) value.model_id = draft.model
   if (feature === 'GIFT') {
+    // The gift page carries no text since ADR-20261008-G; text is added on the selling page.
     value.gift_asset_id = draft.gift
     value.gift_position = draft.giftPosition
     value.background =
@@ -262,13 +298,13 @@ export function buildGeneration(
         : draft.backgroundMode === 'ORIGINAL'
           ? { mode: 'ORIGINAL' }
           : { mode: 'SOLID', color: draft.backgroundColor }
-    if (text) value.text = text
   } else if (feature === 'SCENE') {
     if (draft.scenePreset) value.scene_preset = draft.scenePreset
     if (draft.scenePrompt.trim()) value.scene_prompt = draft.scenePrompt
   } else {
-    value.styles = [...draft.styles]
-    value.text = text
+    if (original) value.keep_original = true
+    else value.style = draft.styles[0]
+    value.text = textSpec(draft, size.width)
   }
   if (validateContract('generation-v4-create', value).length)
     throw new Error(

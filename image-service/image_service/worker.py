@@ -94,8 +94,9 @@ def process(
         from image_service.background_config import config_from_mapping, load_config
 
         try:
-            if "base_image" in request:
-                # Text-only re-render of a stored model output: no provider is contacted.
+            if "base_image" in request or request.get("keep_original"):
+                # Text-only re-render of a stored model output, or text on the product image
+                # itself (ADR-20261008-G): no provider is contacted.
                 return generation.process_generation(api, request, lease, None)
             config = (
                 config_from_mapping(provider_config)

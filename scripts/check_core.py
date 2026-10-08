@@ -334,34 +334,44 @@ def api_checks(core, admin, alice, bob, project):
         assert state["status"] == "FAILED" and state["error"]["code"] == "GENERATION_FAILED"
         evidence["gift"] = "NOT TESTED: no deployment font on this machine"
 
-    # A4: selling points - one image per selected style, verbatim points on every image.
+    # A4: selling points - one image per point in one style (ADR-20261008-G), verbatim text.
     selling = {
         "project_id": project,
         "feature_type": "SELLING_POINT",
         "product_asset_id": product,
-        "styles": ["warm", "green"],
+        "style": "warm",
         "text": text,
-        "output": dict(output, count=2),
+        "output": dict(output, count=3),
     }
     state = core.generate(alice, selling, "v4-selling")
     selling_task = state["id"]
     if core.font:
-        assert state["status"] == "SUCCEEDED" and len(state["artifacts"]) == 2, state
-        _, gens = core.generations(state["id"])
-        assert "warm cream" in gens[0]["provenance"]["prompt"]
-        assert "sage green" in gens[1]["provenance"]["prompt"]
-        badges = ((0xF6, 0xE9, 0xDA), (0xE4, 0xF0, 0xE3))
-        for artifact, badge in zip(state["artifacts"], badges, strict=True):
+        assert state["status"] == "SUCCEEDED" and len(state["artifacts"]) == 3, state
+        attempt, gens = core.generations(state["id"])
+        assert core.fences(attempt) == "3"
+        for gen, point in zip(gens, text["points"], strict=True):
+            prompt = gen["provenance"]["prompt"]
+            assert "warm cream" in prompt and point in prompt, prompt
+            others = [other for other in text["points"] if other != point]
+            assert not any(other in prompt for other in others), prompt
+        for artifact in state["artifacts"]:
             checked = core.inspect(
                 core.image(alice, artifact["id"]),
-                [[[32, 32, 400, 480], list(TEXT_RGB), 40], [[32, 32, 400, 480], list(badge), 12]],
+                [
+                    [[32, 32, 400, 480], list(TEXT_RGB), 40],
+                    [[32, 32, 400, 480], [0xF6, 0xE9, 0xDA], 12],
+                ],
             )
             assert checked["regions"] == [True, True], checked
 
     # A5: contract and policy rejections happen before any work is queued.
     before = run.sql("SELECT count(*) FROM generation_tasks")
+    legacy = {k: v for k, v in selling.items() if k != "style"}
     for body, expected in (
         (dict(selling, output=dict(output, count=1)), 422),
+        (dict(selling, style="missing"), 422),
+        (dict(legacy, styles=["warm", "green"]), 400),
+        (dict(legacy, keep_original=True, model_id="model"), 400),
         (dict(scene, output=dict(output, height=600)), 422),
         (dict(scene, output=dict(output, count=5)), 422),
         (dict(scene, scene_preset="missing"), 422),
@@ -387,7 +397,7 @@ def api_checks(core, admin, alice, bob, project):
         status, task = core.post(alice, path, {"ordinal": 1, "text": new_text}, "v4-retype")
         assert status == 202, (status, task)
         assert core.post(bob, path, {"ordinal": 1, "text": new_text})[0] == 404
-        assert core.post(alice, path, {"ordinal": 2, "text": new_text})[0] == 409
+        assert core.post(alice, path, {"ordinal": 3, "text": new_text})[0] == 409
         core.worker()
         state = core.get(alice, task["id"])[1]
         assert state["status"] == "SUCCEEDED", state
@@ -805,6 +815,66 @@ def api_checks(core, admin, alice, bob, project):
     assert len(everything["items"]) == min(recorded, 50)
     assert everything["next_offset"] == (50 if recorded > 50 else None), everything["next_offset"]
     evidence["phase_two"] = {"catalog_versions": 4, "garden_task": garden["id"]}
+
+    # A21: "keep original" selling images (ADR-20261008-G): no model, no paid permit; the
+    # product image itself is cropped to size and each image gets the title and its own point.
+    status, fresh, _ = run.http(
+        "POST",
+        f"/api/v1/projects/{project}/assets?kind=PRODUCT",
+        alice,
+        data=synthetic_png(),
+        mime="image/png",
+    )
+    assert status == 201
+    keep = {
+        "project_id": project,
+        "feature_type": "SELLING_POINT",
+        "product_asset_id": fresh["id"],
+        "keep_original": True,
+        "text": dict(text, points=["安全材质", "易清洗"]),
+        "output": dict(output, count=2),
+    }
+    state = core.generate(alice, keep, "v4-keep-original")
+    task = state["id"]
+    assert (
+        run.sql(f"SELECT provider_config_version IS NULL FROM generation_tasks WHERE id='{task}'")
+        == "t"
+    )
+    if core.font:
+        assert state["status"] == "SUCCEEDED" and len(state["artifacts"]) == 2, state
+        attempt, gens = core.generations(task)
+        assert core.fences(attempt) == "0"
+        assert {g["provenance"]["output_source"] for g in gens} == {"original"}
+        assert "model" not in gens[0]["provenance"] and "prompt" not in gens[0]["provenance"]
+        assert gens[0]["base"]["sha256"] == gens[1]["base"]["sha256"]
+        assert gens[0]["provenance"]["source_transform"]["source_size"] == [240, 200]
+        first, second = (core.image(alice, a["id"]) for a in state["artifacts"])
+        assert first != second  # same picture, different point
+        for image in (first, second):
+            checked = core.inspect(
+                image,
+                # The original's rectangle, cropped like a model output (x 208..592), and white.
+                [
+                    [[420, 500, 580, 670], list(PRODUCT_RGB), 6],
+                    [[620, 700, 790, 790], [255] * 3, 6],
+                ],
+            )
+            assert checked["regions"] == [True, True], checked
+        # Text-only edits of these images also call no model.
+        path = f"/api/v4/generation-tasks/{task}/retypeset"
+        status, again = core.post(
+            alice, path, {"ordinal": 1, "text": dict(text, points=["易清洗"])}, "v4-keep-retype"
+        )
+        assert status == 202, (status, again)
+        core.worker()
+        attempt = run.sql(
+            f"SELECT current_attempt_id FROM generation_tasks WHERE id='{again['id']}'"
+        )
+        assert core.get(alice, again["id"])[1]["status"] == "SUCCEEDED"
+        assert core.fences(attempt) == "0"
+    else:
+        assert state["status"] == "FAILED" and state["error"]["code"] == "GENERATION_FAILED"
+    evidence["keep_original"] = {"task": task}
     return evidence
 
 
@@ -927,11 +997,11 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A20: three entries, references, text, retypeset, isolation, "
+            "PASS V4-A1..A21: three entries, references, text, retypeset, isolation, "
             "withdrawn routes, model catalog and proxy, owner deletion, real-world uploads, "
             "reuse, original background, third-party endpoint, account deletion, "
             "template management, personal templates, image management, dashboard, "
-            "operation log",
+            "operation log, per-point selling, keep-original selling",
             flush=True,
         )
         if browser_checks(core, stack):

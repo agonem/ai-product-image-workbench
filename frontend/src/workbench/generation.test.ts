@@ -5,15 +5,22 @@ import {
   buildGeneration,
   newDraft,
   placeText,
+  pointText,
   presetBox,
   textSpec,
+  widestPoint,
 } from './generation.ts'
 import { Submission } from './model.ts'
 
 const ready = () => ({ ...newDraft(), product: 'product', gift: 'gift' })
 
 test('V4: each entry sends only its own fields and defaults to one PNG image', () => {
-  const gift = buildGeneration('GIFT', 'p', ready())
+  // ADR-20261008-G: the gift page never sends text, even if a draft still holds some.
+  const gift = buildGeneration('GIFT', 'p', {
+    ...ready(),
+    title: '下单即送',
+    points: '软勺',
+  })
   const scene = buildGeneration('SCENE', 'p', ready())
   assert.equal(gift.gift_asset_id, 'gift')
   assert.equal(gift.gift_position, 'BOTTOM_RIGHT')
@@ -48,11 +55,12 @@ test('ADR-20260929-C: a chosen model travels with the task', () => {
   assert.equal(buildGeneration('SCENE', 'p', draft).model_id, 'model-2')
 })
 
-test('V4: manual text is verbatim and selling points map one image per style', () => {
+test('ADR-20261008-G: one selling image per point in one style, text verbatim', () => {
   const draft = ready()
   draft.title = ' 轻松喂养\n宝宝更舒适 '
   draft.points = ' 安全材质 \n\n防胀气设计'
-  draft.styles = ['warm', 'green']
+  draft.styles = ['green']
+  draft.model = 'model-2'
   const selling = buildGeneration('SELLING_POINT', 'p', draft)
   assert.deepEqual((selling.text as { points: string[] }).points, [
     ' 安全材质 ',
@@ -63,9 +71,38 @@ test('V4: manual text is verbatim and selling points map one image per style', (
     ' 轻松喂养\n宝宝更舒适 ',
   )
   assert.equal((selling.output as { count: number }).count, 2)
-  assert.deepEqual(selling.styles, ['warm', 'green'])
+  assert.equal(selling.style, 'green')
+  assert.equal('styles' in selling, false)
+  assert.equal(selling.model_id, 'model-2')
   draft.title = '   '
   assert.equal('title' in textSpec(draft)!, false)
+})
+
+test('ADR-20261008-G: keep original sends no style and no model', () => {
+  const draft = ready()
+  draft.points = '安全材质\n易清洗\n防胀气'
+  draft.model = 'model-2'
+  draft.keepOriginal = true
+  const selling = buildGeneration('SELLING_POINT', 'p', draft)
+  assert.equal(selling.keep_original, true)
+  assert.equal('style' in selling, false)
+  assert.equal('model_id' in selling, false)
+  assert.equal((selling.output as { count: number }).count, 3)
+  draft.keepOriginal = false
+  draft.styles = []
+  assert.throws(() => buildGeneration('SELLING_POINT', 'p', draft), /风格/)
+})
+
+test('ADR-20261008-G: each image shows the shared title and its own point', () => {
+  const draft = ready()
+  draft.title = '宝宝奶瓶'
+  draft.points = 'Safe\n防胀气设计\n易清洗'
+  const text = textSpec(draft, 800)
+  assert.deepEqual(pointText(text, 1)!.points, ['防胀气设计'])
+  assert.equal(pointText(text, 1)!.title, '宝宝奶瓶')
+  assert.deepEqual(pointText(text, 9)!.points, ['易清洗'])
+  assert.equal(widestPoint(['Safe', '防胀气设计', '易清洗']), 1)
+  assert.equal(pointText(null, 0), null)
 })
 
 test('text presets set box and alignment; size levels scale with the width', () => {
@@ -133,9 +170,9 @@ test('V4: missing inputs and out-of-canvas text are explained before sending', (
   custom.scenePrompt = '浅色木桌'
   assert.equal(buildGeneration('SCENE', 'p', custom).scene_prompt, '浅色木桌')
   const text = ready()
-  text.title = '标题'
+  text.points = '卖点'
   text.textBox = { x: 0.8, y: 0, width: 0.5, height: 0.2 }
-  assert.throws(() => buildGeneration('GIFT', 'p', text), /画布范围/)
+  assert.throws(() => buildGeneration('SELLING_POINT', 'p', text), /画布范围/)
   const long = ready()
   long.points = '超'.repeat(21)
   assert.throws(() => buildGeneration('SELLING_POINT', 'p', long), /20 字/)

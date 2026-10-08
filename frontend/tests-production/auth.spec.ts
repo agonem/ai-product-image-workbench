@@ -67,7 +67,7 @@ test('B1–B5 production authentication, revocation and permission boundaries', 
   const second = await browser.newPage()
   const secondToken = await login(second, 'alice')
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
-  for (const name of ['赠品+文字主图', '场景主图', '卖点主图'])
+  for (const name of ['赠品主图', '场景主图', '卖点主图'])
     await expect(
       page.getByRole('button', { name: `${name} 立即生成` }),
     ).toBeVisible()

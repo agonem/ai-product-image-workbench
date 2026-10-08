@@ -2609,3 +2609,11 @@ dialog.viewer::backdrop {
     min-width: 0;
   }
 }
+
+/* Selling style "keep original" (ADR-20261008-G) */
+.style-card .pal.keep {
+  color: var(--ink-3);
+}
+.style-card[aria-pressed='true'] .pal.keep {
+  color: var(--accent);
+}

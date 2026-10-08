@@ -28,10 +28,12 @@ import {
   giftPositions,
   placeText,
   pointLines,
+  pointText,
   textColors,
   textLevels,
   textPositions,
   textSpec,
+  widestPoint,
 } from '../workbench/generation'
 import type { GenerationDraft } from '../workbench/generation'
 import type { Feature, Generation, Task } from '../workbench/model'
@@ -44,13 +46,14 @@ const route = useRoute()
 const meta = computed(() => featureByRoute(String(route.params.feature))!)
 const feature = computed(() => meta.value.id)
 const draft = computed(() => w.drafts[feature.value])
-const hasText = computed(() => feature.value !== 'SCENE')
+// Only the selling page carries text since ADR-20261008-G.
+const hasText = computed(() => feature.value === 'SELLING_POINT')
 const styles = computed(() => w.generation?.styles ?? [])
 const locked = computed(() => w.busy || w.uncertain)
 
 // One parameter group open at a time, remembered per entry.
 const openSection = reactive<Record<Feature, string>>({
-  GIFT: 'text',
+  GIFT: 'gift',
   SCENE: 'scene',
   SELLING_POINT: 'text',
 })
@@ -102,10 +105,33 @@ const originals = computed(() => {
     gift: request?.gift_asset_id ? String(request.gift_asset_id) : '',
   }
 })
+// Selling images (ADR-20261008-G): one per point, in one style or on the product image itself.
+// Legacy tasks (one style per image) and text re-renders carry their whole text.
+const keepOriginal = computed(() => {
+  const request = shown.value?.request
+  if (!request || request.source_task_id) return draft.value.keepOriginal
+  return request.keep_original === true
+})
+const perPoint = computed(() => {
+  if (feature.value !== 'SELLING_POINT') return false
+  const request = shown.value?.request
+  return !request || (!request.styles && !request.source_task_id)
+})
+const backdrop = computed(() =>
+  feature.value === 'SELLING_POINT' &&
+  draft.value.keepOriginal &&
+  draft.value.product
+    ? `/assets/${draft.value.product}/content`
+    : null,
+)
 const palette = computed(() => {
-  if (feature.value === 'SELLING_POINT') {
-    const requested = shown.value?.request?.styles as string[] | undefined
-    const id = requested?.[view.value?.ordinal ?? 0] ?? draft.value.styles[0]
+  if (feature.value === 'SELLING_POINT' && !keepOriginal.value) {
+    const request = shown.value?.request
+    const legacy = request?.styles as string[] | undefined
+    const id =
+      legacy?.[view.value?.ordinal ?? 0] ??
+      (request?.style as string | undefined) ??
+      draft.value.styles[0]
     const style = styles.value.find((item) => item.id === id) ?? styles.value[0]
     if (style)
       return {
@@ -121,14 +147,27 @@ const palette = computed(() => {
     accent: light ? '#C8814E' : draft.value.textColor,
   }
 })
-const preview = computed(() =>
-  hasText.value ? textSpec(draft.value, outputSize.value.width) : null,
-)
-// Selling images take the title colour of their style (no separate colour choice).
+const preview = computed(() => {
+  if (!hasText.value) return null
+  const text = textSpec(draft.value, outputSize.value.width)
+  if (!perPoint.value || !text?.points) return text
+  // Before generating: the point needing the most room; a result: its own point.
+  const index = shown.value
+    ? (view.value?.ordinal ?? 0)
+    : widestPoint(text.points)
+  return pointText(text, index)
+})
+// Styled selling images take their style's title colour; "keep original" offers a choice.
 watch(
-  () => [feature.value, draft.value.styles[0], styles.value] as const,
+  () =>
+    [
+      feature.value,
+      draft.value.styles[0],
+      draft.value.keepOriginal,
+      styles.value,
+    ] as const,
   () => {
-    if (feature.value !== 'SELLING_POINT') return
+    if (feature.value !== 'SELLING_POINT' || draft.value.keepOriginal) return
     const style = styles.value.find((s) => s.id === draft.value.styles[0])
     if (style) draft.value.textColor = style.title_color
   },
@@ -145,7 +184,7 @@ const blocked = computed(() => {
 })
 const imageCount = computed(() =>
   feature.value === 'SELLING_POINT'
-    ? draft.value.styles.length
+    ? pointLines(draft.value).length
     : draft.value.count,
 )
 const modelOptions = computed(() =>
@@ -167,7 +206,7 @@ const countOptions = computed(() =>
   })),
 )
 const sellingCount = computed({
-  get: () => draft.value.styles.length,
+  get: () => pointLines(draft.value).length,
   set: () => undefined,
 })
 
@@ -189,19 +228,20 @@ const summary = computed(() => {
       ? (w.generation?.scene_presets.find((s) => s.id === d.scenePreset)
           ?.name ?? d.scenePreset)
       : '自定义',
-    styles:
-      d.styles
-        .map((id) => styles.value.find((s) => s.id === id)?.name ?? id)
-        .join('、') || '未选择',
-    output: `${model} · ${canvasSizes[d.size]!.label} · ${imageCount.value} 张`,
+    styles: d.keepOriginal
+      ? '保持原图'
+      : (styles.value.find((s) => s.id === d.styles[0])?.name ??
+        d.styles[0] ??
+        '未选择'),
+    output: `${
+      feature.value === 'SELLING_POINT' && d.keepOriginal ? '不调用模型' : model
+    } · ${canvasSizes[d.size]!.label} · ${imageCount.value} 张`,
   }
 })
 
-function toggleStyle(id: string) {
-  const list = draft.value.styles
-  draft.value.styles = list.includes(id)
-    ? list.filter((item) => item !== id)
-    : [...list, id]
+function chooseStyle(id: string) {
+  draft.value.styles = [id]
+  draft.value.keepOriginal = false
 }
 
 // Results of this entry, newest first; the selected task may be fresher than the list.
@@ -251,9 +291,18 @@ async function open(task: string, ordinal: number) {
   if (w.selected?.id !== task) return
   view.value = { task, ordinal }
   mode.value = 'result'
-  const text = w.selected.request?.text
+  const request = w.selected.request
+  const text = request?.text
   if (hasText.value && text && w.selected.output)
     adoptText(feature.value, draft.value, text, w.selected.output.width)
+  // Continue from the style (or "keep original") this result was made with.
+  if (hasText.value && request && !request.source_task_id) {
+    if (request.keep_original === true) draft.value.keepOriginal = true
+    else if (typeof request.style === 'string') {
+      draft.value.styles = [request.style]
+      draft.value.keepOriginal = false
+    }
+  }
 }
 async function compareWith(task: string, ordinal: number) {
   await open(task, ordinal)
@@ -476,7 +525,8 @@ onMounted(() => {
               </button>
             </div>
             <p v-if="draft.backgroundMode === 'ORIGINAL'" class="hint">
-              沿用商品图原来的背景，只加入赠品和文字。
+              尽量沿用商品图原来的背景，只加入赠品（由 AI
+              生成，可能有细微变化）。
             </p>
             <div
               v-else-if="draft.backgroundMode === 'SOLID'"
@@ -547,39 +597,27 @@ onMounted(() => {
 
         <ParamSection
           v-if="hasText"
-          :title="feature === 'SELLING_POINT' ? '卖点文字' : '营销文字'"
+          title="卖点文字"
           icon="text"
           :summary="summary.text"
           :open="openSection[feature] === 'text'"
           @toggle="toggle('text')"
         >
           <label class="form-row"
-            ><span>标题</span
+            ><span>标题（每张共用，可空）</span
             ><textarea
               v-model="draft.title"
               rows="2"
               maxlength="60"
-              :placeholder="
-                feature === 'SELLING_POINT'
-                  ? '例如：轻松喂养\n宝宝更舒适'
-                  : '例如：下单即送\n宝宝软勺'
-              "
+              placeholder="例如：宝宝奶瓶"
             ></textarea>
           </label>
           <label class="form-row"
-            ><span>{{
-              feature === 'SELLING_POINT'
-                ? '卖点（每行一条）'
-                : '标签（每行一条）'
-            }}</span
+            ><span>卖点（每行一条，每条生成一张）</span
             ><textarea
               v-model="draft.points"
               rows="3"
-              :placeholder="
-                feature === 'SELLING_POINT'
-                  ? '安全材质\n防胀气设计\n易清洗'
-                  : '食品级硅胶'
-              "
+              :placeholder="'安全材质\n防胀气设计\n易清洗'"
             ></textarea>
           </label>
           <div class="form-row">
@@ -611,7 +649,7 @@ onMounted(() => {
                 </button>
               </div>
             </div>
-            <div v-if="feature === 'GIFT'" class="form-row">
+            <div v-if="draft.keepOriginal" class="form-row">
               <span>颜色</span>
               <div class="swatches" role="group" aria-label="文字颜色">
                 <button
@@ -638,18 +676,24 @@ onMounted(() => {
           :open="openSection.SELLING_POINT === 'style'"
           @toggle="toggle('style')"
         >
-          <div
-            class="styles"
-            role="group"
-            aria-label="风格（每种风格生成一张）"
-          >
+          <div class="styles" role="group" aria-label="风格（选一种）">
+            <button
+              type="button"
+              class="style-card"
+              :aria-pressed="draft.keepOriginal"
+              @click="draft.keepOriginal = true"
+            >
+              <span class="pal keep" aria-hidden="true"
+                ><LineIcon name="images" :size="14" /></span
+              >保持原图
+            </button>
             <button
               v-for="item in styles"
               :key="item.id"
               type="button"
               class="style-card"
-              :aria-pressed="draft.styles.includes(item.id)"
-              @click="toggleStyle(item.id)"
+              :aria-pressed="!draft.keepOriginal && draft.styles[0] === item.id"
+              @click="chooseStyle(item.id)"
             >
               <span class="pal" aria-hidden="true"
                 ><i :style="{ background: item.badge_color }"></i
@@ -658,8 +702,14 @@ onMounted(() => {
               >{{ item.name }}
             </button>
           </div>
-          <small class="hint"
-            >每种风格生成一张，已选 {{ draft.styles.length }} 种。</small
+          <small v-if="draft.keepOriginal" class="hint"
+            >不调用
+            AI、不产生费用：直接在商品图上加字，按所选尺寸居中裁切。可在商品图槽“从素材库选择
+            → 我的作品”里选已生成的图。</small
+          >
+          <small v-else class="hint"
+            >AI
+            按这一风格生成，每张画面围绕对应的卖点；画布预览按最长的一条卖点排版。</small
           >
         </ParamSection>
 
@@ -672,7 +722,14 @@ onMounted(() => {
         >
           <div class="form-row">
             <span>模型</span>
+            <p
+              v-if="feature === 'SELLING_POINT' && draft.keepOriginal"
+              class="hint"
+            >
+              保持原图不调用模型
+            </p>
             <DropSelect
+              v-else
               v-model="draft.model"
               label="模型"
               tall
@@ -699,8 +756,8 @@ onMounted(() => {
                 label="数量"
                 :options="[
                   {
-                    value: draft.styles.length,
-                    label: `${draft.styles.length} 张`,
+                    value: sellingCount,
+                    label: `${sellingCount} 张`,
                   },
                 ]"
                 disabled
@@ -769,6 +826,7 @@ onMounted(() => {
         :width="outputSize.width"
         :height="outputSize.height"
         :image="stageImage"
+        :backdrop="backdrop"
         :image-alt="`${meta.name}生成结果`"
         :text="preview"
         :text-align="draft.textAlign"

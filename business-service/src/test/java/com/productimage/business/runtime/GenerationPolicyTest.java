@@ -11,7 +11,7 @@ class GenerationPolicyTest {
     return (ObjectNode)
         Json.parse(
             """
-            {"feature_type":"%s","styles":["warm"],
+            {"feature_type":"%s","style":"warm",
              "text":{"points":["安全材质"],"color":"#112233","size":40,"align":"left",
                      "box":{"x":0.05,"y":0.05,"width":0.4,"height":0.5}},
              "output":{"aspect_ratio":"4:3","width":800,"height":600,"format":"png","count":1}}
@@ -47,12 +47,20 @@ class GenerationPolicyTest {
   }
 
   @Test
-  void sellingPointsNeedOneStylePerImageAndTextInsideCanvas() {
+  void sellingPointsNeedOneImagePerPointAndTextInsideCanvas() {
     var policy = new GenerationPolicy(new MockEnvironment());
     assertDoesNotThrow(() -> policy.validate(request("SELLING_POINT")));
     var mismatch = request("SELLING_POINT");
     ((ObjectNode) mismatch.get("output")).put("count", 2);
     rejected(policy, mismatch);
+    // Six points make six images: the per-entry limit (4) does not apply (ADR-20261008-G).
+    var six = request("SELLING_POINT");
+    var points = ((ObjectNode) six.get("text")).putArray("points");
+    for (int i = 1; i <= 6; i++) points.add("卖点" + i);
+    ((ObjectNode) six.get("output")).put("count", 6);
+    assertDoesNotThrow(() -> policy.validate(six));
+    ((ObjectNode) six.get("output")).put("count", 5);
+    rejected(policy, six);
     var box = request("SELLING_POINT");
     ((ObjectNode) box.path("text").path("box")).put("x", 0.7);
     rejected(policy, box);

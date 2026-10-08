@@ -32,7 +32,7 @@ test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failur
   await expect(
     page.getByRole('heading', { name: '选择功能开始生成' }),
   ).toBeVisible()
-  for (const name of ['赠品+文字主图', '场景主图', '卖点主图'])
+  for (const name of ['赠品主图', '场景主图', '卖点主图'])
     await expect(
       page.getByRole('button', { name: `${name} 立即生成` }),
     ).toBeVisible()
@@ -92,7 +92,7 @@ test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failur
   })
 
   await page.setViewportSize({ width: 390, height: 844 })
-  for (const link of ['首页', '赠品+文字主图', '卖点主图', '任务记录']) {
+  for (const link of ['首页', '赠品主图', '卖点主图', '任务记录']) {
     await page.getByRole('link', { name: link }).click()
     expect(
       await page.evaluate(

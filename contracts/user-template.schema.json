@@ -75,6 +75,9 @@
             "pattern": "^[a-z][a-z0-9_]{0,31}$"
           }
         },
+        "keepOriginal": {
+          "type": "boolean"
+        },
         "textColor": {
           "type": "string",
           "pattern": "^#[0-9A-Fa-f]{6}$"
