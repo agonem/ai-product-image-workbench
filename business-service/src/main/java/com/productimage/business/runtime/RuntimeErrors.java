@@ -20,7 +20,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
       UserTemplateApi.class,
       AdminImagesApi.class,
       AdminInsightsApi.class,
-      ConversationApi.class
+      ConversationApi.class,
+      AgentApi.class
     })
 @Profile("runtime")
 public class RuntimeErrors {

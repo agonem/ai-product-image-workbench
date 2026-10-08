@@ -30,6 +30,8 @@ type Item = {
   use_proxy: boolean
   default: boolean
   created_at: string
+  /** IMAGE draws pictures; TEXT rewrites briefs for agents (ADR-20261008-L). */
+  purpose?: 'IMAGE' | 'TEXT'
 }
 type Proxy = { configured: boolean; mask?: string; updated_at?: string }
 type Listing = { default_id: string | null; items: Item[]; proxy: Proxy }
@@ -66,6 +68,7 @@ const form = ref({
   key: '',
   proxy: false,
   enabled: true,
+  purpose: 'IMAGE' as 'IMAGE' | 'TEXT',
 })
 const proxyUrl = ref('')
 const selectedType = computed(
@@ -135,6 +138,7 @@ function open(kind: 'create' | 'key' | 'rename', item: Item | null = null) {
     key: '',
     proxy: false,
     enabled: true,
+    purpose: 'IMAGE',
   }
   error.value = ''
   dialog.value = kind
@@ -162,6 +166,7 @@ async function create() {
       enabled: f.enabled,
       use_proxy: f.proxy,
     }
+    if (f.purpose === 'TEXT') body.purpose = 'TEXT'
     if (f.provider === 'openrouter') body.provider_tag = f.tag.trim()
     if (thirdParty.value) body.base_url = f.base.trim()
     await props.api('/admin/provider-configs', json(body))
@@ -313,7 +318,9 @@ async function clearProxy() {
             <td>
               <span class="name"
                 >{{ item.name
-                }}<span v-if="item.default" class="tag accent"
+                }}<span v-if="item.purpose === 'TEXT'" class="tag"
+                  >文本·智能体改写</span
+                ><span v-if="item.default" class="tag accent"
                   ><LineIcon name="star" :size="11" />默认</span
                 ></span
               >
@@ -453,6 +460,13 @@ async function clearProxy() {
         /><small id="model-name-hint"
           >运营在生成页看到的名称，最多 40 字。</small
         ></label
+      >
+      <label class="form-row"
+        ><span>用途</span
+        ><select v-model="form.purpose" aria-label="用途" :disabled="busy">
+          <option value="IMAGE">出图（生成页可选）</option>
+          <option value="TEXT">文本（对话生图的魔法棒改写）</option>
+        </select></label
       >
       <label class="form-row"
         ><span>接口类型</span

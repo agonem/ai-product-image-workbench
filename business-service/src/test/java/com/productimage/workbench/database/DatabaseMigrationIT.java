@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(13, flyway.migrate().migrationsExecuted);
+    assertEquals(14, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -141,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(12, upgrade.migrate().migrationsExecuted);
+      assertEquals(13, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(11, current.migrate().migrationsExecuted);
+      assertEquals(12, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -457,7 +457,7 @@ class DatabaseMigrationIT {
           "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(6, upgrade.migrate().migrationsExecuted);
+      assertEquals(7, upgrade.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery("SELECT provider,active_version_id FROM provider_config_state")) {
         assertTrue(rows.next());
@@ -549,6 +549,20 @@ class DatabaseMigrationIT {
     // Deleting the conversation keeps the task (and its images).
     sql("DELETE FROM conversations WHERE id='c1'");
     assertEquals(2, count("generation_tasks"));
+  }
+
+  @Test
+  void agentsArePublicOrPersonalAndModelsHaveAPurpose() throws SQLException {
+    // V14: three public agents ship with the release; personal ones carry an owner.
+    assertEquals(3, count("agents"));
+    sql("INSERT INTO agents(id,owner_id,name,instructions) VALUES ('mine','u','我的设计师','温暖自然')");
+    rejects("23514", "INSERT INTO agents(id,name,instructions) VALUES ('blank',' ','x')");
+    rejects("23514", "INSERT INTO agents(id,name,instructions) VALUES ('empty','名字',' ')");
+    rejects(
+        "23503", "INSERT INTO agents(id,owner_id,name,instructions) VALUES ('x','nobody','n','i')");
+    // Picture and text models each have their own default row.
+    rejects("23514", "INSERT INTO provider_config_state(provider) VALUES ('other')");
+    sql("INSERT INTO provider_config_state(provider) VALUES ('text')");
   }
 
   @Test

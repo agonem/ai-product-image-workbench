@@ -3041,3 +3041,160 @@ dialog.viewer::backdrop {
   color: #fff;
   background: rgba(0, 0, 0, 0.45);
 }
+
+/* Agents and the magic wand (ADR-20261008-L) */
+.agent-avatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  overflow: hidden;
+  color: #fff;
+  font-weight: 600;
+  line-height: 1;
+}
+.agent-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.agent-avatar.large {
+  width: 64px;
+  height: 64px;
+}
+.chip-btn {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 5px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.chip-btn:hover:enabled {
+  border-color: var(--accent);
+}
+.chip-btn.wand {
+  padding: 0 9px;
+  color: var(--ink-2);
+}
+.chip-btn.wand[aria-pressed='true'] {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(135deg, #7b5cff, #1683d8);
+}
+.chip-btn:disabled {
+  opacity: 0.45;
+}
+.agent-menu {
+  left: 0;
+  right: auto;
+  bottom: calc(100% + 6px);
+  top: auto;
+  width: 320px;
+  max-height: 420px;
+  overflow: auto;
+  padding: 6px;
+}
+.agent-menu-group {
+  font-size: 12px;
+  color: var(--ink-3);
+  padding: 6px 8px 2px;
+}
+.agent-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 10px;
+  text-align: left;
+}
+.agent-option:hover,
+.agent-option[aria-pressed='true'] {
+  background: var(--accent-soft);
+}
+.agent-option .meta,
+.agent-line .meta {
+  display: grid;
+  min-width: 0;
+}
+.agent-option .meta small,
+.agent-line .meta small {
+  color: var(--ink-3);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-bottom: 4px;
+}
+.rewritten {
+  border: 1px dashed var(--line-2);
+  border-radius: 10px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  background: var(--panel-2);
+}
+.rewritten summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 12px;
+}
+.rewritten p {
+  margin-top: 4px;
+  white-space: pre-wrap;
+  color: var(--ink-2);
+}
+.agent-manage {
+  display: grid;
+  gap: 16px;
+}
+.agent-group {
+  display: grid;
+  gap: 4px;
+}
+.agent-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.agent-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 10px;
+}
+.agent-line:hover {
+  background: var(--panel-2);
+}
+.agent-line .meta {
+  flex: 1;
+}
+.agent-face {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.composer-bar .agent-picker {
+  min-width: 0;
+}

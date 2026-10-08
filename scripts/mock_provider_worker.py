@@ -16,7 +16,7 @@ from pathlib import Path
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "image-service"))
-from image_service import background_config, providers, worker  # noqa: E402
+from image_service import background_config, providers, text_models, worker  # noqa: E402
 from image_service.background import BackgroundError, BackgroundResult  # noqa: E402
 
 CALLS = {"count": 0}
@@ -84,7 +84,15 @@ class MockModel:
         )
 
 
+def mock_rewrite(config, system, user):
+    """Deterministic stand-in for the agent text model: no paid call (ADR-20261008-L)."""
+    need = user.splitlines()[0].removeprefix("需求：")
+    persona = system.split("。")[0].removeprefix("你是")
+    return f"[{persona}改写] {need}，柔和自然光，奶油色调", {}
+
+
 if __name__ == "__main__":
+    text_models.rewrite = mock_rewrite
     background_config.load_config = lambda: None
     # Every provider type (OpenRouter, OpenAI, Gemini, third-party) is served by the mock.
     providers.model_adapter = MockModel

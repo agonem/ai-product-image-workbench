@@ -2,6 +2,7 @@
 
 import hashlib
 import io
+import json
 
 import pytest
 from PIL import Image, ImageDraw, ImageFont
@@ -797,3 +798,134 @@ def test_a_bold_font_is_drawn_without_the_extra_stroke(monkeypatch):
     assert typeset._stroke(56) == 0
     monkeypatch.setenv("GENERATION_TEXT_FAUX_BOLD", "true")
     assert typeset._stroke(56) == 2
+
+
+# ADR-20261008-L: agents and the magic-wand rewrite.
+
+AGENT = {"id": "agent-gloria", "name": "Gloria", "instructions": "画面干净，商品是主角"}
+
+
+def test_agent_settings_guide_the_prompt_without_a_rewrite(font):
+    local, adapter = api(), Adapter()
+    receipt = process_generation(local, custom_request(local, agent=AGENT), "lease", adapter)
+    assert not validate_contract("generation-v4-completed", receipt)
+    prompt = adapter.requests[0].prompt
+    assert "Design direction from the chosen designer Gloria: 画面干净，商品是主角" in prompt
+    assert "Instruction from the user: 把商品放在浅色木桌上" in prompt
+    assert "keep the product from reference image 1 exactly" in prompt
+    assert receipt["generations"][0]["provenance"]["agent"] == {"name": "Gloria", "id": AGENT["id"]}
+
+
+def test_magic_wand_rewrites_once_then_every_image_uses_the_brief(font, monkeypatch):
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    calls = []
+
+    def fake(config, system, user):
+        calls.append((config.model, system, user))
+        return "温暖的卧室晨光，商品叠放在床尾，奶油色调", {"total_tokens": 120}
+
+    monkeypatch.setattr(text_models, "rewrite", fake)
+    local, adapter = api(), Adapter()
+    value = custom_request(local, agent=AGENT, rewrite=True, count=2)
+    text = ModelConfig("k" * 20, "vendor/text", "openai")
+    receipt = process_generation(local, value, "lease", adapter, text_config=text)
+    assert not validate_contract("generation-v4-completed", receipt)
+    assert len(calls) == 1 and calls[0][0] == "vendor/text"
+    assert calls[0][1].startswith("你是Gloria。画面干净，商品是主角")
+    assert "不要要求图中出现任何文字" in calls[0][1]
+    assert "需求：把商品放在浅色木桌上" in calls[0][2]
+    for sent in adapter.requests:
+        assert "Brief written by Gloria from the user's request: 温暖的卧室晨光" in sent.prompt
+        assert "Instruction from the user" not in sent.prompt
+        assert "keep the product from reference image 1 exactly" in sent.prompt
+    agent = receipt["generations"][1]["provenance"]["agent"]
+    assert agent["rewritten"].startswith("温暖的卧室晨光") and agent["text_model"] == "vendor/text"
+    assert local.posts[0] == "heartbeat"
+
+
+def test_magic_wand_without_a_text_model_fails_before_any_image_call(font):
+    local, adapter = api(), Adapter()
+    with pytest.raises(BackgroundError, match="CONFIGURATION"):
+        process_generation(local, custom_request(local, rewrite=True), "lease", adapter)
+    assert adapter.requests == []
+
+
+def text_reply(provider, payload, seen):
+    import httpx
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json=payload)
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.parametrize(
+    ("provider", "extra", "payload", "url"),
+    [
+        (
+            "openrouter",
+            {"provider_tag": "openai"},
+            {
+                "choices": [{"message": {"content": "```\n“奶油色卧室，晨光”\n```"}}],
+                "usage": {"total_tokens": 9},
+            },
+            "https://openrouter.ai/api/v1/chat/completions",
+        ),
+        (
+            "openai-compatible",
+            {"base_url": "https://relay.example.com"},
+            {"choices": [{"message": {"content": [{"type": "text", "text": "奶油色卧室，晨光"}]}}]},
+            "https://relay.example.com/v1/chat/completions",
+        ),
+        (
+            "gemini",
+            {},
+            {"candidates": [{"content": {"parts": [{"text": "奶油色卧室，晨光"}]}}]},
+            "https://generativelanguage.googleapis.com/v1beta/models/vendor-text:generateContent",
+        ),
+    ],
+)
+def test_text_models_speak_each_format(provider, extra, payload, url):
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    seen = []
+    config = ModelConfig("k" * 20, "vendor-text", provider=provider, proxy="", **extra)
+    if provider == "openrouter":
+        config = ModelConfig("k" * 20, "vendor/text", provider=provider, proxy="", **extra)
+    brief, _ = text_models.rewrite(
+        config, "系统", "需求：x", transport=text_reply(provider, payload, seen)
+    )
+    assert brief == "奶油色卧室，晨光"
+    sent = seen[0]
+    assert str(sent.url) == url.replace("vendor-text", config.model)
+    body = json.loads(sent.content)
+    if provider == "gemini":
+        assert sent.headers["x-goog-api-key"] == "k" * 20
+        assert body["systemInstruction"]["parts"][0]["text"] == "系统"
+    else:
+        assert sent.headers["authorization"] == "Bearer " + "k" * 20
+        assert body["messages"][0] == {"role": "system", "content": "系统"}
+    if provider == "openrouter":
+        assert body["provider"] == {"only": ["openai"], "allow_fallbacks": False}
+
+
+def test_text_model_errors_are_fixed_codes():
+    import httpx
+
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    config = ModelConfig("k" * 20, "vendor/text", "openai", proxy="")
+    busy = httpx.MockTransport(lambda request: httpx.Response(503, text="secret details"))
+    with pytest.raises(BackgroundError) as error:
+        text_models.rewrite(config, "s", "u", transport=busy)
+    assert error.value.code == "PROVIDER_HTTP_503" and error.value.retryable
+    empty = httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"choices": [{"message": {"content": "  "}}]})
+    )
+    with pytest.raises(BackgroundError, match="INVALID_RESPONSE"):
+        text_models.rewrite(config, "s", "u", transport=empty)

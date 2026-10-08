@@ -1044,6 +1044,68 @@ def api_checks(core, admin, alice, bob, project):
     # The images stay: the task is still readable and in the history.
     assert core.get(alice, state["id"])[1]["status"] == "SUCCEEDED"
     evidence["conversation"] = {"first": picture, "edit": state["id"]}
+
+    # A25: agents and the magic wand (ADR-20261008-L).
+    listing = run.http("GET", "/api/v1/agents", alice)[1]
+    assert [a["name"] for a in listing["items"]] == ["Gloria", "Lumi", "Kira"], listing
+    assert listing["text_model"] is False and listing["admin"] is False
+    mine_body = {"name": "小蓝", "description": "清爽蓝调", "instructions": "清爽的浅蓝色调"}
+    status, mine, _ = run.http("POST", "/api/v1/agents", alice, mine_body)
+    assert status == 201 and mine["public"] is False and mine["editable"] is True, mine
+    assert run.http("POST", "/api/v1/agents", alice, dict(mine_body, public=True))[0] == 403
+    assert run.http("POST", "/api/v1/agents", alice, dict(mine_body, name=" "))[0] == 400
+    status, shared, _ = run.http("POST", "/api/v1/agents", admin, dict(mine_body, public=True))
+    assert status == 201 and shared["public"] is True
+    assert shared["id"] in {a["id"] for a in run.http("GET", "/api/v1/agents", bob)[1]["items"]}
+    assert mine["id"] not in {a["id"] for a in run.http("GET", "/api/v1/agents", bob)[1]["items"]}
+    assert run.http("PUT", f"/api/v1/agents/{mine['id']}", bob, mine_body)[0] == 404
+    assert run.http("PUT", f"/api/v1/agents/{shared['id']}", alice, mine_body)[0] == 403
+    status, _, _ = run.http(
+        "PUT", f"/api/v1/agents/{mine['id']}/avatar", alice, data=synthetic_png(), mime="image/png"
+    )
+    assert status == 204
+    status, avatar, _ = run.http("GET", f"/api/v1/agents/{mine['id']}/avatar", alice)
+    assert status == 200 and avatar[:8] == b"\x89PNG\r\n\x1a\n"
+    assert run.http("GET", f"/api/v1/agents/{mine['id']}/avatar", bob)[0] == 404
+    assert run.http("DELETE", f"/api/v1/agents/{shared['id']}", admin)[0] == 204
+    status, chat, _ = run.http("POST", conversations, alice, {"title": "智能体"})
+    guided = dict(first, conversation_id=chat["id"], agent_id="agent-gloria")
+    state = core.generate(alice, guided, "v4-agent")
+    assert state["status"] == "SUCCEEDED", state
+    _, gens = core.generations(state["id"])
+    assert "Design direction from the chosen designer Gloria" in gens[0]["provenance"]["prompt"]
+    detail = core.get(alice, state["id"])[1]
+    assert detail["agent"] == {"id": "agent-gloria", "name": "Gloria", "rewrite": False}
+    assert core.post(alice, "/api/v4/generation-tasks", dict(guided, agent_id="missing"))[0] == 422
+    wand = dict(guided, rewrite=True)
+    status, problem = core.post(alice, "/api/v4/generation-tasks", wand)
+    assert status == 422 and problem["code"] == "TEXT_MODEL_UNAVAILABLE", (status, problem)
+    writer = {
+        "name": "改写模型",
+        "provider": "openrouter",
+        "model": "test/mock-writer",
+        "provider_tag": "mock",
+        "api_key": "mock-" + secrets.token_urlsafe(24),
+        "enabled": True,
+        "use_proxy": False,
+        "purpose": "TEXT",
+    }
+    status, text_model, _ = run.http("POST", "/api/v1/admin/provider-configs", admin, writer)
+    assert status == 201 and text_model["purpose"] == "TEXT" and text_model["default"], text_model
+    choices = run.http("GET", "/api/v1/workbench/options", alice)[1]["models"]
+    assert text_model["id"] not in {item["id"] for item in choices}
+    assert run.http("GET", "/api/v1/agents", alice)[1]["text_model"] is True
+    state = core.generate(alice, wand, "v4-agent-wand")
+    assert state["status"] == "SUCCEEDED", state
+    attempt, gens = core.generations(state["id"])
+    agent = gens[0]["provenance"]["agent"]
+    assert agent["rewritten"].startswith("[Gloria改写] 把商品放在浅木色桌面上"), agent
+    assert agent["text_model"] == "test/mock-writer"
+    assert "Brief written by Gloria" in gens[0]["provenance"]["prompt"]
+    assert core.fences(attempt) == "1"
+    detail = core.get(alice, state["id"])[1]
+    assert detail["agent"]["rewrite"] is True and detail["agent"]["rewritten"] == agent["rewritten"]
+    evidence["agents"] = {"guided": state["id"], "text_model": text_model["id"]}
     return evidence
 
 
@@ -1166,12 +1228,12 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A24: three entries, references, text, retypeset, isolation, "
+            "PASS V4-A1..A25: three entries, references, text, retypeset, isolation, "
             "withdrawn routes, model catalog and proxy, owner deletion, real-world uploads, "
             "reuse, original background, third-party endpoint, account deletion, "
             "template management, personal templates, image management, dashboard, "
             "operation log, per-point selling, keep-original selling, gift card, "
-            "product position, conversational generation",
+            "product position, conversational generation, agents and magic wand",
             flush=True,
         )
         if browser_checks(core, stack):

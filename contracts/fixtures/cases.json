@@ -3616,5 +3616,46 @@
         "background": "GREY"
       }
     }
+  },
+  {
+    "name": "v4-custom-agent-rewrite",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "CUSTOM",
+      "product_asset_id": "product_fixture",
+      "conversation_id": "conversation_fixture",
+      "prompt": "把商品放在浅色木桌上，旁边有绿植，暖色自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "agent_id": "agent-gloria",
+      "rewrite": true
+    }
+  },
+  {
+    "name": "v4-custom-rewrite-not-boolean-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "CUSTOM",
+      "product_asset_id": "product_fixture",
+      "conversation_id": "conversation_fixture",
+      "prompt": "把商品放在浅色木桌上，旁边有绿植，暖色自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "rewrite": "yes"
+    }
   }
 ]

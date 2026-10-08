@@ -133,10 +133,16 @@ public final class TaskService {
                       && !worker.path("keep_original").asBoolean()
                   ? configs.binding(request.get("model_id"))
                   : null;
+          // An agent rewrite freezes the text model too (ADR-20261008-L).
+          String textVersion = null;
+          if (worker.path("rewrite").asBoolean()) {
+            textVersion = configs.textBinding();
+            if (textVersion == null) throw new Problem(422, "TEXT_MODEL_UNAVAILABLE");
+          }
           String id = Json.id();
           int inserted =
               jdbc.update(
-                  "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,template_snapshot_json,worker_snapshot_json,provider_config_version,conversation_id) VALUES (?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?) ON CONFLICT(created_by,feature_type,idempotency_key) DO NOTHING",
+                  "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,template_snapshot_json,worker_snapshot_json,provider_config_version,conversation_id,text_config_version) VALUES (?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?,?) ON CONFLICT(created_by,feature_type,idempotency_key) DO NOTHING",
                   id,
                   request.path("project_id").asText(),
                   request.path("product_asset_id").asText(),
@@ -149,7 +155,8 @@ public final class TaskService {
                   worker.get("template_snapshot").toString(),
                   worker.toString(),
                   configVersion,
-                  request.has("conversation_id") ? request.get("conversation_id").asText() : null);
+                  request.has("conversation_id") ? request.get("conversation_id").asText() : null,
+                  textVersion);
           if (inserted == 0)
             return existing(
                 actor,
@@ -270,6 +277,31 @@ public final class TaskService {
     result.set("output", snapshot.get("output"));
     result.set("request", Json.parse(row.get("request_snapshot_json").toString()));
     if (snapshot.has("source")) result.set("source", snapshot.get("source"));
+    // The agent and, after a rewrite, the brief the image model actually received.
+    if (snapshot.has("agent") || snapshot.path("rewrite").asBoolean()) {
+      var agent = result.putObject("agent");
+      if (snapshot.has("agent")) {
+        agent.put("id", snapshot.path("agent").path("id").asText());
+        agent.put("name", snapshot.path("agent").path("name").asText());
+      }
+      agent.put("rewrite", snapshot.path("rewrite").asBoolean());
+      if ("SUCCEEDED".equals(row.get("status"))) {
+        var info =
+            jdbc.queryForList(
+                "SELECT provider_info::text AS info FROM task_attempts WHERE id=?",
+                row.get("current_attempt_id"));
+        if (!info.isEmpty() && info.getFirst().get("info") != null) {
+          var rewritten =
+              Json.parse(info.getFirst().get("info").toString())
+                  .path("generations")
+                  .path(0)
+                  .path("provenance")
+                  .path("agent")
+                  .path("rewritten");
+          if (rewritten.isTextual()) agent.put("rewritten", rewritten.asText());
+        }
+      }
+    }
     // Model outputs without text, so the page can preview text edits before a re-typeset.
     var bases = result.putArray("bases");
     if ("SUCCEEDED".equals(row.get("status")))

@@ -684,6 +684,14 @@
         "edit_artifact_id": {
           "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
         },
+        "agent_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id",
+          "description": "Agent whose settings shape the brief (ADR-20261008-L)."
+        },
+        "rewrite": {
+          "type": "boolean",
+          "description": "Magic wand: a text model rewrites the brief first."
+        },
         "model_id": {
           "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id",
           "description": "Chosen model (ADR-20260929-C); omitted means the admin default."

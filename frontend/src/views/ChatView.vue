@@ -15,11 +15,13 @@ import { validateContract } from '../contracts/validate'
 import AssetSlot from '../components/AssetSlot.vue'
 import DropSelect from '../components/DropSelect.vue'
 import EmptyState from '../components/EmptyState.vue'
+import AgentAvatar from '../components/AgentAvatar.vue'
+import AgentDialog from '../components/AgentDialog.vue'
 import ImageViewer from '../components/ImageViewer.vue'
 import LineIcon from '../components/LineIcon.vue'
 import { confirmAction } from '../workbench/confirm'
 import { canvasSizes } from '../workbench/generation'
-import type { Generation } from '../workbench/model'
+import type { Agent, Generation } from '../workbench/model'
 import { providerNames, statusLabels } from '../workbench/model'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import { workbenchKey } from '../workbench/useWorkbench'
@@ -58,6 +60,47 @@ let manualEdit = false
 // An unknown outcome is resent with exactly the same body and key (no duplicate task).
 const pending = ref<{ key: string; body: Record<string, unknown> } | null>(null)
 const stream = ref<HTMLElement>()
+// Agents and the magic wand (ADR-20261008-L): off = the agent's settings go with the request;
+// on = a text model rewrites the request first, then the picture is generated.
+const agents = ref<Agent[]>([])
+const agentId = ref('')
+const wand = ref(false)
+const textModel = ref(false),
+  admin = ref(false)
+const picker = ref(false),
+  managing = ref(false),
+  pickerRoot = ref<HTMLElement>()
+const agent = computed(
+  () => agents.value.find((item) => item.id === agentId.value) ?? null,
+)
+async function loadAgents() {
+  const result = await w.api<{
+    items: Agent[]
+    text_model: boolean
+    admin: boolean
+  }>('/agents')
+  agents.value = result.items
+  textModel.value = result.text_model
+  admin.value = result.admin
+  if (agentId.value && !agent.value) agentId.value = ''
+  if (!textModel.value) wand.value = false
+}
+function pick(id: string) {
+  agentId.value = id
+  picker.value = false
+}
+function outsidePicker(event: PointerEvent) {
+  if (!pickerRoot.value?.contains(event.target as Node)) picker.value = false
+}
+watch(picker, (open) =>
+  open
+    ? document.addEventListener('pointerdown', outsidePicker, true)
+    : document.removeEventListener('pointerdown', outsidePicker, true),
+)
+async function agentsChanged(selected?: string) {
+  await run(loadAgents)
+  if (selected) agentId.value = selected
+}
 const suggestions = [
   '把商品放在浅木色桌面上，旁边有绿植，柔和的自然光',
   '温馨的婴儿房，商品放在白色床头柜上，暖色调',
@@ -226,6 +269,8 @@ function build(conversation: string): Record<string, unknown> {
   if (refs.length) body.reference_asset_ids = refs
   if (edit.value) body.edit_artifact_id = edit.value.id
   if (composer.model) body.model_id = composer.model
+  if (agentId.value) body.agent_id = agentId.value
+  if (wand.value) body.rewrite = true
   return body
 }
 const blocked = computed(() =>
@@ -333,9 +378,13 @@ watch(() => [route.query.c, route.query.task], openFromQuery)
 onMounted(() => {
   void w.refreshOptions()
   void run(loadList)
+  void run(loadAgents)
   void openFromQuery()
 })
-onUnmounted(() => clearTimeout(timer))
+onUnmounted(() => {
+  clearTimeout(timer)
+  document.removeEventListener('pointerdown', outsidePicker, true)
+})
 </script>
 
 <template>
@@ -408,6 +457,21 @@ onUnmounted(() => clearTimeout(timer))
             :data-status="task.status"
           >
             <div class="bubble user">
+              <span v-if="task.agent" class="agent-tag"
+                ><AgentAvatar
+                  :agent="
+                    agents.find((item) => item.id === task.agent?.id) ?? {
+                      id: task.agent.id,
+                      name: task.agent.name ?? '默认设计师',
+                    }
+                  "
+                  :size="18" />{{ task.agent.name ?? '默认设计师'
+                }}<LineIcon
+                  v-if="task.agent.rewrite"
+                  name="wand"
+                  :size="12"
+                  aria-label="已开魔法棒"
+              /></span>
               <p>{{ task.request?.prompt }}</p>
               <div class="refs">
                 <span v-if="task.request?.edit_artifact_id" class="ref edit">
@@ -447,6 +511,29 @@ onUnmounted(() => clearTimeout(timer))
                   statusLabels[task.status]
                 }}</span>
               </div>
+              <details
+                v-if="task.agent?.rewritten"
+                class="rewritten"
+                open
+                data-testid="rewritten"
+              >
+                <summary>
+                  <LineIcon name="wand" :size="13" />{{
+                    task.agent.name ?? '默认设计师'
+                  }}
+                  改写
+                </summary>
+                <p>{{ task.agent.rewritten }}</p>
+              </details>
+              <p
+                v-else-if="
+                  task.agent?.rewrite &&
+                  (task.status === 'QUEUED' || task.status === 'RUNNING')
+                "
+                class="hint"
+              >
+                正在按{{ task.agent.name ?? '默认设计师' }}的设定改写需求…
+              </p>
               <div
                 v-if="task.status === 'QUEUED' || task.status === 'RUNNING'"
                 class="ai-wait"
@@ -581,6 +668,90 @@ onUnmounted(() => clearTimeout(timer))
           @keydown="keydown"
         ></textarea>
         <div class="composer-bar">
+          <div ref="pickerRoot" class="dd agent-picker">
+            <button
+              type="button"
+              class="chip-btn"
+              aria-haspopup="true"
+              :aria-expanded="picker"
+              data-testid="agent-picker"
+              :title="agent ? agent.description : '选择一位设计师（智能体）'"
+              @click="picker = !picker"
+            >
+              <AgentAvatar :agent="agent" :size="22" />{{
+                agent ? agent.name : '智能体'
+              }}
+            </button>
+            <div
+              v-if="picker"
+              class="menu agent-menu"
+              role="group"
+              aria-label="智能体"
+            >
+              <button
+                type="button"
+                class="agent-option"
+                :aria-pressed="!agentId"
+                @click="pick('')"
+              >
+                <AgentAvatar :agent="null" :size="36" /><span class="meta"
+                  ><b>不使用智能体</b><small>只用你的描述出图</small></span
+                >
+              </button>
+              <template
+                v-for="group in [
+                  { name: '公共', items: agents.filter((a) => a.public) },
+                  { name: '我的', items: agents.filter((a) => !a.public) },
+                ]"
+                :key="group.name"
+              >
+                <div v-if="group.items.length" class="agent-menu-group">
+                  {{ group.name }}
+                </div>
+                <button
+                  v-for="item in group.items"
+                  :key="item.id"
+                  type="button"
+                  class="agent-option"
+                  :aria-pressed="agentId === item.id"
+                  data-testid="agent-option"
+                  @click="pick(item.id)"
+                >
+                  <AgentAvatar :agent="item" :size="36" /><span class="meta"
+                    ><b>{{ item.name }}</b
+                    ><small>{{ item.description }}</small></span
+                  >
+                </button>
+              </template>
+              <button
+                type="button"
+                class="menu-item"
+                @click="((picker = false), (managing = true))"
+              >
+                <LineIcon name="edit" :size="14" />管理智能体
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="chip-btn wand"
+            :aria-pressed="wand"
+            aria-label="魔法棒"
+            data-testid="wand"
+            :disabled="!textModel"
+            :title="
+              textModel
+                ? wand
+                  ? '魔法棒已开：先由 AI 按智能体改写需求再出图（再点关闭）'
+                  : '魔法棒：点亮后先由 AI 按智能体改写需求再出图'
+                : '管理员还没有配置文本模型，暂不能改写'
+            "
+            @click="wand = !wand"
+          >
+            <LineIcon name="wand" :size="15" /><span class="label">{{
+              wand ? 'AI 改写' : ''
+            }}</span>
+          </button>
           <DropSelect
             v-model="composer.model"
             label="模型"
@@ -617,6 +788,13 @@ onUnmounted(() => clearTimeout(timer))
         </div>
       </form>
     </section>
+    <AgentDialog
+      v-if="managing"
+      :agents="agents"
+      :admin="admin"
+      @close="managing = false"
+      @changed="agentsChanged"
+    />
     <ImageViewer
       v-if="viewing !== null && viewerItems.length"
       :items="viewerItems"

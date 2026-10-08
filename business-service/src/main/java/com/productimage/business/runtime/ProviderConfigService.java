@@ -26,6 +26,8 @@ public final class ProviderConfigService {
       Set.of("openrouter", "openai", "gemini", "openai-compatible", "gemini-compatible");
   private static final Set<String> BASE =
       Set.of("name", "provider", "model", "api_key", "enabled", "use_proxy");
+  // IMAGE models generate pictures; TEXT models rewrite briefs for agents (ADR-20261008-L).
+  static final Set<String> PURPOSES = Set.of("IMAGE", "TEXT");
   private static final Map<String, Set<String>> SETTINGS =
       Map.of("name", Set.of(), "enabled", Set.of(), "use_proxy", Set.of());
   private final JdbcTemplate jdbc;
@@ -47,9 +49,15 @@ public final class ProviderConfigService {
   }
 
   private String defaultId() {
+    return defaultId("IMAGE");
+  }
+
+  /** The default per purpose: state row 'active' for pictures, 'text' for rewriting. */
+  private String defaultId(String purpose) {
     var rows =
         jdbc.queryForList(
-            "SELECT active_version_id FROM provider_config_state WHERE provider='active'");
+            "SELECT active_version_id FROM provider_config_state WHERE provider=?",
+            purpose.equals("TEXT") ? "text" : "active");
     return rows.isEmpty() || rows.getFirst().get("active_version_id") == null
         ? null
         : rows.getFirst().get("active_version_id").toString();
@@ -64,19 +72,33 @@ public final class ProviderConfigService {
     if (requested != null && requested.isTextual()) {
       var chosen =
           jdbc.queryForList(
-              "SELECT id FROM provider_config_versions WHERE id=? AND enabled AND NOT retired",
+              "SELECT id FROM provider_config_versions WHERE id=? AND enabled AND NOT retired AND purpose='IMAGE'",
               requested.asText());
       if (chosen.isEmpty()) throw new Problem(422, "MODEL_UNAVAILABLE");
       return requested.asText();
     }
-    if (jdbc.queryForObject("SELECT count(*) FROM provider_config_versions", Long.class) == 0)
-      return null;
+    if (jdbc.queryForObject(
+            "SELECT count(*) FROM provider_config_versions WHERE purpose='IMAGE'", Long.class)
+        == 0) return null;
     var fallback =
         jdbc.queryForList(
             "SELECT v.id FROM provider_config_state s JOIN provider_config_versions v ON v.id=s.active_version_id "
                 + "WHERE s.provider='active' AND v.enabled AND NOT v.retired");
     if (fallback.isEmpty()) throw new Problem(503, "PROVIDER_DISABLED");
     return fallback.getFirst().get("id").toString();
+  }
+
+  /**
+   * Text model for an agent rewrite (ADR-20261008-L): the text default when usable, otherwise the
+   * first enabled text model; null when none is configured.
+   */
+  String textBinding() {
+    String chosen = defaultId("TEXT");
+    var rows =
+        jdbc.queryForList(
+            "SELECT id FROM provider_config_versions WHERE enabled AND NOT retired AND purpose='TEXT' ORDER BY (id=?) DESC,created_at,id LIMIT 1",
+            chosen == null ? "" : chosen);
+    return rows.isEmpty() ? null : rows.getFirst().get("id").toString();
   }
 
   /** Leased workers receive the decrypted binding; failures must not fall back silently. */
@@ -127,6 +149,7 @@ public final class ProviderConfigService {
     if (!body.isObject() || !PROVIDERS.contains(provider))
       throw new Problem(400, "INVALID_CONTRACT");
     var expected = new HashSet<>(BASE);
+    if (body.has("purpose")) expected.add("purpose");
     if (provider.equals("openrouter")) expected.add("provider_tag");
     if (provider.endsWith("-compatible")) expected.add("base_url");
     var names = new HashSet<String>();
@@ -144,7 +167,9 @@ public final class ProviderConfigService {
             && !body.path("provider_tag").asText().matches("[a-zA-Z0-9_./-]{1,100}"))
         || (body.has("base_url")
             && !(body.path("base_url").isTextual() && validBaseUrl(body.path("base_url").asText())))
-        || !validKey(body.path("api_key"))) throw new Problem(400, "INVALID_CONTRACT");
+        || !validKey(body.path("api_key"))
+        || (body.has("purpose") && !PURPOSES.contains(body.path("purpose").asText())))
+      throw new Problem(400, "INVALID_CONTRACT");
   }
 
   /**
@@ -212,6 +237,11 @@ public final class ProviderConfigService {
     }
   }
 
+  private ObjectNode item(Map<String, Object> row) {
+    String purpose = row.get("purpose").toString();
+    return item(row, defaultId(purpose)).put("purpose", purpose);
+  }
+
   private ObjectNode item(Map<String, Object> row, String defaultId) {
     var item =
         Json.object()
@@ -229,7 +259,7 @@ public final class ProviderConfigService {
   }
 
   private static final String COLUMNS =
-      "id,name,provider,model,provider_tag,base_url,api_key_mask,enabled,use_proxy,created_at";
+      "id,name,provider,model,provider_tag,base_url,api_key_mask,enabled,use_proxy,created_at,purpose";
 
   public JsonNode list() {
     var result = Json.object();
@@ -242,7 +272,10 @@ public final class ProviderConfigService {
             "SELECT "
                 + COLUMNS
                 + " FROM provider_config_versions WHERE NOT retired ORDER BY created_at,id"))
-      items.add(item(row, defaultId));
+      items.add(item(row));
+    String textDefault = defaultId("TEXT");
+    if (textDefault == null) result.putNull("text_default_id");
+    else result.put("text_default_id", textDefault);
     result.set("proxy", proxy());
     return result;
   }
@@ -253,7 +286,7 @@ public final class ProviderConfigService {
     String defaultId = defaultId();
     for (var row :
         jdbc.queryForList(
-            "SELECT id,name,provider,model FROM provider_config_versions WHERE enabled AND NOT retired ORDER BY created_at,id"))
+            "SELECT id,name,provider,model FROM provider_config_versions WHERE enabled AND NOT retired AND purpose='IMAGE' ORDER BY created_at,id"))
       result.add(
           Json.object()
               .put("id", row.get("id").toString())
@@ -279,9 +312,13 @@ public final class ProviderConfigService {
   }
 
   private void pointDefault(String id) {
+    String purpose =
+        jdbc.queryForObject(
+            "SELECT purpose FROM provider_config_versions WHERE id=?", String.class, id);
     jdbc.update(
-        "INSERT INTO provider_config_state(provider,active_version_id) VALUES ('active',?) "
+        "INSERT INTO provider_config_state(provider,active_version_id) VALUES (?,?) "
             + "ON CONFLICT(provider) DO UPDATE SET active_version_id=EXCLUDED.active_version_id,updated_at=now()",
+        "TEXT".equals(purpose) ? "text" : "active",
         id);
   }
 
@@ -293,7 +330,7 @@ public final class ProviderConfigService {
         status -> {
           String id = UUID.randomUUID().toString();
           jdbc.update(
-              "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,enabled,use_proxy,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,enabled,use_proxy,created_by,purpose) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
               id,
               body.path("name").asText().strip(),
               body.path("provider").asText(),
@@ -304,10 +341,11 @@ public final class ProviderConfigService {
               ProviderCrypto.mask(key),
               body.path("enabled").asBoolean(),
               body.path("use_proxy").asBoolean(),
-              actor);
+              actor,
+              body.path("purpose").asText("IMAGE"));
           // The first usable model becomes the default so generation works right away.
           if (body.path("enabled").asBoolean()) {
-            String current = defaultId();
+            String current = defaultId(body.path("purpose").asText("IMAGE"));
             boolean usable =
                 current != null
                     && jdbc.queryForObject(
@@ -320,8 +358,7 @@ public final class ProviderConfigService {
           audit(actor, "PROVIDER_CONFIG_CREATED", id);
           return item(
               jdbc.queryForMap(
-                  "SELECT " + COLUMNS + " FROM provider_config_versions WHERE id=?", id),
-              defaultId());
+                  "SELECT " + COLUMNS + " FROM provider_config_versions WHERE id=?", id));
         });
   }
 
@@ -340,7 +377,9 @@ public final class ProviderConfigService {
     tx.executeWithoutResult(
         status -> {
           live(id, true);
-          if (body.has("enabled") && !body.get("enabled").asBoolean() && id.equals(defaultId()))
+          if (body.has("enabled")
+              && !body.get("enabled").asBoolean()
+              && (id.equals(defaultId("IMAGE")) || id.equals(defaultId("TEXT"))))
             throw new Problem(409, "DEFAULT_MODEL");
           if (body.has("name"))
             jdbc.update(
@@ -382,7 +421,7 @@ public final class ProviderConfigService {
           var old = live(id, true);
           String next = UUID.randomUUID().toString();
           jdbc.update(
-              "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,enabled,use_proxy,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+              "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,enabled,use_proxy,created_by,purpose) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
               next,
               old.get("name"),
               old.get("provider"),
@@ -393,15 +432,15 @@ public final class ProviderConfigService {
               ProviderCrypto.mask(key),
               old.get("enabled"),
               old.get("use_proxy"),
-              actor);
+              actor,
+              old.get("purpose"));
           jdbc.update(
               "UPDATE provider_config_versions SET retired=true,enabled=false WHERE id=?", id);
-          if (id.equals(defaultId())) pointDefault(next);
+          if (id.equals(defaultId(old.get("purpose").toString()))) pointDefault(next);
           audit(actor, "PROVIDER_CONFIG_ROTATED", next);
           return item(
               jdbc.queryForMap(
-                  "SELECT " + COLUMNS + " FROM provider_config_versions WHERE id=?", next),
-              defaultId());
+                  "SELECT " + COLUMNS + " FROM provider_config_versions WHERE id=?", next));
         });
   }
 

@@ -85,7 +85,14 @@ def failure(request, code, retryable=True):
 
 
 def process(
-    api: Api, request: dict, lease: str, fixture: bool, *, cancelled=None, provider_config=None
+    api: Api,
+    request: dict,
+    lease: str,
+    fixture: bool,
+    *,
+    cancelled=None,
+    provider_config=None,
+    text_provider_config=None,
 ) -> dict:
     if request.get("schema_version") == 4:
         if fixture:
@@ -103,10 +110,14 @@ def process(
                 if provider_config is not None
                 else load_config()
             )
+            # Agent rewrites use the separately bound text model (ADR-20261008-L).
+            text_config = (
+                config_from_mapping(text_provider_config) if text_provider_config else None
+            )
             # The admin-chosen provider type selects OpenRouter, OpenAI or Gemini formats.
             with providers.model_adapter(config) as adapter:
                 return generation.process_generation(
-                    api, request, lease, adapter, cancelled=cancelled
+                    api, request, lease, adapter, cancelled=cancelled, text_config=text_config
                 )
         except typeset.TextOverflow:
             return failure(request, "TEXT_OVERFLOW", False)
@@ -228,6 +239,7 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
                 fixture,
                 cancelled=lost.is_set,
                 provider_config=claim.get("provider_config"),
+                text_provider_config=claim.get("text_provider_config"),
             )
         except BackgroundError as error:
             receipt = failure(

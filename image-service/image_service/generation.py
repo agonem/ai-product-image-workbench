@@ -18,8 +18,8 @@ import uuid
 
 from PIL import Image, ImageOps
 
-from image_service import giftcard, typeset
-from image_service.background import BackgroundRequest
+from image_service import giftcard, text_models, typeset
+from image_service.background import BackgroundError, BackgroundRequest
 from image_service.poc import budget
 
 
@@ -238,9 +238,33 @@ def _gift_parts(request):
     return parts
 
 
-def _custom_prompt(request):
+# Magic wand (ADR-20261008-L): the fixed rules the text model follows, after the agent's own
+# settings. The guard below is still appended to whatever it writes.
+REWRITE_RULES = (
+    "任务：把用户对母婴电商图片的需求改写成一段给 AI 生图模型的中文画面描述，不超过 300 字。"
+    "写清场景、构图与商品位置、光线、色调和氛围；只描述画面本身。"
+    "不要要求图中出现任何文字、字母、数字、Logo、水印、价格或标签；"
+    "不要改变商品的外形、颜色、Logo、包装文字和数量。"
+    "如果用户是在已有图片上修改，只描述要改的地方，并说明其余保持不变。"
+    "只输出改写后的描述，不要解释，不要加标题。"
+)
+DEFAULT_DESIGNER = "你是资深母婴电商视觉设计师，擅长干净、温馨、主体突出的商品图。"
+
+
+def _rewrite_messages(request):
+    agent = request.get("agent")
+    persona = f"你是{agent['name']}。{agent['instructions']}" if agent else DEFAULT_DESIGNER
+    situation = "这是在已生成的图片上修改" if "edit_image" in request else "这是生成新图"
+    extra = len(request.get("references", []))
+    references = "，另有 " + str(extra) + " 张参考图" if extra else ""
+    user = f"需求：{request['prompt']}\n（{situation}；会提供商品图{references}。）"
+    return persona + "\n\n" + REWRITE_RULES, user
+
+
+def _custom_prompt(request, brief=None):
     """Conversational generation (ADR-20261008-I): the user's words, plus the guard every entry
-    keeps (business rule 1): the product stays exactly as photographed and no text is drawn."""
+    keeps (business rule 1): the product stays exactly as photographed and no text is drawn.
+    With an agent its settings guide the picture; after a rewrite the brief replaces the words."""
     editing = "edit_image" in request
     product = 2 if editing else 1
     parts = []
@@ -252,7 +276,17 @@ def _custom_prompt(request):
     parts.append(f"Reference image {product} is the product.")
     for index, _ in enumerate(request.get("references", [])):
         parts.append(f"Reference image {product + 1 + index} is an extra reference from the user.")
-    parts.append(f"Instruction from the user: {request['prompt']}")
+    agent = request.get("agent")
+    if brief is not None:
+        writer = agent["name"] if agent else "the designer"
+        parts.append(f"Brief written by {writer} from the user's request: {brief}")
+    else:
+        if agent:
+            parts.append(
+                f"Design direction from the chosen designer {agent['name']}: "
+                f"{agent['instructions']}"
+            )
+        parts.append(f"Instruction from the user: {request['prompt']}")
     parts.append(
         f"Whatever changes, keep the product from reference image {product} exactly as it is: "
         "the same shape, proportions, colours, materials, logo, printed text, markings and "
@@ -265,10 +299,10 @@ def _custom_prompt(request):
     return " ".join(parts)
 
 
-def build_prompt(request, ordinal):
+def build_prompt(request, ordinal, brief=None):
     feature = request["feature_type"]
     if feature == "CUSTOM":
-        return _custom_prompt(request)
+        return _custom_prompt(request, brief)
     background = request.get("background") if feature == "GIFT" else None
     if background is not None and background["mode"] == "ORIGINAL":
         # ADR-20261008-H: everything in the product image stays; only the gift is added.
@@ -315,7 +349,7 @@ def _palette(request, ordinal):
     return {**DEFAULT_PALETTE, "badge_text_color": text["color"], "accent_color": text["color"]}
 
 
-def process_generation(api, request, lease, adapter, *, cancelled=None):
+def process_generation(api, request, lease, adapter, *, cancelled=None, text_config=None):
     started = time.monotonic()
     output = request["output"]
     count, width, height = output["count"], output["width"], output["height"]
@@ -354,6 +388,20 @@ def process_generation(api, request, lease, adapter, *, cancelled=None):
             )
         elif not retypeset and not original:
             references.append(_reference(_raw(api, request, lease, "gift_asset")))
+    brief, agent_info = None, None
+    if request.get("agent") or request.get("rewrite"):
+        agent = request.get("agent") or {}
+        agent_info = {"name": agent.get("name", "默认设计师")}
+        if agent.get("id"):
+            agent_info["id"] = agent["id"]
+    if request.get("rewrite") and not retypeset and not original:
+        # One text-model call per attempt, before any paid image call (ADR-20261008-L).
+        if text_config is None:
+            raise BackgroundError("CONFIGURATION")
+        api.call("POST", f"/internal/v1/work/{request['attempt_id']}/heartbeat", lease=lease)
+        system, user = _rewrite_messages(request)
+        brief, _usage = text_models.rewrite(text_config, system, user)
+        agent_info.update(rewritten=brief, text_model=text_config.model)
     artifacts, generations, hashes = [], [], set()
     for ordinal in range(count):
         if retypeset:
@@ -375,7 +423,7 @@ def process_generation(api, request, lease, adapter, *, cancelled=None):
             api.call("POST", f"/internal/v1/work/{attempt}/generation-calls/{ordinal}", lease=lease)
             generated = adapter.generate(
                 BackgroundRequest(
-                    prompt=build_prompt(request, ordinal),
+                    prompt=build_prompt(request, ordinal, brief),
                     template_version="generation-v4-" + request["feature_type"].lower(),
                     correlation_id=f"{attempt}-{ordinal}",
                     aspect_ratio=output["aspect_ratio"],
@@ -416,6 +464,8 @@ def process_generation(api, request, lease, adapter, *, cancelled=None):
         base = put(count + ordinal, "BACKGROUND", content)
         if card:
             provenance["gift_card"] = card_info
+        if agent_info is not None and not retypeset:
+            provenance["agent"] = agent_info
         provenance.update(
             sha256=digest,
             inputs=inputs,

@@ -71,6 +71,22 @@ final class SnapshotBuilder {
       }
       if (request.has("edit_artifact_id"))
         worker.set("edit_image", result(request.path("edit_artifact_id").asText(), project));
+      // The agent's settings are frozen so history keeps what was used (ADR-20261008-L).
+      if (request.has("agent_id")) {
+        var agents =
+            jdbc.queryForList(
+                "SELECT a.id,a.name,a.instructions FROM agents a WHERE a.id=? AND (a.owner_id IS NULL OR a.owner_id=(SELECT owner_id FROM projects WHERE id=?))",
+                request.path("agent_id").asText(),
+                project);
+        if (agents.isEmpty()) throw new Problem(422, "AGENT_UNAVAILABLE");
+        var agent = agents.getFirst();
+        worker
+            .putObject("agent")
+            .put("id", agent.get("id").toString())
+            .put("name", agent.get("name").toString())
+            .put("instructions", agent.get("instructions").toString());
+      }
+      if (request.path("rewrite").asBoolean()) worker.put("rewrite", true);
     } else {
       // One image per selling point (ADR-20261008-G): the chosen style, or the product image
       // itself with no model call.

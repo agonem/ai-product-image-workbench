@@ -50,16 +50,20 @@ public final class DeliveryService {
         status -> {
           var rows =
               jdbc.queryForList(
-                  "SELECT o.*,t.provider_config_version FROM outbox_events o JOIN generation_tasks t ON t.current_attempt_id=o.attempt_id WHERE o.completed_at IS NULL AND o.available_at<=now() AND (o.lease_until IS NULL OR o.lease_until<=now()) AND o.publish_attempts<? AND t.status IN ('QUEUED','RUNNING') ORDER BY o.created_at,o.id FOR UPDATE OF o SKIP LOCKED LIMIT 1",
+                  "SELECT o.*,t.provider_config_version,t.text_config_version FROM outbox_events o JOIN generation_tasks t ON t.current_attempt_id=o.attempt_id WHERE o.completed_at IS NULL AND o.available_at<=now() AND (o.lease_until IS NULL OR o.lease_until<=now()) AND o.publish_attempts<? AND t.status IN ('QUEUED','RUNNING') ORDER BY o.created_at,o.id FOR UPDATE OF o SKIP LOCKED LIMIT 1",
                   settings.maxDeliveries());
           if (rows.isEmpty()) return null;
           var row = rows.getFirst();
           // A frozen binding must be deliverable or the attempt fails visibly; silently
           // dropping it would switch the task to worker environment credentials.
-          JsonNode providerConfig = null;
-          if (row.get("provider_config_version") != null) {
+          JsonNode providerConfig = null, textConfig = null;
+          if (row.get("provider_config_version") != null
+              || row.get("text_config_version") != null) {
             try {
-              providerConfig = configs.claimConfig(row.get("provider_config_version").toString());
+              if (row.get("provider_config_version") != null)
+                providerConfig = configs.claimConfig(row.get("provider_config_version").toString());
+              if (row.get("text_config_version") != null)
+                textConfig = configs.claimConfig(row.get("text_config_version").toString());
             } catch (Problem ex) {
               fail(row, "PROVIDER_UNAVAILABLE", true);
               finish(row);
@@ -84,6 +88,7 @@ public final class DeliveryService {
               Json.object().put("lease_token", lease).put("lease_seconds", settings.leaseSeconds());
           result.set("request", Json.parse(row.get("payload").toString()));
           if (providerConfig != null) result.set("provider_config", providerConfig);
+          if (textConfig != null) result.set("text_provider_config", textConfig);
           return result;
         });
   }

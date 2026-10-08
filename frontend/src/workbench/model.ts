@@ -52,6 +52,19 @@ export interface Generation extends Task {
   source?: { task_id: string; ordinal: number }
   bases?: { id: string; width: number; height: number }[]
   review_status?: string
+  /** Agent used and, after a magic-wand rewrite, the brief the image model got. */
+  agent?: { id?: string; name?: string; rewrite: boolean; rewritten?: string }
+}
+/** Agents of the conversation page (ADR-20261008-L). */
+export interface Agent {
+  id: string
+  name: string
+  description: string
+  instructions: string
+  public: boolean
+  editable: boolean
+  avatar: boolean
+  updated_at: string
 }
 export interface HistoryItem {
   task: Task

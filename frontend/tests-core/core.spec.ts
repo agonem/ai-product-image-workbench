@@ -905,6 +905,60 @@ test('V4-B18: conversational generation - describe, then edit the result', async
   expect(errors).toEqual([])
 })
 
+test('V4-B19: agents and the magic wand on the conversation page', async ({
+  page,
+}) => {
+  const errors = watchErrors(page)
+  await login(page)
+  await page.getByRole('link', { name: '对话生图' }).click()
+  await page.getByRole('button', { name: /^商品图/ }).click()
+  await page.getByRole('menuitem', { name: '从素材库选择' }).click()
+  const picker = page.getByRole('dialog', { name: '选择商品图' })
+  await picker
+    .getByRole('button', { name: /^选择商品图/ })
+    .first()
+    .click()
+  await expect(picker).toHaveCount(0)
+  // Own agent: created from the manager, then picked.
+  await page.getByTestId('agent-picker').click()
+  await page.getByRole('button', { name: '管理智能体' }).click()
+  const manager = page.getByRole('dialog', { name: '管理智能体' })
+  await manager.getByTestId('agent-new').click()
+  const form = page.getByRole('dialog', { name: '新建智能体' })
+  await form.getByLabel('名称').fill('暖暖')
+  await form.getByLabel('一句话介绍').fill('暖色家居摄影')
+  await form.getByLabel('设定').fill('暖色调、木质家具、午后阳光')
+  await form.getByRole('button', { name: '保存智能体' }).click()
+  await expect(page.getByRole('dialog', { name: '管理智能体' })).toContainText(
+    '暖暖',
+  )
+  await page
+    .getByRole('dialog', { name: '管理智能体' })
+    .getByRole('button', { name: '完成' })
+    .click()
+  await expect(page.getByTestId('agent-picker')).toContainText('暖暖')
+  // A public agent with the magic wand on.
+  await page.getByTestId('agent-picker').click()
+  await page.getByTestId('agent-option').filter({ hasText: 'Gloria' }).click()
+  await page.getByTestId('wand').click()
+  await expect(page.getByTestId('wand')).toHaveAttribute('aria-pressed', 'true')
+  await page.getByLabel('描述').fill('做一张浴巾主图，温馨一点')
+  const sent = await submitAndTrack(page, () =>
+    page.getByTestId('chat-send').click(),
+  )
+  expect(sent.body.agent_id).toBe('agent-gloria')
+  expect(sent.body.rewrite).toBe(true)
+  const turn = page.getByTestId('chat-turn').last()
+  await expect(turn).toHaveAttribute('data-status', 'SUCCEEDED', {
+    timeout: 60000,
+  })
+  await expect(turn.getByTestId('rewritten')).toContainText(
+    '[Gloria改写] 做一张浴巾主图',
+  )
+  await page.screenshot({ path: join(artifacts, 'chat-agents.png') })
+  expect(errors).toEqual([])
+})
+
 test('V4-B15: image management, dashboard and operation log for admins', async ({
   page,
 }) => {
