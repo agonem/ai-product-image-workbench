@@ -43,6 +43,10 @@ def rgb(value):
 
 
 def _stroke(size):
+    # A regular face (the default Noto Sans CJK) is thickened by a thin same-colour stroke; a font
+    # that is already bold (e.g. 方正兰亭圆 中粗, ADR-20261008-K) is drawn as designed.
+    if os.getenv("GENERATION_TEXT_FAUX_BOLD", "true").strip().lower() in ("false", "0", "no"):
+        return 0
     return max(1, round(size / 36))
 
 

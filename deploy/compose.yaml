@@ -66,9 +66,13 @@ services:
       WORKER_API_URL: https://business:8443
       WORKER_CA_FILE: /run/secrets/ca.pem
       WORKER_JOURNAL_ROOT: /data/journal
-      GENERATION_TEXT_FONT: /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
-      # Face 2 of the Noto CJK collection is Simplified Chinese (face 0 is Japanese).
-      GENERATION_TEXT_FONT_INDEX: "2"
+      # Font for the selling-point text and the gift-card label. Default: Noto Sans CJK SC (SIL OFL;
+      # face 2 of the collection is Simplified Chinese). A licensed font file goes in deploy/fonts/
+      # and is named in deploy/.env, see deploy/README.md "更换文字字体" (ADR-20261008-K).
+      GENERATION_TEXT_FONT: ${TEXT_FONT_FILE:-/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc}
+      GENERATION_TEXT_FONT_INDEX: "${TEXT_FONT_INDEX:-2}"
+      # Thicken a regular face slightly; set TEXT_FAUX_BOLD=false for a font that is already bold.
+      GENERATION_TEXT_FAUX_BOLD: "${TEXT_FAUX_BOLD:-true}"
       # Tasks generated side by side (1-8). Bounded by the model quota; see deploy/README.md.
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       # The outbound proxy is set in the admin pages and delivered per model with the lease
@@ -76,6 +80,7 @@ services:
     secrets: [worker_token, ca.pem]
     volumes:
       - ./data/journal:/data/journal
+      - ./fonts:/opt/workbench-fonts:ro
     # The internal network has no route out; model calls leave through "egress".
     networks: [internal, egress]
 

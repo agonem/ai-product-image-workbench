@@ -788,3 +788,12 @@ def test_light_gift_on_white_gets_an_outline(font):
     # The grey outline colour is drawn; the beige backdrop is gone (only blended edge pixels).
     assert near(giftcard.OUTLINE, 12) > 50
     assert near((214, 197, 185), 6) < 0.005 * sticker.width * sticker.height
+
+
+def test_a_bold_font_is_drawn_without_the_extra_stroke(monkeypatch):
+    """ADR-20261008-K: 方正兰亭圆 中粗 is already bold, so TEXT_FAUX_BOLD=false drops the stroke."""
+    assert typeset._stroke(56) == 2
+    monkeypatch.setenv("GENERATION_TEXT_FAUX_BOLD", "false")
+    assert typeset._stroke(56) == 0
+    monkeypatch.setenv("GENERATION_TEXT_FAUX_BOLD", "true")
+    assert typeset._stroke(56) == 2

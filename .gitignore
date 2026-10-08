@@ -29,5 +29,8 @@ local-data/
 # Deployment state created on the server by deploy/init.sh
 deploy/secrets/
 deploy/data/
+# Licensed fonts are copied to the server only, never committed (ADR-20261008-K).
+deploy/fonts/*
+!deploy/fonts/README.md
 deploy/workbench-ca.crt
 *.p12

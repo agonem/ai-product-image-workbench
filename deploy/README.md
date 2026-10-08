@@ -69,6 +69,23 @@ HTTP_PORT=8080 HTTPS_PORT=8443 ./init.sh 192.168.1.20 admin   # 两个都换
 
 登录会话默认 8 小时到期（`PROD_SESSION_SECONDS=28800`），可在 `.env` 里调整（60–86400 秒）后 `docker compose up -d`。
 
+### 更换文字字体（卖点文字与赠品方框文字）
+
+默认字体是思源黑体（Noto Sans CJK SC，开源可商用）。要用 方正兰亭圆简体_中粗 等商业字体：
+
+1. 确认已从字体厂商取得**商用授权**（电商图片属于商用；方正字体个人免费授权不能用于商用）。
+2. 把字体文件（`.ttf` 或 `.otf`）复制到服务器的 `deploy/fonts/`，例如 `deploy/fonts/FZLanTingYuan-DB.ttf`。
+3. 在 `deploy/.env` 里加三行（文件名换成实际的；字体集合 `.ttc` 才需要改序号）：
+   ```
+   TEXT_FONT_FILE=/opt/workbench-fonts/FZLanTingYuan-DB.ttf
+   TEXT_FONT_INDEX=0
+   TEXT_FAUX_BOLD=false
+   ```
+   `TEXT_FAUX_BOLD=false` 表示字体本身已是中粗，不再额外加粗。
+4. 执行 `docker compose up -d worker`，再执行 `./check.sh`，看到 `ok   worker font: <字体名>` 即生效。之后新生成和“应用文字修改”的图都用新字体，已生成的图不变。
+
+页面上的文字预览用浏览器字体：电脑上装了同名字体时预览与成品一致，没装时用系统黑体近似显示，以生成结果为准。
+
 同时生成的任务数默认 2（`WORKER_CONCURRENCY=2`，可设 1–8）。按实测单张约 20–40 秒，每个槽位三分钟内约能出 4 张；同时提交的张数更多时会排队。调大前先确认模型供应商允许的并发数，然后在 `.env` 里加一行 `WORKER_CONCURRENCY=3` 并执行 `docker compose up -d`。
 
 数据位置：数据库在 Docker 卷 `product-image-workbench_db-data`，原图与生成结果在 `deploy/data/objects`，Worker 回执在 `deploy/data/journal`。`secrets/` 必须保留：丢失 `provider_master_key` 后已保存的 API Key 无法解密，需要重新录入。

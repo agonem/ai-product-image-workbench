@@ -2651,6 +2651,15 @@ dialog.viewer::backdrop {
   object-fit: contain;
   border-radius: 4px;
 }
+/* Preview font for the drawn text (ADR-20261008-K): the deployment font when installed
+   locally, otherwise a close system face; the generated image is authoritative. */
+.textbox .tb-content,
+.gift-card .gc-label {
+  font-family:
+    '方正兰亭圆简体_中粗', 'FZLanTingYuanS-DB1-GB', 'FZLTYJW--GB1-0',
+    'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'Microsoft YaHei',
+    sans-serif;
+}
 .gift-card .gc-label {
   position: absolute;
   left: 0;

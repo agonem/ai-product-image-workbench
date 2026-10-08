@@ -32,15 +32,17 @@ code=$(status "http://${SERVER_IP}:${HTTP_PORT}/")
 [ "$code" = 301 ] || fail "HTTP should redirect to HTTPS, got $code"
 echo "ok   HTTP redirects to HTTPS"
 
+# Any configured font must draw Chinese: three different characters may not share one glyph.
 face=$(docker compose exec -T -w /app/image-service worker /app/image-service/.venv/bin/python -c '
 import os
 from PIL import ImageFont
 font = ImageFont.truetype(
-    os.environ["GENERATION_TEXT_FONT"], 20, index=int(os.environ["GENERATION_TEXT_FONT_INDEX"])
+    os.environ["GENERATION_TEXT_FONT"], 40, index=int(os.environ["GENERATION_TEXT_FONT_INDEX"])
 )
-print(" ".join(font.getname()))')
-[[ "$face" == *"CJK SC"* ]] || fail "worker text font is '$face', expected Noto Sans CJK SC"
-echo "ok   worker font: $face"
+glyphs = {bytes(font.getmask(c)) for c in "赠品口"}
+print(("ok " if len(glyphs) == 3 else "tofu ") + " ".join(font.getname()))')
+[[ "$face" == ok* ]] || fail "worker text font cannot draw Chinese: '${face#* }' (deploy/.env TEXT_FONT_FILE)"
+echo "ok   worker font: ${face#ok }"
 
 # After Java is ready the Worker's next poll (backoff at most 30 s) must succeed.
 ready_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
