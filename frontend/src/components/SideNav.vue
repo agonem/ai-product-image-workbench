@@ -11,11 +11,14 @@ const groups = computed(() => [
   { name: '概览', items: [{ to: '/', label: '首页', icon: 'home' }] },
   {
     name: '图片生成',
-    items: features.map((item) => ({
-      to: `/create/${item.route}`,
-      label: item.name,
-      icon: item.tone,
-    })),
+    items: [
+      ...features.map((item) => ({
+        to: `/create/${item.route}`,
+        label: item.name,
+        icon: item.tone,
+      })),
+      { to: '/chat', label: '对话生图', icon: 'chat' },
+    ],
   },
   {
     name: '素材与作品',

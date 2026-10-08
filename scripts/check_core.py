@@ -960,6 +960,66 @@ def api_checks(core, admin, alice, bob, project):
         prompt = gens[0]["provenance"]["prompt"]
         assert "Place the product in the left part of the image" in prompt, prompt
         assert "top-right area" in prompt
+
+    # A24: conversational generation (ADR-20261008-I): the user's words plus the guard, then an
+    # edit of the result with an extra reference; deleting the conversation keeps the images.
+    conversations = f"/api/v1/projects/{project}/conversations"
+    assert run.http("POST", conversations, alice, {"title": " "})[0] == 400
+    assert run.http("POST", conversations, bob, {"title": "x"})[0] == 404
+    status, chat, _ = run.http("POST", conversations, alice, {"title": "木桌绿植"})
+    assert status == 201 and chat["turns"] == 0, (status, chat)
+    first = {
+        "project_id": project,
+        "feature_type": "CUSTOM",
+        "conversation_id": chat["id"],
+        "product_asset_id": fresh["id"],
+        "prompt": "把商品放在浅木色桌面上，旁边有绿植",
+        "output": output,
+    }
+    state = core.generate(alice, first, "v4-chat-1")
+    assert state["status"] == "SUCCEEDED" and len(state["artifacts"]) == 1, state
+    attempt, gens = core.generations(state["id"])
+    provenance = gens[0]["provenance"]
+    assert core.fences(attempt) == "1" and provenance["parameters"]["input_references"] == 1
+    assert "Instruction from the user: 把商品放在浅木色桌面上" in provenance["prompt"]
+    assert "keep the product from reference image 1 exactly" in provenance["prompt"]
+    picture = state["artifacts"][0]["id"]
+    for body, expected in (
+        (dict(first, reference_asset_ids=[fresh["id"]]), 422),  # the product twice
+        (dict(first, edit_artifact_id="missing"), 422),
+        (dict(first, conversation_id="missing"), 404),
+        (dict(first, reference_asset_ids=["a", "b", "c"]), 400),
+        (dict(first, prompt=" "), 400),
+    ):
+        assert core.post(alice, "/api/v4/generation-tasks", body)[0] == expected, body
+    second = dict(
+        first,
+        prompt="背景换成浅蓝色",
+        edit_artifact_id=picture,
+        reference_asset_ids=[fresh_gift["id"]],
+    )
+    state = core.generate(alice, second, "v4-chat-2")
+    assert state["status"] == "SUCCEEDED", state
+    _, gens = core.generations(state["id"])
+    provenance = gens[0]["provenance"]
+    assert provenance["parameters"]["input_references"] == 3
+    assert "Reference image 1 is the current picture to modify" in provenance["prompt"]
+    edited = run.sql(f"SELECT sha256 FROM artifacts WHERE id='{picture}'")
+    assert provenance["inputs"]["edit_sha256"] == edited
+    status, detail, _ = run.http("GET", f"/api/v1/conversations/{chat['id']}", alice)
+    assert status == 200 and [t["request"]["prompt"] for t in detail["tasks"]] == [
+        "把商品放在浅木色桌面上，旁边有绿植",
+        "背景换成浅蓝色",
+    ], detail
+    assert run.http("GET", f"/api/v1/conversations/{chat['id']}", bob)[0] == 404
+    listed = run.http("GET", conversations, alice)[1]["items"]
+    assert listed[0]["id"] == chat["id"] and listed[0]["turns"] == 2 and listed[0]["cover"]
+    assert run.http("DELETE", f"/api/v1/conversations/{chat['id']}", bob)[0] == 404
+    assert run.http("DELETE", f"/api/v1/conversations/{chat['id']}", alice)[0] == 204
+    assert run.http("GET", conversations, alice)[1]["items"] == []
+    # The images stay: the task is still readable and in the history.
+    assert core.get(alice, state["id"])[1]["status"] == "SUCCEEDED"
+    evidence["conversation"] = {"first": picture, "edit": state["id"]}
     return evidence
 
 
@@ -1082,12 +1142,12 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A23: three entries, references, text, retypeset, isolation, "
+            "PASS V4-A1..A24: three entries, references, text, retypeset, isolation, "
             "withdrawn routes, model catalog and proxy, owner deletion, real-world uploads, "
             "reuse, original background, third-party endpoint, account deletion, "
             "template management, personal templates, image management, dashboard, "
             "operation log, per-point selling, keep-original selling, gift card, "
-            "product position",
+            "product position, conversational generation",
             flush=True,
         )
         if browser_checks(core, stack):

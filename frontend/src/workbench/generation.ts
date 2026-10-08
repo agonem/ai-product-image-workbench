@@ -1,5 +1,5 @@
 import { validateContract } from '../contracts/validate.ts'
-import type { Box, Feature, TextSpec } from './model.ts'
+import type { Box, Feature, TaskFeature, TextSpec } from './model.ts'
 
 export const features: {
   id: Feature
@@ -36,8 +36,18 @@ export const features: {
 ]
 export const featureByRoute = (route: string) =>
   features.find((item) => item.route === route)
-export const featureName = (id: Feature) =>
-  features.find((item) => item.id === id)!.name
+export const featureName = (id: TaskFeature) =>
+  id === 'CUSTOM'
+    ? '对话生图'
+    : (features.find((item) => item.id === id)?.name ?? id)
+/** Where a task of any entry is opened again. */
+export const taskLink = (feature: TaskFeature, task: string) =>
+  feature === 'CUSTOM'
+    ? { path: '/chat', query: { task } }
+    : {
+        path: `/create/${features.find((item) => item.id === feature)!.route}`,
+        query: { task },
+      }
 
 // Convenience sizes only; none is claimed to be a marketplace rule (D-01).
 export const canvasSizes = [

@@ -5,6 +5,7 @@ import AuditView from './views/AuditView.vue'
 import DashboardView from './views/DashboardView.vue'
 import PresetsView from './views/PresetsView.vue'
 import AssetsView from './views/AssetsView.vue'
+import ChatView from './views/ChatView.vue'
 import CreateView from './views/CreateView.vue'
 import HomeView from './views/HomeView.vue'
 import ModelsView from './views/ModelsView.vue'
@@ -18,6 +19,8 @@ export const router = createRouter({
   routes: [
     { path: '/', component: HomeView },
     { path: '/create/:feature(gift|scene|selling)', component: CreateView },
+    // Conversational generation with the user's own words (ADR-20261008-I).
+    { path: '/chat', component: ChatView },
     { path: '/assets', component: AssetsView },
     { path: '/tasks', component: TasksView },
     { path: '/works', component: WorksView },

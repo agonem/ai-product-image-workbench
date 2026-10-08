@@ -45,6 +45,10 @@ final class GenerationOutputs {
           || !inputs.path("product_sha256").equals(request.path("product_asset").path("sha256"))
           || (request.has("gift_asset")
               && !inputs.path("gift_sha256").equals(request.path("gift_asset").path("sha256")))
+          || (request.has("edit_image")
+              && !retypeset
+              && !inputs.path("edit_sha256").equals(request.path("edit_image").path("sha256")))
+          || (request.has("references") && !retypeset && !sameReferences(request, inputs))
           || provenance.path("text_rendered").asBoolean() != request.has("text")) invalid();
       if (retypeset) {
         // No model call: the stored base is exactly the frozen source image.
@@ -78,6 +82,12 @@ final class GenerationOutputs {
               .equals(Json.parse("[" + x + "," + y + "," + (x + width) + "," + (y + height) + "]")))
         invalid();
     }
+  }
+
+  private static boolean sameReferences(JsonNode request, JsonNode inputs) {
+    var expected = Json.MAPPER.createArrayNode();
+    request.path("references").forEach(item -> expected.add(item.path("sha256")));
+    return expected.equals(inputs.path("reference_sha256"));
   }
 
   private static void check(

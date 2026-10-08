@@ -828,6 +828,72 @@ test('V4-B17: the gift in a card on the original background, without a model', a
   expect(errors).toEqual([])
 })
 
+test('V4-B18: conversational generation - describe, then edit the result', async ({
+  page,
+}) => {
+  const errors = watchErrors(page)
+  await login(page)
+  await page.getByRole('link', { name: '对话生图' }).click()
+  await expect(
+    page.getByRole('heading', { name: '想生成什么样的图？' }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: /^商品图/ }).click()
+  await page.getByRole('menuitem', { name: '从素材库选择' }).click()
+  const picker = page.getByRole('dialog', { name: '选择商品图' })
+  await picker
+    .getByRole('button', { name: /^选择商品图/ })
+    .first()
+    .click()
+  await expect(picker).toHaveCount(0)
+  await page.getByRole('button', { name: /^把商品放在浅木色桌面上/ }).click()
+  const first = await submitAndTrack(page, () =>
+    page.getByTestId('chat-send').click(),
+  )
+  expect(first.body.feature_type).toBe('CUSTOM')
+  expect(first.body.prompt).toContain('浅木色桌面')
+  expect(first.body.edit_artifact_id).toBeUndefined()
+  const turns = page.getByTestId('chat-turn')
+  await expect(turns.first()).toHaveAttribute('data-status', 'SUCCEEDED', {
+    timeout: 60000,
+  })
+  // The new result becomes what the next message changes.
+  await expect(page.getByTestId('edit-target')).toContainText('修改这张')
+  await page.getByLabel('描述').fill('背景换成浅蓝色')
+  await expect(page.getByTestId('chat-send')).toContainText('修改')
+  const second = await submitAndTrack(page, () =>
+    page.getByTestId('chat-send').click(),
+  )
+  expect(second.body.conversation_id).toBe(first.body.conversation_id)
+  expect(second.body.edit_artifact_id).toBeTruthy()
+  await expect(turns).toHaveCount(2)
+  await expect(turns.nth(1)).toHaveAttribute('data-status', 'SUCCEEDED', {
+    timeout: 60000,
+  })
+  await expect(page.getByTestId('chat-item').first()).toContainText('2 条')
+  await page.screenshot({ path: join(artifacts, 'chat-desktop.png') })
+  // Clearing the target generates afresh.
+  await page.getByRole('button', { name: '不修改，重新生成' }).click()
+  await expect(page.getByTestId('edit-target')).toHaveCount(0)
+  await expect(page.getByTestId('chat-send')).toContainText('生成')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await noHorizontalScroll(page)
+  await page.screenshot({
+    path: join(artifacts, 'chat-mobile.png'),
+    fullPage: true,
+  })
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  // Deleting the conversation keeps the images.
+  const items = page.getByTestId('chat-item')
+  const before = await items.count()
+  await items
+    .first()
+    .getByRole('button', { name: /^删除对话/ })
+    .click()
+  await confirm(page, /^删除对话/)
+  await expect(items).toHaveCount(before - 1)
+  expect(errors).toEqual([])
+})
+
 test('V4-B15: image management, dashboard and operation log for admins', async ({
   page,
 }) => {

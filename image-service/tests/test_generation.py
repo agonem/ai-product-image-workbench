@@ -630,3 +630,58 @@ def test_chosen_product_position_replaces_the_automatic_side():
     )
     assert "Place the product in the left part of the image" in left
     assert "right part" not in left and "top-left area" in left
+
+
+# ADR-20261008-I: conversational generation with the user's own words.
+
+
+def custom_request(local, **extra):
+    extra.setdefault("prompt", "把商品放在浅色木桌上，暖色自然光")
+    value = request(local, "SCENE", **extra)
+    value["feature_type"] = "CUSTOM"
+    value.pop("scene")
+    assert not validate_contract("generation-v4-request", value)
+    return value
+
+
+def test_custom_prompt_keeps_the_guard_and_sends_the_product(font):
+    local, adapter = api(), Adapter()
+    receipt = process_generation(local, custom_request(local), "lease", adapter)
+    assert not validate_contract("generation-v4-completed", receipt)
+    sent = adapter.requests[0]
+    assert sent.references == (local.inputs["product"],)
+    assert "Instruction from the user: 把商品放在浅色木桌上" in sent.prompt
+    assert "keep the product from reference image 1 exactly as it is" in sent.prompt
+    assert "Do not add any new text" in sent.prompt
+    assert sent.template_version == "generation-v4-custom"
+
+
+def test_custom_edit_sends_the_picture_first_then_product_and_references(font):
+    local, adapter = api(), Adapter()
+    local.inputs["earlier"] = png((20, 160, 90), size=(120, 120))
+    local.inputs["extra"] = png((240, 200, 40))
+    edit = {
+        "asset_id": "earlier",
+        "object_key": "outputs/t/a/l/0.image",
+        "sha256": hashlib.sha256(local.inputs["earlier"]).hexdigest(),
+    }
+    extra = {
+        "asset_id": "extra",
+        "object_key": "originals/p/extra.image",
+        "sha256": hashlib.sha256(local.inputs["extra"]).hexdigest(),
+    }
+    value = custom_request(local, edit_image=edit, references=[extra], prompt="背景换成浅蓝色")
+    receipt = process_generation(local, value, "lease", adapter)
+    assert not validate_contract("generation-v4-completed", receipt)
+    sent = adapter.requests[0]
+    assert sent.references == (
+        local.inputs["earlier"],
+        local.inputs["product"],
+        local.inputs["extra"],
+    )
+    assert "Reference image 1 is the current picture to modify" in sent.prompt
+    assert "keep the product from reference image 2" in sent.prompt
+    assert "Reference image 3 is an extra reference" in sent.prompt
+    inputs = receipt["generations"][0]["provenance"]["inputs"]
+    assert inputs["edit_sha256"] == edit["sha256"]
+    assert inputs["reference_sha256"] == [extra["sha256"]]

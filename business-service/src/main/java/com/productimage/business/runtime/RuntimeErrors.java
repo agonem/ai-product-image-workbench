@@ -19,7 +19,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
       PresetCatalogApi.class,
       UserTemplateApi.class,
       AdminImagesApi.class,
-      AdminInsightsApi.class
+      AdminInsightsApi.class,
+      ConversationApi.class
     })
 @Profile("runtime")
 public class RuntimeErrors {

@@ -604,6 +604,92 @@
           ]
         }
       ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Conversational generation with the user's own prompt (ADR-20261008-I).",
+      "properties": {
+        "project_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+        },
+        "product_asset_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+        },
+        "output": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "aspect_ratio": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]?:[1-9][0-9]?$"
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 2048
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 2048
+            },
+            "format": {
+              "enum": [
+                "png",
+                "jpeg"
+              ]
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            }
+          },
+          "required": [
+            "aspect_ratio",
+            "width",
+            "height",
+            "format",
+            "count"
+          ]
+        },
+        "feature_type": {
+          "const": "CUSTOM"
+        },
+        "conversation_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "pattern": "[^\\s]"
+        },
+        "reference_asset_ids": {
+          "type": "array",
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+          }
+        },
+        "edit_artifact_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
+        },
+        "model_id": {
+          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id",
+          "description": "Chosen model (ADR-20260929-C); omitted means the admin default."
+        }
+      },
+      "required": [
+        "project_id",
+        "product_asset_id",
+        "feature_type",
+        "conversation_id",
+        "prompt",
+        "output"
+      ]
     }
   ]
 }

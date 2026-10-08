@@ -39,7 +39,7 @@ const viewerItems = computed(() =>
         <p>上传商品白底图，生成赠品主图、场景主图和卖点主图。</p>
       </div>
     </div>
-    <section class="feature-cards" aria-label="三个独立功能">
+    <section class="feature-cards" aria-label="生成功能">
       <article
         v-for="item in features"
         :key="item.id"
@@ -62,6 +62,21 @@ const viewerItems = computed(() =>
         </button>
         <FeatureIcon :tone="item.tone" />
       </article>
+    </section>
+    <section class="card chat-banner" aria-label="对话生图">
+      <span class="badge"><LineIcon name="chat" :size="20" /></span>
+      <div>
+        <h2>对话生图</h2>
+        <p>用自己的话描述画面，生成后接着说要怎么改，像聊天一样调整图片。</p>
+      </div>
+      <button
+        type="button"
+        class="btn primary sm"
+        aria-label="对话生图 开始对话"
+        @click="router.push('/chat')"
+      >
+        开始对话<LineIcon name="arrow" :size="14" />
+      </button>
     </section>
     <section class="card">
       <div class="card-head">

@@ -3381,5 +3381,150 @@
       "keep_original": true,
       "product_position": "LEFT"
     }
+  },
+  {
+    "name": "v4-custom-prompt",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "CUSTOM",
+      "product_asset_id": "product_fixture",
+      "conversation_id": "conversation_fixture",
+      "prompt": "把商品放在浅色木桌上，旁边有绿植，暖色自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-custom-edit-with-references",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "CUSTOM",
+      "product_asset_id": "product_fixture",
+      "conversation_id": "conversation_fixture",
+      "prompt": "背景换成浅蓝色",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "edit_artifact_id": "artifact_fixture",
+      "reference_asset_ids": [
+        "gift_fixture"
+      ],
+      "model_id": "model_fixture"
+    }
+  },
+  {
+    "name": "v4-custom-blank-prompt-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "CUSTOM",
+      "product_asset_id": "product_fixture",
+      "conversation_id": "conversation_fixture",
+      "prompt": "   ",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-custom-long-prompt-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "CUSTOM",
+      "product_asset_id": "product_fixture",
+      "conversation_id": "conversation_fixture",
+      "prompt": "长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长长",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-custom-without-conversation-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "CUSTOM",
+      "product_asset_id": "product_fixture",
+      "prompt": "把商品放在浅色木桌上，旁边有绿植，暖色自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      }
+    }
+  },
+  {
+    "name": "v4-custom-three-references-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "CUSTOM",
+      "product_asset_id": "product_fixture",
+      "conversation_id": "conversation_fixture",
+      "prompt": "把商品放在浅色木桌上，旁边有绿植，暖色自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "reference_asset_ids": [
+        "a_fixture",
+        "b_fixture",
+        "c_fixture"
+      ]
+    }
+  },
+  {
+    "name": "v4-custom-with-text-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "CUSTOM",
+      "product_asset_id": "product_fixture",
+      "conversation_id": "conversation_fixture",
+      "prompt": "把商品放在浅色木桌上，旁边有绿植，暖色自然光",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "text": {
+        "title": "x"
+      }
+    }
   }
 ]

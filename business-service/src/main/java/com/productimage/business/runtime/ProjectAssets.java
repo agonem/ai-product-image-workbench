@@ -193,8 +193,9 @@ public final class ProjectAssets {
                       actor);
               if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
               if (jdbc.queryForObject(
-                      "SELECT count(*) FROM generation_tasks WHERE (product_asset_id=? OR gift_asset_id=?) AND status IN ('QUEUED','RUNNING')",
+                      "SELECT count(*) FROM generation_tasks WHERE (product_asset_id=? OR gift_asset_id=? OR worker_snapshot_json->'references' @> jsonb_build_array(jsonb_build_object('asset_id',?::text))) AND status IN ('QUEUED','RUNNING')",
                       Long.class,
+                      id,
                       id,
                       id)
                   > 0) throw new Problem(409, "ASSET_IN_USE");

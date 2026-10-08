@@ -52,6 +52,25 @@ final class SnapshotBuilder {
               scene.path("prompt").asText() + ". " + request.path("scene_prompt").asText());
       } else scene = Json.object().put("prompt", request.path("scene_prompt").asText());
       worker.set("scene", scene);
+    } else if (feature.equals("CUSTOM")) {
+      // Conversational generation (ADR-20261008-I): the user's own words plus references.
+      if (jdbc.queryForObject(
+              "SELECT count(*) FROM conversations WHERE id=? AND project_id=?",
+              Long.class,
+              request.path("conversation_id").asText(),
+              project)
+          == 0) throw new Problem(404, "NOT_FOUND");
+      worker.put("prompt", request.path("prompt").asText());
+      if (request.path("reference_asset_ids").size() > 0) {
+        var references = worker.putArray("references");
+        for (var id : request.path("reference_asset_ids")) {
+          if (id.asText().equals(request.path("product_asset_id").asText()))
+            throw new Problem(422, "INVALID_ASSET");
+          references.add(original(id.asText(), project));
+        }
+      }
+      if (request.has("edit_artifact_id"))
+        worker.set("edit_image", result(request.path("edit_artifact_id").asText(), project));
     } else {
       // One image per selling point (ADR-20261008-G): the chosen style, or the product image
       // itself with no model call.
@@ -145,6 +164,35 @@ final class SnapshotBuilder {
     preset.set("config", Json.parse(presets.getFirst().get("config_json").toString()));
     worker.set("template_snapshot", snapshot);
     return worker;
+  }
+
+  /** Any original (product or gift image) of the project, as a reference. */
+  private ObjectNode original(String id, String project) {
+    var kinds =
+        jdbc.queryForList(
+            "SELECT kind FROM assets WHERE id=? AND project_id=? AND kind IN ('PRODUCT','GIFT')",
+            String.class,
+            id,
+            project);
+    if (kinds.isEmpty()) throw new Problem(422, "INVALID_ASSET");
+    return asset(id, project, kinds.getFirst());
+  }
+
+  /** A finished result of the project (a final image, not deleted) to be modified. */
+  private ObjectNode result(String id, String project) {
+    var rows =
+        jdbc.queryForList(
+            "SELECT a.object_key,a.sha256 FROM artifacts a JOIN generation_tasks t ON t.id=a.task_id AND t.current_attempt_id=a.attempt_id WHERE a.id=? AND t.project_id=? AND a.kind='COMPOSITE' AND t.status='SUCCEEDED' FOR SHARE OF a",
+            id,
+            project);
+    if (rows.isEmpty()
+        || jdbc.queryForObject("SELECT count(*) FROM deletions WHERE target_id=?", Long.class, id)
+            > 0) throw new Problem(422, "INVALID_ASSET");
+    String key = rows.getFirst().get("object_key").toString();
+    var info = store.inspect(key, store.read(key));
+    if (!info.sha256().equals(rows.getFirst().get("sha256")))
+      throw new Problem(422, "INVALID_ASSET");
+    return Json.object().put("asset_id", id).put("object_key", key).put("sha256", info.sha256());
   }
 
   private ObjectNode asset(String id, String project, String kind) {

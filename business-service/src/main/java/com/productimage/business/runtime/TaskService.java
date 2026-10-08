@@ -136,7 +136,7 @@ public final class TaskService {
           String id = Json.id();
           int inserted =
               jdbc.update(
-                  "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,template_snapshot_json,worker_snapshot_json,provider_config_version) VALUES (?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?) ON CONFLICT(created_by,feature_type,idempotency_key) DO NOTHING",
+                  "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,template_snapshot_json,worker_snapshot_json,provider_config_version,conversation_id) VALUES (?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?) ON CONFLICT(created_by,feature_type,idempotency_key) DO NOTHING",
                   id,
                   request.path("project_id").asText(),
                   request.path("product_asset_id").asText(),
@@ -148,7 +148,8 @@ public final class TaskService {
                   request.toString(),
                   worker.get("template_snapshot").toString(),
                   worker.toString(),
-                  configVersion);
+                  configVersion,
+                  request.has("conversation_id") ? request.get("conversation_id").asText() : null);
           if (inserted == 0)
             return existing(
                 actor,
@@ -159,6 +160,10 @@ public final class TaskService {
                     key),
                 hash);
           enqueue(id, 1, worker);
+          if (request.has("conversation_id"))
+            jdbc.update(
+                "UPDATE conversations SET updated_at=now() WHERE id=?",
+                request.get("conversation_id").asText());
           return get(actor, id);
         });
   }

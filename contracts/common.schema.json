@@ -36,7 +36,8 @@
       "enum": [
         "GIFT",
         "SCENE",
-        "SELLING_POINT"
+        "SELLING_POINT",
+        "CUSTOM"
       ]
     },
     "box": {

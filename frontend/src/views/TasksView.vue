@@ -3,7 +3,7 @@ import { inject } from 'vue'
 import { useRouter } from 'vue-router'
 import EmptyState from '../components/EmptyState.vue'
 import LineIcon from '../components/LineIcon.vue'
-import { featureName, features } from '../workbench/generation'
+import { featureName, features, taskLink } from '../workbench/generation'
 import type { HistoryItem, Task } from '../workbench/model'
 import { statusLabels } from '../workbench/model'
 import { workbenchKey } from '../workbench/useWorkbench'
@@ -18,8 +18,7 @@ const tone: Record<Task['status'], string> = {
   SUCCEEDED: 'ok',
 }
 function open(item: HistoryItem) {
-  const route = features.find((f) => f.id === item.task.feature_type)!.route
-  void router.push({ path: `/create/${route}`, query: { task: item.task.id } })
+  void router.push(taskLink(item.task.feature_type, item.task.id))
 }
 </script>
 
@@ -67,7 +66,8 @@ function open(item: HistoryItem) {
                   ><LineIcon
                     :name="
                       features.find((f) => f.id === item.task.feature_type)
-                        ?.tone ?? 'grid'
+                        ?.tone ??
+                      (item.task.feature_type === 'CUSTOM' ? 'chat' : 'grid')
                     "
                   />{{ featureName(item.task.feature_type)
                   }}<small v-if="!item.generation_v4">（旧版任务）</small></span

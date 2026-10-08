@@ -151,9 +151,13 @@ public final class DeliveryService {
           requireLease(row, token);
           var request = Json.parse(row.get("payload").toString());
           // Only references frozen into this attempt's snapshot are readable.
+          var frozen = new java.util.ArrayList<JsonNode>();
           for (String field :
-              new String[] {"product_asset", "product_alpha_asset", "gift_asset", "base_image"}) {
-            var asset = request.path(field);
+              new String[] {
+                "product_asset", "product_alpha_asset", "gift_asset", "base_image", "edit_image"
+              }) frozen.add(request.path(field));
+          request.path("references").forEach(frozen::add);
+          for (var asset : frozen) {
             if (asset.path("asset_id").asText().equals(assetId)) {
               byte[] bytes = store.read(asset.path("object_key").asText());
               if (!Json.hash(bytes).equals(asset.path("sha256").asText()))

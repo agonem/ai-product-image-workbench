@@ -31,7 +31,8 @@
       "enum": [
         "GIFT",
         "SCENE",
-        "SELLING_POINT"
+        "SELLING_POINT",
+        "CUSTOM"
       ]
     },
     "product_asset": {
@@ -200,6 +201,24 @@
       "minLength": 1,
       "maxLength": 300,
       "pattern": "[^\\s]"
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "pattern": "[^\\s]",
+      "description": "The user's own words (CUSTOM)."
+    },
+    "references": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/asset"
+      }
+    },
+    "edit_image": {
+      "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/asset",
+      "description": "A previous result to modify; asset_id is the artifact id."
     },
     "styles": {
       "type": "array",

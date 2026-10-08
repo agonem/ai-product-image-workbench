@@ -91,7 +91,10 @@ DEFAULT_PALETTE = {"badge_color": "#FFFFFF"}
 
 
 def _raw(api, request, lease, field):
-    asset = request[field]
+    return _fetch(api, request, lease, request[field])
+
+
+def _fetch(api, request, lease, asset):
     raw = api.call(
         "GET",
         f"/internal/v1/work/{request['attempt_id']}/assets/{asset['asset_id']}",
@@ -235,8 +238,37 @@ def _gift_parts(request):
     return parts
 
 
+def _custom_prompt(request):
+    """Conversational generation (ADR-20261008-I): the user's words, plus the guard every entry
+    keeps (business rule 1): the product stays exactly as photographed and no text is drawn."""
+    editing = "edit_image" in request
+    product = 2 if editing else 1
+    parts = []
+    if editing:
+        parts.append(
+            "Reference image 1 is the current picture to modify. Change only what the "
+            "instruction asks for and keep everything else in it as it is."
+        )
+    parts.append(f"Reference image {product} is the product.")
+    for index, _ in enumerate(request.get("references", [])):
+        parts.append(f"Reference image {product + 1 + index} is an extra reference from the user.")
+    parts.append(f"Instruction from the user: {request['prompt']}")
+    parts.append(
+        f"Whatever changes, keep the product from reference image {product} exactly as it is: "
+        "the same shape, proportions, colours, materials, logo, printed text, markings and "
+        "number of items."
+    )
+    parts.append(
+        "Do not add any new text, letters, numbers, watermarks, stickers, badges or logos"
+        + ("; keep existing text in reference image 1 unchanged." if editing else ".")
+    )
+    return " ".join(parts)
+
+
 def build_prompt(request, ordinal):
     feature = request["feature_type"]
+    if feature == "CUSTOM":
+        return _custom_prompt(request)
     background = request.get("background") if feature == "GIFT" else None
     if background is not None and background["mode"] == "ORIGINAL":
         # ADR-20261008-H: everything in the product image stays; only the gift is added.
@@ -303,6 +335,15 @@ def process_generation(api, request, lease, adapter, *, cancelled=None):
         )
     else:
         references = [_reference(_raw(api, request, lease, "product_asset"))]
+        if "edit_image" in request:
+            # Conversational edit: the picture being changed comes first (ADR-20261008-I).
+            references.insert(0, _reference(_raw(api, request, lease, "edit_image")))
+            inputs["edit_sha256"] = request["edit_image"]["sha256"]
+        if request.get("references"):
+            references += [
+                _reference(_fetch(api, request, lease, item)) for item in request["references"]
+            ]
+            inputs["reference_sha256"] = [item["sha256"] for item in request["references"]]
     if "gift_asset" in request:
         inputs["gift_sha256"] = request["gift_asset"]["sha256"]
         if card:

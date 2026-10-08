@@ -20,9 +20,11 @@ export interface Asset {
   /** Set when the original is a copy of a generated result (ADR-20260930-E). */
   source_artifact_id?: string
 }
+/** Tasks also come from the conversation page (CUSTOM, ADR-20261008-I). */
+export type TaskFeature = Feature | 'CUSTOM'
 export interface Task {
   id: string
-  feature_type: Feature
+  feature_type: TaskFeature
   status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'
   attempt: number
   created_at: string

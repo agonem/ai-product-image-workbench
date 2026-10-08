@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(12, flyway.migrate().migrationsExecuted);
+    assertEquals(13, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -141,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(11, upgrade.migrate().migrationsExecuted);
+      assertEquals(12, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(10, current.migrate().migrationsExecuted);
+      assertEquals(11, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -457,7 +457,7 @@ class DatabaseMigrationIT {
           "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(5, upgrade.migrate().migrationsExecuted);
+      assertEquals(6, upgrade.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery("SELECT provider,active_version_id FROM provider_config_state")) {
         assertTrue(rows.next());
@@ -534,6 +534,21 @@ class DatabaseMigrationIT {
     rejects(
         "23514",
         "INSERT INTO user_templates(id,owner_id,feature_type,name,settings) VALUES ('t5','u','GIFT',' ','{}')");
+  }
+
+  @Test
+  void conversationsGroupCustomTasksAndLetThemOutliveTheConversation() throws SQLException {
+    // V13: CUSTOM tasks may belong to a conversation; other entries never do.
+    sql("INSERT INTO conversations(id,project_id,title) VALUES ('c1','p','木桌绿植')");
+    rejects("23514", "INSERT INTO conversations(id,project_id,title) VALUES ('c2','p',' ')");
+    sql(task("custom", "u", "CUSTOM", "custom-key", "c".repeat(64)));
+    sql("UPDATE generation_tasks SET conversation_id='c1' WHERE id='custom'");
+    sql(task("scene", "u", "SCENE", "scene-key", "d".repeat(64)));
+    rejects("23514", "UPDATE generation_tasks SET conversation_id='c1' WHERE id='scene'");
+    rejects("23514", task("other", "u", "OTHER", "other-key", "e".repeat(64)));
+    // Deleting the conversation keeps the task (and its images).
+    sql("DELETE FROM conversations WHERE id='c1'");
+    assertEquals(2, count("generation_tasks"));
   }
 
   @Test
