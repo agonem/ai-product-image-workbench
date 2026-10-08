@@ -3099,5 +3099,287 @@
         "product": "asset-id"
       }
     }
+  },
+  {
+    "name": "v4-gift-card",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "gift_position": "BOTTOM_RIGHT",
+      "background": {
+        "mode": "SOLID",
+        "color": "#FFFFFF"
+      },
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "gift_card": {
+        "size": "M",
+        "label": "硅胶洗头刷"
+      }
+    }
+  },
+  {
+    "name": "v4-gift-card-no-label",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "gift_position": "BOTTOM_RIGHT",
+      "background": {
+        "mode": "SOLID",
+        "color": "#FFFFFF"
+      },
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "gift_card": {
+        "size": "M"
+      }
+    }
+  },
+  {
+    "name": "v4-gift-card-bad-size-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "gift_position": "BOTTOM_RIGHT",
+      "background": {
+        "mode": "SOLID",
+        "color": "#FFFFFF"
+      },
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "gift_card": {
+        "size": "XL"
+      }
+    }
+  },
+  {
+    "name": "v4-gift-card-long-label-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "GIFT",
+      "product_asset_id": "product_fixture",
+      "gift_asset_id": "gift_fixture",
+      "gift_position": "BOTTOM_RIGHT",
+      "background": {
+        "mode": "SOLID",
+        "color": "#FFFFFF"
+      },
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "gift_card": {
+        "size": "S",
+        "label": "十一个字的方框文字太长了"
+      }
+    }
+  },
+  {
+    "name": "v4-selling-product-left",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SELLING_POINT",
+      "product_asset_id": "product_fixture",
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 3
+      },
+      "style": "warm",
+      "product_position": "LEFT"
+    }
+  },
+  {
+    "name": "v4-selling-product-top-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SELLING_POINT",
+      "product_asset_id": "product_fixture",
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 3
+      },
+      "style": "warm",
+      "product_position": "TOP"
+    }
+  },
+  {
+    "name": "v4-selling-original-with-position-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "SELLING_POINT",
+      "product_asset_id": "product_fixture",
+      "text": {
+        "title": "轻松喂养\n宝宝更舒适",
+        "points": [
+          "安全材质",
+          "防胀气设计",
+          "易清洗"
+        ],
+        "color": "#4A2E1F",
+        "size": 48,
+        "align": "left",
+        "box": {
+          "x": 0.05,
+          "y": 0.05,
+          "width": 0.45,
+          "height": 0.5
+        }
+      },
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 3
+      },
+      "keep_original": true,
+      "product_position": "LEFT"
+    }
   }
 ]

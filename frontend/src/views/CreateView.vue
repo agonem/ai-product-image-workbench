@@ -23,7 +23,12 @@ import {
   adoptText,
   backgrounds,
   buildGeneration,
+  callsNoModel,
   canvasSizes,
+  giftCardSizes,
+  productPositions,
+  sellingProductZone,
+  zoneOverlap,
   featureByRoute,
   giftPositions,
   placeText,
@@ -117,12 +122,37 @@ const perPoint = computed(() => {
   const request = shown.value?.request
   return !request || (!request.styles && !request.source_task_id)
 })
+// Without a model the product image itself is the picture, so the plan shows it.
+const noModel = computed(() => callsNoModel(feature.value, draft.value))
 const backdrop = computed(() =>
-  feature.value === 'SELLING_POINT' &&
-  draft.value.keepOriginal &&
-  draft.value.product
+  noModel.value && draft.value.product
     ? `/assets/${draft.value.product}/content`
     : null,
+)
+const giftCard = computed(() =>
+  feature.value === 'GIFT' && draft.value.giftCard
+    ? {
+        size: draft.value.giftCardSize,
+        label: draft.value.giftLabel.trim(),
+        gift: draft.value.gift,
+      }
+    : null,
+)
+// A chosen side that the text box mostly covers would hide the product.
+const productBlocked = computed(
+  () =>
+    feature.value === 'SELLING_POINT' &&
+    !draft.value.keepOriginal &&
+    draft.value.productPosition !== 'AUTO' &&
+    zoneOverlap(
+      sellingProductZone(draft.value.productPosition, draft.value.textAlign),
+      draft.value.textBox,
+    ) > 0.25,
+)
+const productPosition = computed(() =>
+  feature.value === 'SELLING_POINT' && !draft.value.keepOriginal
+    ? draft.value.productPosition
+    : 'AUTO',
 )
 const palette = computed(() => {
   if (feature.value === 'SELLING_POINT' && !keepOriginal.value) {
@@ -233,9 +263,18 @@ const summary = computed(() => {
       : (styles.value.find((s) => s.id === d.styles[0])?.name ??
         d.styles[0] ??
         '未选择'),
-    output: `${
-      feature.value === 'SELLING_POINT' && d.keepOriginal ? '不调用模型' : model
-    } · ${canvasSizes[d.size]!.label} · ${imageCount.value} 张`,
+    card: d.giftCard
+      ? [
+          '方框',
+          giftCardSizes.find((item) => item.id === d.giftCardSize)?.name,
+          d.giftLabel.trim(),
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : '不加',
+    output: `${noModel.value ? '不调用模型' : model} · ${
+      canvasSizes[d.size]!.label
+    } · ${imageCount.value} 张`,
   }
 })
 
@@ -524,9 +563,15 @@ onMounted(() => {
                 描述
               </button>
             </div>
-            <p v-if="draft.backgroundMode === 'ORIGINAL'" class="hint">
-              尽量沿用商品图原来的背景，只加入赠品（由 AI
-              生成，可能有细微变化）。
+            <p
+              v-if="draft.backgroundMode === 'ORIGINAL' && draft.giftCard"
+              class="hint"
+            >
+              原图完全不变：不调用 AI，直接贴上赠品方框（零费用）。
+            </p>
+            <p v-else-if="draft.backgroundMode === 'ORIGINAL'" class="hint">
+              由 AI
+              在原图上加入赠品，原图里的人物或物品可能被改动；需要原图完全不变请打开“赠品方框”。
             </p>
             <div
               v-else-if="draft.backgroundMode === 'SOLID'"
@@ -553,6 +598,56 @@ onMounted(() => {
                 maxlength="300"
                 placeholder="例如：浅木色桌面，柔和自然光"
             /></label>
+          </ParamSection>
+          <ParamSection
+            title="赠品方框"
+            icon="box"
+            :summary="summary.card"
+            :open="openSection.GIFT === 'card'"
+            @toggle="toggle('card')"
+          >
+            <div class="seg" role="group" aria-label="赠品方框">
+              <button
+                type="button"
+                :aria-pressed="!draft.giftCard"
+                @click="draft.giftCard = false"
+              >
+                不加
+              </button>
+              <button
+                type="button"
+                :aria-pressed="draft.giftCard"
+                @click="draft.giftCard = true"
+              >
+                加方框
+              </button>
+            </div>
+            <template v-if="draft.giftCard">
+              <div class="form-row">
+                <span>方框大小</span>
+                <div class="seg" role="group" aria-label="方框大小">
+                  <button
+                    v-for="item in giftCardSizes"
+                    :key="item.id"
+                    type="button"
+                    :aria-pressed="draft.giftCardSize === item.id"
+                    @click="draft.giftCardSize = item.id"
+                  >
+                    {{ item.name }}
+                  </button>
+                </div>
+              </div>
+              <label class="form-row"
+                ><span>方框文字（可选，显示在赠品下方）</span
+                ><input
+                  v-model="draft.giftLabel"
+                  maxlength="10"
+                  placeholder="例如：硅胶洗头刷"
+              /></label>
+              <p class="hint">
+                方框里放赠品原图（不会被 AI 改动），位置跟随“赠品位置”。
+              </p>
+            </template>
           </ParamSection>
         </template>
 
@@ -707,10 +802,35 @@ onMounted(() => {
             AI、不产生费用：直接在商品图上加字，按所选尺寸居中裁切。可在商品图槽“从素材库选择
             → 我的作品”里选已生成的图。</small
           >
-          <small v-else class="hint"
-            >AI
-            按这一风格生成，每张画面围绕对应的卖点；画布预览按最长的一条卖点排版。</small
-          >
+          <template v-else>
+            <small class="hint"
+              >AI
+              按这一风格生成，每张画面围绕对应的卖点；画布预览按最长的一条卖点排版。</small
+            >
+            <div class="form-row">
+              <span>商品位置</span>
+              <div class="seg" role="group" aria-label="商品位置">
+                <button
+                  v-for="item in productPositions"
+                  :key="item.id"
+                  type="button"
+                  :aria-pressed="draft.productPosition === item.id"
+                  @click="draft.productPosition = item.id"
+                >
+                  {{ item.name }}
+                </button>
+              </div>
+            </div>
+            <small
+              v-if="productBlocked"
+              class="hint warn"
+              data-testid="product-overlap"
+              >商品位置和文字框重叠，商品可能被文字挡住：换一侧，或移动文字框。</small
+            >
+            <small v-else-if="draft.productPosition === 'AUTO'" class="hint"
+              >自动：商品放在文字框的另一侧（文字在左上时商品偏右）。</small
+            >
+          </template>
         </ParamSection>
 
         <ParamSection
@@ -722,12 +842,7 @@ onMounted(() => {
         >
           <div class="form-row">
             <span>模型</span>
-            <p
-              v-if="feature === 'SELLING_POINT' && draft.keepOriginal"
-              class="hint"
-            >
-              保持原图不调用模型
-            </p>
+            <p v-if="noModel" class="hint">保持原图，不调用模型</p>
             <DropSelect
               v-else
               v-model="draft.model"
@@ -827,6 +942,8 @@ onMounted(() => {
         :height="outputSize.height"
         :image="stageImage"
         :backdrop="backdrop"
+        :gift-card="giftCard"
+        :product-position="productPosition"
         :image-alt="`${meta.name}生成结果`"
         :text="preview"
         :text-align="draft.textAlign"

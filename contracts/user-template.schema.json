@@ -59,6 +59,16 @@
           "type": "string",
           "maxLength": 300
         },
+        "giftCard": {
+          "type": "boolean"
+        },
+        "giftCardSize": {
+          "enum": [
+            "S",
+            "M",
+            "L"
+          ]
+        },
         "scenePreset": {
           "type": "string",
           "maxLength": 32
@@ -77,6 +87,14 @@
         },
         "keepOriginal": {
           "type": "boolean"
+        },
+        "productPosition": {
+          "enum": [
+            "AUTO",
+            "LEFT",
+            "CENTER",
+            "RIGHT"
+          ]
         },
         "textColor": {
           "type": "string",

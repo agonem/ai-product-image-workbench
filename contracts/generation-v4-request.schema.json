@@ -147,6 +147,29 @@
         }
       ]
     },
+    "gift_card": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Gift shown in a white card drawn by the program (ADR-20261008-H).",
+      "properties": {
+        "size": {
+          "enum": [
+            "S",
+            "M",
+            "L"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 10,
+          "pattern": "[^\\s]"
+        }
+      },
+      "required": [
+        "size"
+      ]
+    },
     "scene": {
       "type": "object",
       "additionalProperties": false,
@@ -237,6 +260,14 @@
     "keep_original": {
       "const": true,
       "description": "No model call: every base is the product image cropped to size."
+    },
+    "product_position": {
+      "enum": [
+        "LEFT",
+        "CENTER",
+        "RIGHT"
+      ],
+      "description": "Where the model places the product (ADR-20261008-H); absent = away from the text."
     },
     "text": {
       "type": "object",

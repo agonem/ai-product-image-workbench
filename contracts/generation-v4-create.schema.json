@@ -170,6 +170,29 @@
             }
           ]
         },
+        "gift_card": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Gift shown in a white card drawn by the program (ADR-20261008-H).",
+          "properties": {
+            "size": {
+              "enum": [
+                "S",
+                "M",
+                "L"
+              ]
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 10,
+              "pattern": "[^\\s]"
+            }
+          },
+          "required": [
+            "size"
+          ]
+        },
         "text": {
           "type": "object",
           "additionalProperties": false,
@@ -412,6 +435,14 @@
           "const": true,
           "description": "No model call: the product image itself is cropped and the text overlaid (ADR-20261008-G)."
         },
+        "product_position": {
+          "enum": [
+            "LEFT",
+            "CENTER",
+            "RIGHT"
+          ],
+          "description": "Where the model places the product (ADR-20261008-H); absent = away from the text."
+        },
         "text": {
           "allOf": [
             {
@@ -557,6 +588,16 @@
                 ],
                 "properties": {
                   "style_prompt": {}
+                }
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "product_position"
+                ],
+                "properties": {
+                  "product_position": {}
                 }
               }
             }

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { giftCardBox, sellingProductZone } from '../workbench/generation'
+import type { GiftCardSize, ProductPosition } from '../workbench/generation'
 import type { Box, Feature, TextSpec } from '../workbench/model'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import DropSelect from './DropSelect.vue'
@@ -12,8 +14,12 @@ const props = defineProps<{
   height: number
   /** Result layer (model output under the text, or the final image for scenes). */
   image: string | null
-  /** Plan layer: the product image itself when selling points keep the original. */
+  /** Plan layer: the product image itself when no model is called. */
   backdrop?: string | null
+  /** Gift card preview on the gift page (ADR-20261008-H). */
+  giftCard?: { size: GiftCardSize; label: string; gift: string } | null
+  /** Selling page: where the model is asked to put the product. */
+  productPosition?: ProductPosition
   imageAlt: string
   text: TextSpec | null
   textAlign: 'left' | 'center' | 'right'
@@ -114,9 +120,43 @@ const productZone = computed<Zone>(() => {
   // The gift page has no text (ADR-20261008-G).
   if (props.feature === 'GIFT')
     return { left: 18, top: 14, width: 50, height: 60 }
-  return side === 'center'
-    ? { left: 29, top: 42, width: 42, height: 52 }
-    : { left: side === 'left' ? 52 : 6, top: 22, width: 42, height: 60 }
+  return sellingProductZone(props.productPosition ?? 'AUTO', side)
+})
+// Same geometry as the Worker's card, in percent of the canvas.
+const card = computed(() => {
+  if (!props.giftCard) return null
+  const box = giftCardBox(
+    props.giftCard.size,
+    !!props.giftCard.label,
+    props.width,
+    props.height,
+    props.giftPosition,
+  )
+  const w = (value: number) => `${(value / props.width) * 100}%`
+  const h = (value: number) => `${(value / props.height) * 100}%`
+  return {
+    frame: {
+      left: w(box.x),
+      top: h(box.y),
+      width: w(box.width),
+      height: h(box.height),
+      borderRadius: `${(box.corner / box.width) * 100}% / ${(box.corner / box.height) * 100}%`,
+    },
+    picture: {
+      left: `${(box.pad / box.width) * 100}%`,
+      right: `${(box.pad / box.width) * 100}%`,
+      top: `${(box.top / box.height) * 100}%`,
+      height: `${(box.imageHeight / box.height) * 100}%`,
+    },
+    label: {
+      top: `${((box.top + box.imageHeight) / box.height) * 100}%`,
+      height: `${(box.labelHeight / box.height) * 100}%`,
+      fontSize: `${(Math.round(box.width * 0.11) / props.width) * 100}cqw`,
+    },
+    badge: {
+      width: `${((2 * box.badge) / box.width) * 100}%`,
+    },
+  }
 })
 const giftZone = computed<Zone>(() => {
   const [left, top] = {
@@ -422,7 +462,11 @@ function nudge(event: KeyboardEvent) {
         </template>
         <template v-else-if="!showResult && layers.zones">
           <div class="zone" :style="pct(productZone)">商品</div>
-          <div v-if="feature === 'GIFT'" class="zone" :style="pct(giftZone)">
+          <div
+            v-if="feature === 'GIFT' && !card"
+            class="zone"
+            :style="pct(giftZone)"
+          >
             赠品
           </div>
         </template>
@@ -523,6 +567,28 @@ function nudge(event: KeyboardEvent) {
             @keydown="nudge"
           ></div>
         </template>
+        <div
+          v-if="card && !showResult"
+          class="gift-card"
+          data-testid="gift-card"
+          :style="card.frame"
+        >
+          <span class="gc-badge" :style="card.badge" aria-hidden="true"
+            ><LineIcon name="plus" :size="12"
+          /></span>
+          <div class="gc-picture" :style="card.picture">
+            <PrivateImage
+              v-if="giftCard?.gift"
+              :path="`/assets/${giftCard.gift}/content`"
+              alt="赠品原图"
+              :api="api"
+              missing="原图已删除"
+            />
+          </div>
+          <span v-if="giftCard?.label" class="gc-label" :style="card.label">{{
+            giftCard.label
+          }}</span>
+        </div>
         <div v-if="layers.guides" class="guides" aria-hidden="true">
           <i class="v" style="left: 33.333%"></i
           ><i class="v" style="left: 50%"></i

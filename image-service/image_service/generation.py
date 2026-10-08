@@ -18,7 +18,7 @@ import uuid
 
 from PIL import Image, ImageOps
 
-from image_service import typeset
+from image_service import giftcard, typeset
 from image_service.background import BackgroundRequest
 from image_service.poc import budget
 
@@ -63,6 +63,19 @@ NO_TEXT = (
     "Do not add any text, letters, numbers, watermarks, stickers, badges or logos other than "
     "those already printed on the items."
 )
+# "Keep the original background" (ADR-20261008-H): the product image may be a finished picture
+# with people, several items, text and graphics. The earlier wording called it a white-background
+# product photo and forbade "other products", and the model removed a second child (task 1b6a4798).
+KEEP_ORIGINAL = (
+    "Reference image 1 is the original product image. It may already be a finished picture with "
+    "people, several product items, text, logos and graphics. Keep everything in it exactly as it "
+    "is and where it is: every person, every item, all text and graphics, the layout, colours, "
+    "lighting and background. Do not remove, move, resize, recentre, crop or redraw anything."
+)
+KEEP_ORIGINAL_TEXT = (
+    "Do not add any new text, letters, numbers, watermarks, stickers, badges or logos; keep the "
+    "existing ones in reference image 1 unchanged."
+)
 QUALITY = (
     "Professional e-commerce main image for baby products: soft realistic lighting, natural "
     "contact shadows, sharp focus on the product."
@@ -73,6 +86,7 @@ POSITIONS = {
     "RIGHT": "right side",
     "LEFT": "left side",
 }
+SIDES = {"LEFT": "left", "CENTER": "centre", "RIGHT": "right"}
 DEFAULT_PALETTE = {"badge_color": "#FFFFFF"}
 
 
@@ -153,7 +167,7 @@ def _style(request, ordinal):
     return styles[0] if request.get("per_point") else styles[ordinal]
 
 
-def _text_area(box):
+def _text_area(box, product_position=None):
     cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
     horizontal = "left" if cx < 0.4 else "right" if cx > 0.6 else "centre"
     vertical = "top" if cy < 0.4 else "bottom" if cy > 0.6 else "middle"
@@ -165,6 +179,9 @@ def _text_area(box):
         f"{round(box['height'] * 100)}% of the height) as clean, uncluttered background for text "
         "that will be added later, and keep the products out of that area."
     )
+    if product_position:
+        # The user chose the side (ADR-20261008-H); the text area still stays clean.
+        return f"{clear} Place the product in the {SIDES[product_position]} part of the image."
     # Calibration (2026-09-29): naming where the products go is followed far more reliably
     # than only asking to avoid the text area.
     if horizontal == "left":
@@ -186,29 +203,52 @@ def _pct(value):
     return f"{round(min(1, max(0, value)) * 100)}%"
 
 
-def build_prompt(request, ordinal):
-    feature = request["feature_type"]
-    parts = [PRESERVE]
-    if feature == "GIFT":
-        parts.append(
+def _gift_parts(request):
+    """Gift entry: the gift is drawn by the model, or a card area is left empty for it."""
+    position = POSITIONS[request["gift_position"]]
+    background = request.get("background")
+    original = background is not None and background["mode"] == "ORIGINAL"
+    card = request.get("gift_card")
+    if card:
+        output = request["output"]
+        width, height = output["width"], output["height"]
+        box = giftcard.geometry(card, width, height, request["gift_position"])
+        across, down = giftcard.clear_area(box, width, height, request["gift_position"])
+        parts = [
+            f"Keep the {position} area of the image, about {across}% of the width and {down}% "
+            "of the height, completely empty plain background: a gift card will be added there "
+            "later. Keep the product and everything else out of that area."
+        ]
+    elif original:
+        parts = [
+            "Reference image 2 is the free gift item. Show it exactly as it is (same shape, "
+            "colours, markings and quantity), clearly smaller than the product, in empty space "
+            f"at the {position} of the image, without covering any person, product, text or "
+            "logo. Match its lighting and shadow to the picture."
+        ]
+    else:
+        parts = [
             "Reference image 2 is the free gift item. Show it exactly as it is (same shape, "
             "colours, markings and quantity), clearly smaller than the product, placed at the "
-            f"{POSITIONS[request['gift_position']]} of the image, near the product without "
-            "covering it."
-        )
-        background = request.get("background")
+            f"{position} of the image, near the product without covering it."
+        ]
+    return parts
+
+
+def build_prompt(request, ordinal):
+    feature = request["feature_type"]
+    background = request.get("background") if feature == "GIFT" else None
+    if background is not None and background["mode"] == "ORIGINAL":
+        # ADR-20261008-H: everything in the product image stays; only the gift is added.
+        return " ".join([KEEP_ORIGINAL, *_gift_parts(request), KEEP_ORIGINAL_TEXT])
+    parts = [PRESERVE]
+    if feature == "GIFT":
+        parts += _gift_parts(request)
         if background is None:
             parts.append("Clean, soft, bright studio background.")
         elif background["mode"] == "SOLID":
             parts.append(
                 f"Plain seamless studio background in the solid colour {background['color']}."
-            )
-        elif background["mode"] == "ORIGINAL":
-            # ADR-20260930-E: the product photo's own background stays as it is.
-            parts.append(
-                "Keep the background of reference image 1 exactly as it is: the same colour, "
-                "surface, lighting and surroundings. Do not replace, extend or restyle it; only "
-                "add the gift."
             )
         elif background["mode"] == "GRADIENT":
             parts.append(
@@ -230,7 +270,7 @@ def build_prompt(request, ordinal):
     if request.get("style_prompt"):
         parts.append(f"Additional style: {request['style_prompt']}.")
     if request.get("text"):
-        parts.append(_text_area(request["text"]["box"]))
+        parts.append(_text_area(request["text"]["box"], request.get("product_position")))
     parts += [QUALITY, NO_TEXT]
     return " ".join(parts)
 
@@ -248,8 +288,9 @@ def process_generation(api, request, lease, adapter, *, cancelled=None):
     output = request["output"]
     count, width, height = output["count"], output["width"], output["height"]
     text = request.get("text")
+    card = request.get("gift_card")
     # Fail on deployment problems before any billable call is made.
-    font = typeset.font_path() if text else None
+    font = typeset.font_path() if text or (card and card.get("label")) else None
     inputs = {"product_sha256": request["product_asset"]["sha256"]}
     retypeset = "base_image" in request
     original = not retypeset and bool(request.get("keep_original"))
@@ -264,7 +305,13 @@ def process_generation(api, request, lease, adapter, *, cancelled=None):
         references = [_reference(_raw(api, request, lease, "product_asset"))]
     if "gift_asset" in request:
         inputs["gift_sha256"] = request["gift_asset"]["sha256"]
-        if not retypeset and not original:
+        if card:
+            # The card shows the gift photo itself; the model never draws it (ADR-20261008-H).
+            box = giftcard.geometry(card, width, height, request["gift_position"])
+            sticker, offset = giftcard.render(
+                _raw(api, request, lease, "gift_asset"), card, box, font
+            )
+        elif not retypeset and not original:
             references.append(_reference(_raw(api, request, lease, "gift_asset")))
     artifacts, generations, hashes = [], [], set()
     for ordinal in range(count):
@@ -306,6 +353,8 @@ def process_generation(api, request, lease, adapter, *, cancelled=None):
         with Image.open(io.BytesIO(content)) as image:
             budget(image.size)
             final, transform = fit_background(image.convert("RGBA"), width, height)
+        if card:
+            final = giftcard.apply(final, sticker, offset)
         if text:
             final = typeset.render(
                 final, _text_for(request, ordinal), _palette(request, ordinal), font

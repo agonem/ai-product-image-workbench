@@ -647,7 +647,9 @@ def api_checks(core, admin, alice, bob, project):
     kept = core.generate(alice, keep, "v4-original-background")
     assert kept["status"] == "SUCCEEDED", kept
     prompt = core.generations(kept["id"])[1][0]["provenance"]["prompt"]
-    assert "Keep the background of reference image 1 exactly as it is" in prompt, prompt
+    # ADR-20261008-H: everything in the original stays where it is; only the gift is added.
+    assert "Keep everything in it exactly as it is and where it is" in prompt, prompt
+    assert "Do not remove, move" in prompt and "white background" not in prompt, prompt
     relay = {
         "name": "内网中转",
         "provider": "openai-compatible",
@@ -875,6 +877,89 @@ def api_checks(core, admin, alice, bob, project):
     else:
         assert state["status"] == "FAILED" and state["error"]["code"] == "GENERATION_FAILED"
     evidence["keep_original"] = {"task": task}
+
+    # A22: gift card (ADR-20261008-H). On the original background no model is called and the
+    # exact gift image sits in a white card at the bottom-right; with a solid background only
+    # the product goes to the model and the card is added afterwards.
+    status, fresh_gift, _ = run.http(
+        "POST",
+        f"/api/v1/projects/{project}/assets?kind=GIFT",
+        alice,
+        data=synthetic_png(shape=GIFT_RGB),
+        mime="image/png",
+    )
+    assert status == 201
+    card = {
+        "project_id": project,
+        "feature_type": "GIFT",
+        "product_asset_id": fresh["id"],
+        "gift_asset_id": fresh_gift["id"],
+        "gift_position": "BOTTOM_RIGHT",
+        "background": {"mode": "ORIGINAL"},
+        "gift_card": {"size": "M", "label": "洗头刷"},
+        "output": output,
+    }
+    state = core.generate(alice, card, "v4-gift-card-original")
+    task = state["id"]
+    assert (
+        run.sql(f"SELECT provider_config_version IS NULL FROM generation_tasks WHERE id='{task}'")
+        == "t"
+    )
+    regions = [
+        [[220, 200, 500, 500], list(PRODUCT_RGB), 6],  # the original, untouched
+        [[560, 752, 750, 764], [255] * 3, 6],  # white card below the label (x 544..768)
+        [[630, 600, 680, 680], list(GIFT_RGB), 12],  # the gift image inside the card
+        [[643, 530, 646, 533], [62, 155, 95], 10],  # green badge on the top edge
+    ]
+    if core.font:
+        assert state["status"] == "SUCCEEDED" and len(state["artifacts"]) == 1, state
+        attempt, gens = core.generations(task)
+        assert core.fences(attempt) == "0"
+        assert gens[0]["provenance"]["output_source"] == "original"
+        assert gens[0]["provenance"]["inputs"]["gift_sha256"] == run.sql(
+            f"SELECT sha256 FROM assets WHERE id='{fresh_gift['id']}'"
+        )
+        checked = core.inspect(core.image(alice, state["artifacts"][0]["id"]), regions)
+        assert checked["regions"] == [True] * 4, checked
+    else:
+        assert state["status"] == "FAILED" and state["error"]["code"] == "GENERATION_FAILED"
+    solid = dict(card, background={"mode": "SOLID", "color": "#FFFFFF"}, gift_card={"size": "M"})
+    state = core.generate(alice, solid, "v4-gift-card-solid")
+    assert state["status"] == "SUCCEEDED", state
+    attempt, gens = core.generations(state["id"])
+    provenance = gens[0]["provenance"]
+    assert core.fences(attempt) == "1" and provenance["parameters"]["input_references"] == 1
+    assert "gift card" in provenance["prompt"] and "Reference image 2" not in provenance["prompt"]
+    checked = core.inspect(
+        core.image(alice, state["artifacts"][0]["id"]),
+        # No label: the card is shorter (y 584..768) and white at its bottom.
+        [[[560, 752, 750, 764], [255] * 3, 6], [[630, 645, 680, 720], list(GIFT_RGB), 12]],
+    )
+    assert checked["regions"] == [True, True], checked
+    evidence["gift_card"] = {"original": task, "solid": state["id"]}
+
+    # A23: the selling product goes where the user asked (ADR-20261008-H).
+    if core.font:
+        left = {
+            "project_id": project,
+            "feature_type": "SELLING_POINT",
+            "product_asset_id": fresh["id"],
+            "style": "warm",
+            "product_position": "LEFT",
+            "text": dict(
+                text,
+                points=["安全材质"],
+                align="right",
+                box={"x": 0.5, "y": 0.04, "width": 0.46, "height": 0.5},
+            ),
+            "output": output,
+        }
+        state = core.generate(alice, left, "v4-selling-left")
+        assert state["status"] == "SUCCEEDED", state
+        _, gens = core.generations(state["id"])
+        prompt = gens[0]["provenance"]["prompt"]
+        assert "Place the product in the left part of the image" in prompt, prompt
+        assert "top-right area" in prompt
     return evidence
 
 
@@ -997,11 +1082,12 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A21: three entries, references, text, retypeset, isolation, "
+            "PASS V4-A1..A23: three entries, references, text, retypeset, isolation, "
             "withdrawn routes, model catalog and proxy, owner deletion, real-world uploads, "
             "reuse, original background, third-party endpoint, account deletion, "
             "template management, personal templates, image management, dashboard, "
-            "operation log, per-point selling, keep-original selling",
+            "operation log, per-point selling, keep-original selling, gift card, "
+            "product position",
             flush=True,
         )
         if browser_checks(core, stack):

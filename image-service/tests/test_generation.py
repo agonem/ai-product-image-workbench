@@ -554,3 +554,79 @@ def test_transparent_originals_keep_their_alpha():
     image.save(stream, format="PNG")
     with Image.open(io.BytesIO(_reference(stream.getvalue()))) as sent:
         assert sent.mode == "RGBA" and sent.size == (1536, 768)
+
+
+# ADR-20261008-H: gift card, "keep original background" prompt and product position.
+
+
+def gift_request(local, **extra):
+    value = request(local, "GIFT", **extra)
+    assert not validate_contract("generation-v4-request", value)
+    return value
+
+
+def test_gift_card_on_the_original_needs_no_model(font):
+    local = api()
+    value = gift_request(
+        local,
+        background={"mode": "ORIGINAL"},
+        gift_card={"size": "M", "label": "洗头刷"},
+        keep_original=True,
+    )
+    receipt = process_generation(local, value, "lease", None)
+    assert not validate_contract("generation-v4-completed", receipt)
+    assert local.posts == []  # no heartbeat, no paid-call permit
+    provenance = receipt["generations"][0]["provenance"]
+    assert provenance["output_source"] == "original"
+    assert provenance["inputs"]["gift_sha256"] == value["gift_asset"]["sha256"]
+    with Image.open(io.BytesIO(local.outputs[0])) as final:
+        rgb = final.convert("RGB")
+        assert rgb.getpixel((150, 150)) == PRODUCT  # the original is untouched outside the card
+        assert rgb.getpixel((280, 381)) == (255, 255, 255)  # white card (x 272..384)
+        assert rgb.getpixel((333, 276)) == (62, 155, 95)  # green badge (off its white "+")
+        gift_colours = {c for _, c in rgb.crop((281, 284, 375, 353)).getcolors(1 << 16)}
+        assert any(max(abs(a - b) for a, b in zip(c, GIFT, strict=True)) < 30 for c in gift_colours)
+
+
+def test_gift_card_with_a_model_sends_only_the_product(font):
+    local, adapter = api(), Adapter()
+    value = gift_request(
+        local, background={"mode": "SOLID", "color": "#FFFFFF"}, gift_card={"size": "S"}
+    )
+    receipt = process_generation(local, value, "lease", adapter)
+    assert not validate_contract("generation-v4-completed", receipt)
+    sent = adapter.requests[0]
+    assert sent.references == (local.inputs["product"],)
+    assert "gift card" in sent.prompt and "bottom-right area" in sent.prompt
+    assert "Reference image 2" not in sent.prompt
+    with Image.open(io.BytesIO(local.outputs[0])) as final:
+        # S card: 88 px wide at x 296..384; its badge is green.
+        assert final.convert("RGB").getpixel((344, 315)) == (62, 155, 95)
+
+
+def test_gift_card_label_that_cannot_fit_fails_before_any_paid_call(font):
+    local, adapter = api(), Adapter()
+    value = gift_request(local, gift_card={"size": "S", "label": "超长超长超长超长超长"})
+    value["output"].update(width=64, height=64)
+    with pytest.raises(typeset.TextOverflow):
+        process_generation(local, value, "lease", adapter)
+    assert adapter.requests == [] and local.posts == []
+
+
+def test_keeping_the_original_background_keeps_every_person_and_item():
+    local = api()
+    prompt = build_prompt(gift_request(local, background={"mode": "ORIGINAL"}), 0)
+    assert "every person" in prompt and "Do not remove, move" in prompt
+    assert "white background" not in prompt and "do not add other products" not in prompt
+    assert "Reference image 2 is the free gift" in prompt and "bottom-right" in prompt
+
+
+def test_chosen_product_position_replaces_the_automatic_side():
+    local = api()
+    auto = build_prompt(request(local, "SELLING_POINT", styles=STYLES[:1]), 0)
+    assert "right part of the image" in auto
+    left = build_prompt(
+        request(local, "SELLING_POINT", styles=STYLES[:1], product_position="LEFT"), 0
+    )
+    assert "Place the product in the left part of the image" in left
+    assert "right part" not in left and "top-left area" in left

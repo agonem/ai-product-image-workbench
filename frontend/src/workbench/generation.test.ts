@@ -3,6 +3,10 @@ import assert from 'node:assert/strict'
 import {
   adoptText,
   buildGeneration,
+  callsNoModel,
+  giftCardBox,
+  sellingProductZone,
+  zoneOverlap,
   newDraft,
   placeText,
   pointText,
@@ -187,4 +191,65 @@ test('uncertain submission freezes payload, path and key until resolved', () => 
     submission.prepare('/v4/generation-tasks', { value: 'changed' }).key,
     first.key,
   )
+})
+
+test('ADR-20261008-H: gift card request, no model on the original background', () => {
+  const draft = ready()
+  draft.model = 'model-2'
+  draft.giftCard = true
+  draft.giftLabel = ' 硅胶洗头刷 '
+  let gift = buildGeneration('GIFT', 'p', draft)
+  assert.deepEqual(gift.gift_card, { size: 'M', label: '硅胶洗头刷' })
+  assert.equal(gift.model_id, 'model-2')
+  draft.backgroundMode = 'ORIGINAL'
+  gift = buildGeneration('GIFT', 'p', draft)
+  assert.equal('model_id' in gift, false)
+  assert.equal(callsNoModel('GIFT', draft), true)
+  draft.giftLabel = ''
+  assert.deepEqual(buildGeneration('GIFT', 'p', draft).gift_card, { size: 'M' })
+  draft.giftCard = false
+  assert.equal('gift_card' in buildGeneration('GIFT', 'p', draft), false)
+  assert.equal(callsNoModel('GIFT', draft), false)
+})
+
+test('ADR-20261008-H: the card geometry matches the Worker', () => {
+  // Same numbers as image_service.giftcard.geometry for 800 x 800.
+  assert.deepEqual(giftCardBox('M', true, 800, 800, 'BOTTOM_RIGHT'), {
+    x: 544,
+    y: 539,
+    width: 224,
+    height: 229,
+    pad: 18,
+    top: 27,
+    imageHeight: 139,
+    labelHeight: 45,
+    badge: 22,
+    corner: 27,
+  })
+  const left = giftCardBox('S', true, 800, 800, 'LEFT')
+  assert.equal(left.x, 32)
+  assert.equal(left.y, 310)
+})
+
+test('ADR-20261008-H: product position travels only with an AI style', () => {
+  const draft = ready()
+  draft.points = '安全材质'
+  assert.equal(
+    'product_position' in buildGeneration('SELLING_POINT', 'p', draft),
+    false,
+  )
+  draft.productPosition = 'LEFT'
+  assert.equal(
+    buildGeneration('SELLING_POINT', 'p', draft).product_position,
+    'LEFT',
+  )
+  draft.keepOriginal = true
+  assert.equal(
+    'product_position' in buildGeneration('SELLING_POINT', 'p', draft),
+    false,
+  )
+  // Left text box over a left product: mostly covered.
+  const zone = sellingProductZone('LEFT', 'left')
+  assert.ok(zoneOverlap(zone, presetBox('SELLING_POINT', 'TL')) > 0.25)
+  assert.equal(zoneOverlap(zone, presetBox('SELLING_POINT', 'TR')), 0)
 })

@@ -227,6 +227,16 @@ test('V4-B4: selling points - one image per point in one style, verbatim text', 
     'aria-pressed',
     'false',
   )
+  // The product goes left (ADR-20261008-H); the default left text box would cover it.
+  await page
+    .getByRole('group', { name: '商品位置' })
+    .getByRole('button', { name: '左侧' })
+    .click()
+  await expect(page.getByTestId('product-overlap')).toBeVisible()
+  await section(page, '卖点文字')
+  await page.getByRole('button', { name: '右上' }).click()
+  await section(page, '风格')
+  await expect(page.getByTestId('product-overlap')).toHaveCount(0)
   await expect(page.getByTestId('generate')).toHaveText('生成 3 张')
   // The plan preview shows the title and the point needing the most room (spaces count).
   const layer = page.getByTestId('text-layer')
@@ -237,6 +247,8 @@ test('V4-B4: selling points - one image per point in one style, verbatim text', 
     page.getByTestId('generate').click(),
   )
   expect(body.style).toBe('green')
+  expect(body.product_position).toBe('LEFT')
+  expect(body.text.align).toBe('right')
   expect(body.styles).toBeUndefined()
   expect(body.output.count).toBe(3)
   expect(body.text.title).toBe('宝宝奶瓶')
@@ -764,6 +776,55 @@ test('V4-B16: selling text on a finished work with "keep original" (no model)', 
   expect(retype.body.text.title).toBe('新标题')
   expect(retype.body.text.points).toEqual(['防撞护角'])
   await expect(done(page, retype.id)).toHaveCount(1, { timeout: 60000 })
+  expect(errors).toEqual([])
+})
+
+test('V4-B17: the gift in a card on the original background, without a model', async ({
+  page,
+}) => {
+  test.skip(!withText, 'needs a deployment font for the card label')
+  const errors = watchErrors(page)
+  await login(page)
+  await page.getByRole('link', { name: '赠品主图' }).click()
+  await page.getByRole('button', { name: /^商品图/ }).click()
+  await page.getByRole('menuitem', { name: '从素材库选择' }).click()
+  const picker = page.getByRole('dialog', { name: '选择商品图' })
+  await picker
+    .getByRole('button', { name: /^选择商品图/ })
+    .first()
+    .click()
+  await expect(picker).toHaveCount(0)
+  await page.getByLabel('上传赠品图').setInputFiles(process.env.CORE_GIFT_FILE!)
+  await expect(toast(page)).toContainText('赠品原图已保存')
+  await section(page, '背景')
+  await page.getByRole('button', { name: '保持原图' }).click()
+  await expect(page.getByText('原图里的人物或物品可能被改动')).toBeVisible()
+  await section(page, '赠品方框')
+  await page.getByRole('button', { name: '加方框' }).click()
+  await page
+    .getByRole('group', { name: '方框大小' })
+    .getByRole('button', { name: '大' })
+    .click()
+  await page.getByLabel('方框文字').fill('洗头刷')
+  // The plan shows the original under the card preview, and no model is used.
+  const card = page.getByTestId('gift-card')
+  await expect(card).toContainText('洗头刷')
+  await expect(card.locator('img')).toBeVisible()
+  await expect(page.locator('.artboard img.base')).toBeVisible()
+  await expect(
+    page.locator('button.acc-head').filter({ hasText: /^输出设置/ }),
+  ).toContainText('不调用模型')
+  await section(page, '背景')
+  await expect(page.getByText('原图完全不变')).toBeVisible()
+  await page.screenshot({ path: join(artifacts, 'gift-card-plan.png') })
+  const { body, id } = await submitAndTrack(page, () =>
+    page.getByTestId('generate').click(),
+  )
+  expect(body.gift_card).toEqual({ size: 'L', label: '洗头刷' })
+  expect(body.background).toEqual({ mode: 'ORIGINAL' })
+  expect(body.model_id).toBeUndefined()
+  await expect(done(page, id)).toHaveCount(1, { timeout: 60000 })
+  await page.screenshot({ path: join(artifacts, 'gift-card-result.png') })
   expect(errors).toEqual([])
 })
 

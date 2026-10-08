@@ -35,6 +35,13 @@ final class SnapshotBuilder {
       worker.set("gift_asset", asset(request.path("gift_asset_id").asText(), project, "GIFT"));
       worker.set("gift_position", request.get("gift_position"));
       if (request.has("background")) worker.set("background", request.get("background"));
+      // A program-drawn gift card (ADR-20261008-H); on the original background no model is
+      // needed at all, so the picture stays exactly as uploaded.
+      if (request.has("gift_card")) {
+        worker.set("gift_card", request.get("gift_card"));
+        if ("ORIGINAL".equals(request.path("background").path("mode").asText()))
+          worker.put("keep_original", true);
+      }
     } else if (feature.equals("SCENE")) {
       ObjectNode scene;
       if (request.has("scene_preset")) {
@@ -51,6 +58,8 @@ final class SnapshotBuilder {
       worker.put("per_point", true);
       if (request.path("keep_original").asBoolean()) worker.put("keep_original", true);
       else worker.putArray("styles").add(presets.style(request.path("style").asText()));
+      if (request.has("product_position"))
+        worker.set("product_position", request.get("product_position"));
     }
     if (request.has("style_prompt")) worker.set("style_prompt", request.get("style_prompt"));
     if (request.has("text")) worker.set("text", request.get("text"));
