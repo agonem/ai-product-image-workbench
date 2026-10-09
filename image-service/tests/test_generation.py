@@ -655,7 +655,7 @@ def test_custom_prompt_keeps_the_guard_and_sends_the_product(font):
     assert "Instruction from the user: 把商品放在浅色木桌上" in sent.prompt
     assert "input image 1 = 「商品图」 (the product)." in sent.prompt
     assert GUARD in sent.prompt
-    assert "Do not write any new text, letters, numbers or watermarks" in sent.prompt
+    assert "Do not write any new words, letters or numbers" in sent.prompt
     assert sent.template_version == "generation-v4-custom"
 
 
@@ -723,7 +723,11 @@ def test_custom_prompt_uses_the_page_names_of_the_images(font):
     assert "keep everything in it exactly as it is and where it is" in sent.prompt
     # Task c0b4d7de: additions go into empty space; existing text, logos and badges stay.
     assert "Put anything added only into empty background space" in sent.prompt
-    assert "copy only that way of showing it" in sent.prompt
+    # Task 9c5a50ca: the example's card is reproduced with its badge, without extra decoration.
+    assert "find that presentation in it and reproduce it faithfully" in sent.prompt
+    assert "such as a plus sign in a circle) in the same position" in sent.prompt
+    assert "no ribbons, bows, gift wrap" in sent.prompt
+    assert "such as a plus sign in a badge, are allowed" in sent.prompt
     assert "its text, logos, badges and icons stay exactly as they are" in sent.prompt
     assert "stickers, badges or logos" not in sent.prompt
     assert "Reference image" not in sent.prompt

@@ -312,9 +312,18 @@ def _custom_prompt(request, brief=None):
         "not remove, move, resize, cover, recentre, crop or redraw anything in it. Put anything "
         "added only into empty background space of the base picture (pick the emptiest area, "
         "such as an empty bottom corner) and make it small enough to fit there without covering "
-        "any person, product, text, logo or badge. When a picture is only an example of how "
-        "something should be shown (for example 展示方式可以参考参考图2), copy only that way of "
-        "showing it, not that picture's people, products, text or background."
+        "any person, product, text, logo or badge."
+    )
+    # Task 9c5a50ca (2026-10-09): "copy only that way of showing it" was too vague - the card
+    # came out translucent, with a ribbon bow and without the example's green plus badge.
+    parts.append(
+        "When a picture is only an example of how something should be shown (for example "
+        "展示方式可以参考参考图2), find that presentation in it and reproduce it faithfully: the "
+        "same frame or card, its shape, colour and opacity, and every badge, icon or symbol on "
+        "it (such as a plus sign in a circle) in the same position, with the user's item inside "
+        "instead of the example's. Do not copy that picture's people, products, words or "
+        "background, and do not add decorations the example does not have (no ribbons, bows, "
+        "gift wrap, tags, stickers or sparkles) unless the user asks for them."
     )
     if "edit_image" in request:
         parts.append(
@@ -340,9 +349,11 @@ def _custom_prompt(request, brief=None):
         "items. Items taken from a 参考图 keep their look as well."
     )
     parts.append(
-        "Do not write any new text, letters, numbers or watermarks; an added gift card or label "
-        "stays without a caption. This never means removing anything that is already in the "
-        "base picture: its text, logos, badges and icons stay exactly as they are."
+        "Do not write any new words, letters or numbers and add no watermarks; simple symbols "
+        "copied from an example, such as a plus sign in a badge, are allowed, and an added gift "
+        "card or label stays without a caption. This never means removing anything that is "
+        "already in the base picture: its text, logos, badges and icons stay exactly as they "
+        "are."
     )
     return " ".join(parts)
 
