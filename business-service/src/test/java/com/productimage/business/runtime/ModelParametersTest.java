@@ -21,17 +21,26 @@ class ModelParametersTest {
     assertTrue(ModelParameters.family("google/gemini-2.5-flash-image", "IMAGE").isMissingNode());
     assertEquals(
         "text", ModelParameters.family("deepseek/deepseek-v4.1-flash", "TEXT").path("id").asText());
-    assertEquals(1280, ModelParameters.standardMaxSide());
   }
 
   @Test
   void clarityFollowsTheFamily() {
-    assertTrue(ModelParameters.highQuality("openai/gpt-image-2", "IMAGE"));
-    assertFalse(ModelParameters.largeSize("openai/gpt-image-2", "IMAGE"));
-    assertTrue(ModelParameters.largeSize("google/gemini-3.1-flash-image", "IMAGE"));
-    assertFalse(ModelParameters.highQuality("bytedance-seed/seedream-5-0-lite", "IMAGE"));
-    assertTrue(ModelParameters.largeSize("bytedance-seed/seedream-5-0-lite", "IMAGE"));
-    assertFalse(ModelParameters.highQuality("google/gemini-2.5-flash-image", "IMAGE"));
+    // ADR-20261009-R: the pages offer 1K / 2K where the family says how to ask for them.
+    assertEquals(
+        java.util.List.of("1K"), ModelParameters.resolutions("openai/gpt-image-2", "IMAGE"));
+    assertEquals(
+        java.util.List.of("1K", "2K"),
+        ModelParameters.resolutions("google/gemini-3.1-flash-image", "IMAGE"));
+    assertEquals(
+        java.util.List.of("2K"),
+        ModelParameters.resolutions("bytedance-seed/seedream-5-0-lite", "IMAGE"));
+    assertTrue(ModelParameters.resolutions("google/gemini-2.5-flash-image", "IMAGE").isEmpty());
+    String model = "bytedance-seed/seedream-5-0-pro";
+    assertEquals("1K", ModelParameters.defaultResolution(model, "IMAGE", Json.parse("{}")));
+    assertEquals(
+        "2K",
+        ModelParameters.defaultResolution(model, "IMAGE", Json.parse("{\"resolution\":\"2K\"}")));
+    assertFalse(ModelParameters.resolutions("openai/gpt-image-2", "IMAGE").contains("2K"));
   }
 
   @Test

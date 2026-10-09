@@ -64,9 +64,12 @@ public final class ProjectAssets {
     return Json.object().put("id", id).put("name", row.get("name").toString());
   }
 
+  /** Material categories (ADR-20261009-R): 商品图, 赠品图 and 参考图; any may fill any slot. */
+  static final java.util.Set<String> KINDS = java.util.Set.of("PRODUCT", "GIFT", "REFERENCE");
+
   void authorizeUpload(String actor, String project, String kind) {
     access.require(actor, project);
-    if (!"PRODUCT".equals(kind) && !"GIFT".equals(kind)) throw new Problem(400, "INVALID_ASSET");
+    if (!KINDS.contains(kind)) throw new Problem(400, "INVALID_ASSET");
   }
 
   JsonNode upload(String actor, String project, String kind, byte[] data) {
@@ -129,7 +132,7 @@ public final class ProjectAssets {
     if (!body.isObject() || body.size() != 1 || !body.path("kind").isTextual())
       throw new Problem(400, "INVALID_CONTRACT");
     String kind = body.path("kind").asText();
-    if (!"PRODUCT".equals(kind) && !"GIFT".equals(kind)) throw new Problem(400, "INVALID_ASSET");
+    if (!KINDS.contains(kind)) throw new Problem(400, "INVALID_ASSET");
     var rows =
         jdbc.queryForList(
             "SELECT f.object_key,f.sha256,f.width,f.height,t.project_id FROM artifacts f JOIN generation_tasks t ON t.id=f.task_id JOIN projects p ON p.id=t.project_id JOIN users u ON u.id=p.owner_id WHERE f.id=? AND f.kind='COMPOSITE' AND p.owner_id=? AND u.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=f.id)",
@@ -187,7 +190,7 @@ public final class ProjectAssets {
             status -> {
               var rows =
                   jdbc.queryForList(
-                      "SELECT a.object_key FROM assets a JOIN projects p ON p.id=a.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND (?::boolean OR (p.owner_id=? AND u.status='ACTIVE')) AND a.kind IN ('PRODUCT','GIFT') AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) FOR UPDATE OF a",
+                      "SELECT a.object_key FROM assets a JOIN projects p ON p.id=a.project_id JOIN users u ON u.id=p.owner_id WHERE a.id=? AND (?::boolean OR (p.owner_id=? AND u.status='ACTIVE')) AND a.kind IN ('PRODUCT','GIFT','REFERENCE') AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) FOR UPDATE OF a",
                       id,
                       asAdmin,
                       actor);

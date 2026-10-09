@@ -1276,3 +1276,26 @@ def test_text_models_receive_named_images(provider):
         assert parts[0] == {"type": "text", "text": "需求：x"}
         assert parts[1] == {"type": "text", "text": "「商品图」："}
         assert parts[2]["image_url"]["url"].startswith("data:image/png;base64,")
+
+
+# ADR-20261009-R: the product in the centre by default; the size budget lives here now.
+
+
+def test_gift_and_scene_prompts_place_the_product_in_the_centre():
+    local = api()
+    gift = build_prompt(gift_request(local, background={"mode": "SOLID", "color": "#FFFFFF"}), 0)
+    assert "Place the product in the centre of the image." in gift
+    scene = build_prompt(request(local, "SCENE"), 0)
+    assert "Place the product naturally in the centre of the image, in this setting" in scene
+    # Keeping the original picture never moves anything.
+    kept = build_prompt(gift_request(local, background={"mode": "ORIGINAL"}), 0)
+    assert "centre of the image" not in kept
+
+
+def test_decoded_images_stay_within_the_budget():
+    from image_service.generation import budget
+
+    budget((2752, 1536))  # a 2K model output at 16:9
+    for size in ((0, 10), (5000, 10), (4096, 4097)):
+        with pytest.raises(ValueError, match="budget"):
+            budget(size)

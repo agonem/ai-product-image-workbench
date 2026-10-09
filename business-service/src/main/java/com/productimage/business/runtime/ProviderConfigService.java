@@ -300,40 +300,42 @@ public final class ProviderConfigService {
   }
 
   /**
-   * Enabled models for the generation pages: names only, never keys or routing details, and whether
-   * the pages may offer high quality and the high-definition size (ADR-20261009-Q).
+   * Enabled models for the generation pages: names only, never keys or routing details, and the
+   * clarities (1K / 2K) the pages may offer with the starting one (ADR-20261009-R).
    */
   public JsonNode choices() {
     var result = Json.MAPPER.createArrayNode();
     String defaultId = defaultId();
     for (var row :
         jdbc.queryForList(
-            "SELECT id,name,provider,model FROM provider_config_versions WHERE enabled AND NOT retired AND purpose='IMAGE' ORDER BY created_at,id")) {
+            "SELECT id,name,provider,model,parameters FROM provider_config_versions WHERE enabled AND NOT retired AND purpose='IMAGE' ORDER BY created_at,id")) {
       String model = row.get("model").toString();
-      result.add(
+      var item =
           Json.object()
               .put("id", row.get("id").toString())
               .put("name", row.get("name").toString())
               .put("provider", row.get("provider").toString())
               .put("model", model)
-              .put("default", row.get("id").toString().equals(defaultId))
-              .put("quality_high", ModelParameters.highQuality(model, "IMAGE"))
-              .put("size_high", ModelParameters.largeSize(model, "IMAGE")));
+              .put("default", row.get("id").toString().equals(defaultId));
+      var offered = item.putArray("resolutions");
+      ModelParameters.resolutions(model, "IMAGE").forEach(offered::add);
+      String start =
+          ModelParameters.defaultResolution(
+              model, "IMAGE", Json.parse(row.get("parameters").toString()));
+      if (start != null) item.put("resolution", start);
+      result.add(item);
     }
     return result;
   }
 
-  /** What a bound model supports: [high quality, high-definition size]. */
-  boolean[] clarity(String versionId) {
+  /** The clarities a bound model can be asked for (ADR-20261009-R). */
+  java.util.List<String> resolutions(String versionId) {
     var rows =
         jdbc.queryForList(
             "SELECT model,purpose FROM provider_config_versions WHERE id=?", versionId);
-    if (rows.isEmpty()) return new boolean[] {false, false};
-    String model = rows.getFirst().get("model").toString();
-    String purpose = rows.getFirst().get("purpose").toString();
-    return new boolean[] {
-      ModelParameters.highQuality(model, purpose), ModelParameters.largeSize(model, purpose)
-    };
+    if (rows.isEmpty()) return java.util.List.of();
+    return ModelParameters.resolutions(
+        rows.getFirst().get("model").toString(), rows.getFirst().get("purpose").toString());
   }
 
   private void requireMaster() {

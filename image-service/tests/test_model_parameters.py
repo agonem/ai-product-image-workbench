@@ -25,25 +25,29 @@ def task(width=800, height=800, **extra):
 
 
 GPT = ModelConfig("k" * 20, "openai/gpt-image-2", "openai", parameters=(("quality", "low"),))
-SEEDREAM = ModelConfig("k" * 20, "bytedance-seed/seedream-5-0-pro", "seed")
+SEEDREAM = ModelConfig(
+    "k" * 20, "bytedance-seed/seedream-5-0-pro", "seed", parameters=(("resolution", "1K"),)
+)
 
 
-def test_stored_parameters_then_high_quality_then_the_2k_size():
+def test_stored_parameters_then_the_chosen_clarity():
     assert model_parameters.for_call(GPT, task()) == (("quality", "low"),)
-    assert model_parameters.for_call(GPT, task(quality="HIGH")) == (("quality", "high"),)
-    assert model_parameters.for_call(SEEDREAM, task()) == ()
-    assert model_parameters.for_call(SEEDREAM, task(1600, 1600)) == (("resolution", "2K"),)
-    assert model_parameters.for_call(None, task(quality="HIGH")) == ()
+    assert model_parameters.for_call(GPT, task(resolution="1K")) == (("quality", "low"),)
+    assert model_parameters.for_call(SEEDREAM, task()) == (("resolution", "1K"),)
+    assert model_parameters.for_call(SEEDREAM, task(resolution="2K")) == (("resolution", "2K"),)
+    # The output size is separate: a large size alone asks nothing more of the model.
+    assert model_parameters.for_call(SEEDREAM, task(1600, 1600)) == (("resolution", "1K"),)
+    assert model_parameters.for_call(None, task(resolution="2K")) == ()
 
 
-def test_clarity_a_model_cannot_do_fails_before_any_call():
+def test_a_clarity_the_model_cannot_do_fails_before_any_call():
     with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
-        model_parameters.for_call(GPT, task(1600, 1600))  # gpt-image has no 2K setting
+        model_parameters.for_call(GPT, task(resolution="2K"))  # gpt-image has no 2K setting
     lite = ModelConfig("k" * 20, "bytedance-seed/seedream-5-0-lite", "seed")
     with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
-        model_parameters.for_call(lite, task(quality="HIGH"))  # already 2K, nothing higher
-    # The gift re-shot is small inside the card: the large size does not apply to it.
-    assert model_parameters.for_call(GPT, task(1600, 1600), gift=True) == (("quality", "low"),)
+        model_parameters.for_call(lite, task(resolution="1K"))  # 2K only
+    # The gift re-shot is small inside the card: the clarity does not apply to it.
+    assert model_parameters.for_call(GPT, task(resolution="2K"), gift=True) == (("quality", "low"),)
 
 
 def test_the_catalog_matches_the_known_models():

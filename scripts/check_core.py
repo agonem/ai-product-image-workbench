@@ -375,7 +375,6 @@ def api_checks(core, admin, alice, bob, project):
         (dict(scene, output=dict(output, height=600)), 422),
         (dict(scene, output=dict(output, count=5)), 422),
         (dict(scene, scene_preset="missing"), 422),
-        (dict(scene, product_asset_id=gift), 422),
         (dict(scene, template_version_id="x"), 400),
     ):
         assert core.post(alice, "/api/v4/generation-tasks", body)[0] == expected, body
@@ -1183,22 +1182,25 @@ def api_checks(core, admin, alice, bob, project):
     status, seed, _ = run.http("POST", configs, admin, dict(sharp, parameters={"resolution": "1K"}))
     assert status == 201 and seed["parameters"] == {"resolution": "1K"}, (status, seed)
     offered = {m["id"]: m for m in run.http("GET", "/api/v1/workbench/options", alice)[1]["models"]}
-    assert offered[seed["id"]]["quality_high"] and offered[seed["id"]]["size_high"]
+    # ADR-20261009-R: clarity is the model's 1K / 2K output, separate from the output size.
+    assert offered[seed["id"]]["resolutions"] == ["1K", "2K"], offered[seed["id"]]
+    assert offered[seed["id"]]["resolution"] == "1K"
     default_id = next(m["id"] for m in offered.values() if m["default"])
-    assert not offered[default_id]["size_high"]  # the mock default has no 2K setting
+    assert offered[default_id]["resolutions"] == []  # the mock default has no clarity setting
     large = {"aspect_ratio": "1:1", "width": 1600, "height": 1600, "format": "png", "count": 1}
     sharp_scene = dict(scene, product_asset_id=fresh["id"], output=large, model_id=seed["id"])
-    state = core.generate(alice, dict(sharp_scene, quality="HIGH"), "v4-clarity")
+    state = core.generate(alice, dict(sharp_scene, resolution="2K"), "v4-clarity")
     assert state["status"] == "SUCCEEDED", state
     _, gens = core.generations(state["id"])
     assert gens[0]["provenance"]["parameters"]["resolution"] == "2K", gens[0]["provenance"]
     assert state["artifacts"][0]["width"] == 1600, state["artifacts"][0]
-    for body, code in (
-        (dict(sharp_scene, model_id=default_id), "MODEL_SIZE_UNSUPPORTED"),
-        (dict(scene, product_asset_id=fresh["id"], quality="HIGH"), "MODEL_QUALITY_UNSUPPORTED"),
-    ):
-        status, problem = core.post(alice, "/api/v4/generation-tasks", body)
-        assert status == 422 and problem["code"] == code, (status, problem)
+    status, problem = core.post(
+        alice, "/api/v4/generation-tasks", dict(sharp_scene, model_id=default_id, resolution="2K")
+    )
+    assert status == 422 and problem["code"] == "MODEL_RESOLUTION_UNSUPPORTED", (status, problem)
+    # A large size alone is allowed with any model (it is enlarged); the page warns.
+    enlarged = core.generate(alice, dict(sharp_scene, model_id=default_id), "v4-enlarged")
+    assert enlarged["status"] == "SUCCEEDED" and enlarged["artifacts"][0]["width"] == 1600
     # An edit applies to tasks already submitted: queued at 1K, run after the switch to 2K.
     standard = dict(scene, product_asset_id=fresh["id"], model_id=seed["id"])
     status, queued = core.post(alice, "/api/v4/generation-tasks", standard, "v4-edit-queued")
@@ -1233,6 +1235,41 @@ def api_checks(core, admin, alice, bob, project):
     assert core.generations(waiting["id"])[1][0]["provenance"]["model"] == "test/mock-model"
     assert run.http("DELETE", f"{configs}/{seed['id']}", admin)[0] == 404
     evidence["models_edit"] = {"clarity": state["id"], "deleted": seed["id"]}
+
+    # A28 (ADR-20261009-R): 参考图 is a material category, and any category fills any slot.
+    status, ref, _ = run.http(
+        "POST",
+        f"/api/v1/projects/{project}/assets?kind=REFERENCE",
+        alice,
+        data=synthetic_png(shape=GIFT_RGB),
+        mime="image/png",
+    )
+    assert status == 201 and ref["kind"] == "REFERENCE", (status, ref)
+    status, _, _ = run.http(
+        "POST",
+        f"/api/v1/projects/{project}/assets?kind=OTHER",
+        alice,
+        data=synthetic_png(),
+        mime="image/png",
+    )
+    assert status == 400
+    listed = run.http("GET", f"/api/v1/projects/{project}/assets", alice)[1]["items"]
+    assert ref["id"] in {item["id"] for item in listed}
+    as_product = core.generate(
+        alice, dict(scene, product_asset_id=ref["id"], scene_preset="bedroom"), "v4-ref-product"
+    )
+    assert as_product["status"] == "SUCCEEDED", as_product
+    _, gens = core.generations(as_product["id"])
+    assert gens[0]["provenance"]["inputs"]["product_sha256"] == ref["sha256"]
+    swapped = dict(card, product_asset_id=fresh_gift["id"], gift_asset_id=fresh["id"])
+    state = core.generate(alice, dict(swapped, gift_card={"size": "M"}), "v4-swapped-roles")
+    assert state["status"] == "SUCCEEDED", state
+    work = as_product["artifacts"][0]["id"]
+    status, copied, _ = run.http(
+        "POST", f"/api/v1/artifacts/{work}/asset", alice, {"kind": "REFERENCE"}
+    )
+    assert status == 201 and copied["kind"] == "REFERENCE", (status, copied)
+    evidence["materials"] = {"reference": ref["id"], "as_product": as_product["id"]}
     return evidence
 
 
@@ -1355,13 +1392,13 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A27: three entries, references, text, retypeset, isolation, "
+            "PASS V4-A1..A28: three entries, references, text, retypeset, isolation, "
             "withdrawn routes, model catalog and proxy, owner deletion, real-world uploads, "
             "reuse, original background, third-party endpoint, account deletion, "
             "template management, personal templates, image management, dashboard, "
             "operation log, per-point selling, keep-original selling, gift card, "
             "product position, conversational generation, agents and magic wand, look-first "
-            "chat, model editing and clarity",
+            "chat, model editing and clarity, material categories",
             flush=True,
         )
         if browser_checks(core, stack):

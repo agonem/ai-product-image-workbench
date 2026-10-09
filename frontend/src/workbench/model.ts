@@ -10,10 +10,19 @@ export interface Project {
   id: string
   name: string
 }
+/** Material categories (ADR-20261009-R); any original may fill any slot. */
+export type AssetKind = 'PRODUCT' | 'GIFT' | 'REFERENCE'
+export const assetKinds: { id: AssetKind; name: string }[] = [
+  { id: 'PRODUCT', name: '商品图' },
+  { id: 'GIFT', name: '赠品图' },
+  { id: 'REFERENCE', name: '参考图' },
+]
+export const kindName = (kind: string) =>
+  assetKinds.find((item) => item.id === kind)?.name ?? '原图'
 export interface Asset {
   id: string
   project_id: string
-  kind: 'PRODUCT' | 'GIFT'
+  kind: AssetKind
   width: number
   height: number
   review_status: string
@@ -104,9 +113,9 @@ export interface ModelChoice {
   provider: 'openrouter' | 'openai' | 'gemini' | string
   model: string
   default: boolean
-  /** The pages may offer "画质：高清" / the "高清" size with this model (ADR-20261009-Q). */
-  quality_high?: boolean
-  size_high?: boolean
+  /** Clarities the pages may offer (e.g. ["1K", "2K"]) and the starting one (ADR-20261009-R). */
+  resolutions?: string[]
+  resolution?: string
 }
 export interface Options {
   mode: 'development-only' | 'production-local'

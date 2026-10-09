@@ -21,7 +21,17 @@ from PIL import Image, ImageOps
 
 from image_service import giftcard, model_parameters, text_models, typeset
 from image_service.background import BackgroundError, BackgroundRequest
-from image_service.poc import budget
+
+# Resource budget for decoded images: model outputs reach 2K (about 4.2 MP at 16:9) and stay
+# well under these limits (moved here from the deleted T02 experiment module, ADR-20261009-R).
+MAX_SIDE = 4096
+MAX_PIXELS = 16_777_216
+
+
+def budget(size):
+    width, height = size
+    if min(width, height) < 1 or max(width, height) > MAX_SIDE or width * height > MAX_PIXELS:
+        raise ValueError("image resource budget exceeded")
 
 
 def encode(image, fmt):
@@ -429,6 +439,8 @@ def build_prompt(request, ordinal, brief=None, analysis=None):
         return " ".join([KEEP_ORIGINAL, *_gift_parts(request), KEEP_ORIGINAL_TEXT])
     parts = [PRESERVE]
     if feature == "GIFT":
+        # The product in the centre by default (ADR-20261009-R); the gift goes to its corner.
+        parts.append("Place the product in the centre of the image.")
         parts += _gift_parts(request)
         if background is None:
             parts.append("Clean, soft, bright studio background.")
@@ -443,7 +455,10 @@ def build_prompt(request, ordinal, brief=None, analysis=None):
         else:
             parts.append(f"Background: {background['prompt']}.")
     elif feature == "SCENE":
-        parts.append(f"Place the product naturally in this setting: {request['scene']['prompt']}.")
+        parts.append(
+            "Place the product naturally in the centre of the image, in this setting: "
+            f"{request['scene']['prompt']}."
+        )
     else:
         style = _style(request, ordinal)
         parts.append(f"Setting and mood: {style['prompt']}. The product is the clear hero.")

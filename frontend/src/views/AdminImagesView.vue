@@ -11,7 +11,7 @@ import { workbenchKey } from '../workbench/useWorkbench'
 
 type Image = {
   id: string
-  kind: 'PRODUCT' | 'GIFT' | 'COMPOSITE'
+  kind: 'PRODUCT' | 'GIFT' | 'REFERENCE' | 'COMPOSITE'
   width: number
   height: number
   owner: string
@@ -37,7 +37,9 @@ const kindName = (image: Image) =>
     ? '商品图'
     : image.kind === 'GIFT'
       ? '赠品图'
-      : featureName(image.feature_type ?? 'SCENE')
+      : image.kind === 'REFERENCE'
+        ? '参考图'
+        : featureName(image.feature_type ?? 'SCENE')
 const day = (value: string) =>
   new Date(value).toLocaleString('zh-CN', {
     month: '2-digit',

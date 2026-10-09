@@ -64,12 +64,8 @@ export const canvasSizes = [
   { label: '1280 × 720', ratio: '16:9', width: 1280, height: 720 },
   { label: '800 × 1200', ratio: '2:3', width: 800, height: 1200 },
   { label: '1200 × 800', ratio: '3:2', width: 1200, height: 800 },
-]
-/**
- * "高清" sizes (ADR-20261009-Q): the same ratios at about twice the standard size, long side at
- * most 2048; the model is asked for 2K output. Same order as canvasSizes.
- */
-export const highSizes = [
+  // Larger sizes (ADR-20261009-R): about twice the above, long side at most 2048. Appended so
+  // saved templates keep their index.
   { label: '1600 × 1600', ratio: '1:1', width: 1600, height: 1600 },
   { label: '1500 × 2000', ratio: '3:4', width: 1500, height: 2000 },
   { label: '2000 × 1500', ratio: '4:3', width: 2000, height: 1500 },
@@ -78,16 +74,18 @@ export const highSizes = [
   { label: '1360 × 2040', ratio: '2:3', width: 1360, height: 2040 },
   { label: '2040 × 1360', ratio: '3:2', width: 2040, height: 1360 },
 ]
-export type Tier = 'STANDARD' | 'HIGH'
-/** The exported size for a size choice and tier. */
-export function outputSize(size: number, tier: Tier) {
-  return (tier === 'HIGH' ? highSizes : canvasSizes)[size]!
-}
-/** What the chosen (or default) model can do; an unknown model can do neither. */
-export function clarityOf(models: ModelChoice[], id: string) {
+/** The model's output clarity (ADR-20261009-R); the output size is chosen separately. */
+export type Resolution = '1K' | '2K'
+export const resolutionChoices: Resolution[] = ['1K', '2K']
+/** Outputs with a longer side than this need 2K for a sharp result. */
+export const largeSide = 1280
+/** The clarities of the chosen (or default) model and its starting one; none if unknown. */
+export function resolutionsOf(models: ModelChoice[], id: string) {
   const model =
     models.find((item) => item.id === id) ?? models.find((item) => item.default)
-  return { quality: !!model?.quality_high, size: !!model?.size_high }
+  const list = (model?.resolutions ?? []) as Resolution[]
+  const start = (model?.resolution as Resolution | undefined) ?? list[0]
+  return { list, start }
 }
 export const giftPositions = [
   { id: 'BOTTOM_RIGHT', name: '右下' },
@@ -248,9 +246,8 @@ export interface GenerationDraft {
   textPosition: TextPosition | ''
   textAlign: 'left' | 'center' | 'right'
   textBox: Box
-  /** Clarity (ADR-20261009-Q): the "高清" size and "高清" quality; not kept in templates. */
-  sizeTier: Tier
-  qualityTier: Tier
+  /** Clarity, 1K or 2K model output (ADR-20261009-R); '' = the model's own; not in templates. */
+  resolution: Resolution | ''
 }
 
 export function newDraft(feature: Feature = 'GIFT'): GenerationDraft {
@@ -272,7 +269,8 @@ export function newDraft(feature: Feature = 'GIFT'): GenerationDraft {
     scenePrompt: '',
     styles: ['warm'],
     keepOriginal: false,
-    productPosition: 'AUTO',
+    // The product sits in the centre by default on every page (ADR-20261009-R).
+    productPosition: 'CENTER',
     title: '',
     points: '',
     textColor: '#4A2E1F',
@@ -280,8 +278,7 @@ export function newDraft(feature: Feature = 'GIFT'): GenerationDraft {
     textPosition: 'TL',
     textAlign: 'left',
     textBox: presetBox(feature, 'TL'),
-    sizeTier: 'STANDARD',
-    qualityTier: 'STANDARD',
+    resolution: '',
   }
 }
 
@@ -424,7 +421,7 @@ export function buildGeneration(
     (box.x + box.width > 1.000001 || box.y + box.height > 1.000001)
   )
     throw new Error('文字区域必须在画布范围内。')
-  const size = outputSize(draft.size, draft.sizeTier)
+  const size = canvasSizes[draft.size]!
   const value: Record<string, unknown> = {
     project_id: project,
     feature_type: feature,
@@ -443,9 +440,9 @@ export function buildGeneration(
   const original = feature === 'SELLING_POINT' && draft.keepOriginal
   // Keep-original images call no model, so none is chosen (a white gift card still does).
   if (draft.model && !callsNoModel(feature, draft)) value.model_id = draft.model
-  // "画质：高清" only matters when a model is called (ADR-20261009-Q).
-  if (draft.qualityTier === 'HIGH' && !callsNoModel(feature, draft))
-    value.quality = 'HIGH'
+  // The clarity only matters when a model is called (ADR-20261009-R).
+  if (draft.resolution && !callsNoModel(feature, draft))
+    value.resolution = draft.resolution
   if (feature === 'GIFT') {
     // The gift page carries no text since ADR-20261008-G; text is added on the selling page.
     value.gift_asset_id = draft.gift

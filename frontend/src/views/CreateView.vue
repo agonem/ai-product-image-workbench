@@ -11,7 +11,6 @@ import {
 import { useRoute } from 'vue-router'
 import AssetSlot from '../components/AssetSlot.vue'
 import DropSelect from '../components/DropSelect.vue'
-import EmptyState from '../components/EmptyState.vue'
 import ImageViewer from '../components/ImageViewer.vue'
 import LineIcon from '../components/LineIcon.vue'
 import ParamSection from '../components/ParamSection.vue'
@@ -27,9 +26,9 @@ import {
   keepsPicture,
   reshootsGift,
   canvasSizes,
-  clarityOf,
-  highSizes,
-  outputSize as tierSize,
+  largeSide,
+  resolutionChoices,
+  resolutionsOf,
   giftCardSizes,
   productPositions,
   sellingProductZone,
@@ -87,8 +86,7 @@ const shown = computed<Generation | null>(() =>
   view.value && w.selected?.id === view.value.task ? w.selected : null,
 )
 const outputSize = computed(() => {
-  const size =
-    shown.value?.output ?? tierSize(draft.value.size, draft.value.sizeTier)
+  const size = shown.value?.output ?? canvasSizes[draft.value.size]!
   return { width: size.width, height: size.height }
 })
 const stageImage = computed(() => {
@@ -232,19 +230,29 @@ const modelOptions = computed(() =>
     hint: providerNames[item.provider] ?? item.provider,
   })),
 )
-const sizeOptions = computed(() =>
-  (draft.value.sizeTier === 'HIGH' ? highSizes : canvasSizes).map(
-    (size, index) => ({ value: index, label: size.label, hint: size.ratio }),
-  ),
+const sizeOptions = canvasSizes.map((size, index) => ({
+  value: index,
+  label: size.label,
+  hint: size.ratio,
+}))
+// Clarity (ADR-20261009-R): the model's 1K or 2K output, separate from the output size. A
+// model starts at its own setting; a large size moves to 2K when the model can do it.
+const clarity = computed(() => resolutionsOf(w.models, draft.value.model))
+watch(
+  () => clarity.value.list.join(),
+  () => {
+    const d = draft.value
+    if (!d.resolution || !clarity.value.list.includes(d.resolution))
+      d.resolution = clarity.value.start ?? ''
+  },
+  { immediate: true },
 )
-// Clarity (ADR-20261009-Q): what the chosen model can do. Without a model call the "高清"
-// size only enlarges the product image itself, and quality does not apply.
-const clarity = computed(() => clarityOf(w.models, draft.value.model))
-const sizeHighOk = computed(() => noModel.value || clarity.value.size)
-const qualityHighOk = computed(() => !noModel.value && clarity.value.quality)
-watch([sizeHighOk, qualityHighOk], ([size, quality]) => {
-  if (!size) draft.value.sizeTier = 'STANDARD'
-  if (!quality) draft.value.qualityTier = 'STANDARD'
+const large = computed(() => {
+  const size = canvasSizes[draft.value.size]!
+  return Math.max(size.width, size.height) > largeSide
+})
+watch(large, (big) => {
+  if (big && clarity.value.list.includes('2K')) draft.value.resolution = '2K'
 })
 const countOptions = computed(() =>
   Array.from({ length: w.generation?.max_count ?? 4 }, (_, i) => ({
@@ -291,8 +299,8 @@ const summary = computed(() => {
           .join(' · ')
       : '不加',
     output: `${noModel.value ? '不调用模型' : model} · ${
-      tierSize(d.size, d.sizeTier).label
-    }${d.qualityTier === 'HIGH' && !noModel.value ? ' · 高清画质' : ''} · ${
+      canvasSizes[d.size]!.label
+    }${!noModel.value && d.resolution ? ` · ${d.resolution}` : ''} · ${
       imageCount.value
     } 张`,
   }
@@ -303,7 +311,7 @@ function chooseStyle(id: string) {
   draft.value.keepOriginal = false
 }
 
-// Results of this entry, newest first; the selected task may be fresher than the list.
+// Only the task being worked on (ADR-20261009-R): earlier results stay in 我的作品.
 type Tile = {
   key: string
   task: Task
@@ -311,16 +319,9 @@ type Tile = {
   artifact: Task['artifacts'][number] | null
 }
 const tiles = computed<Tile[]>(() => {
-  const list: Task[] = w.history
-    .filter(
-      (item) => item.generation_v4 && item.task.feature_type === feature.value,
-    )
-    .map((item) => item.task)
   const current = w.selected
   const tasks =
-    current && current.feature_type === feature.value
-      ? [current as Task, ...list.filter((task) => task.id !== current.id)]
-      : list
+    current && current.feature_type === feature.value ? [current as Task] : []
   return tasks.flatMap((task): Tile[] =>
     task.status === 'SUCCEEDED'
       ? task.artifacts.map((artifact, ordinal) => ({
@@ -560,7 +561,7 @@ onMounted(() => {
             :open="openSection.GIFT === 'bg'"
             @toggle="toggle('bg')"
           >
-            <div class="seg" role="group" aria-label="背景方式">
+            <div class="seg fill" role="group" aria-label="背景方式">
               <button
                 type="button"
                 :aria-pressed="draft.backgroundMode === 'ORIGINAL'"
@@ -627,7 +628,7 @@ onMounted(() => {
             :open="openSection.GIFT === 'card'"
             @toggle="toggle('card')"
           >
-            <div class="seg" role="group" aria-label="赠品方框">
+            <div class="seg fill" role="group" aria-label="赠品方框">
               <button
                 type="button"
                 :aria-pressed="!draft.giftCard"
@@ -646,7 +647,7 @@ onMounted(() => {
             <template v-if="draft.giftCard">
               <div class="form-row">
                 <span>方框大小</span>
-                <div class="seg" role="group" aria-label="方框大小">
+                <div class="seg fill" role="group" aria-label="方框大小">
                   <button
                     v-for="item in giftCardSizes"
                     :key="item.id"
@@ -660,7 +661,7 @@ onMounted(() => {
               </div>
               <div class="form-row">
                 <span>方框底色</span>
-                <div class="seg" role="group" aria-label="方框底色">
+                <div class="seg fill" role="group" aria-label="方框底色">
                   <button
                     type="button"
                     :aria-pressed="draft.giftCardBackground === 'ORIGINAL'"
@@ -902,58 +903,35 @@ onMounted(() => {
               保持原图；只用所选模型把赠品重拍成白底（1 次）
             </small>
           </div>
-          <div class="pair">
-            <div class="form-row">
-              <span>清晰度·尺寸</span>
-              <div class="seg" role="group" aria-label="清晰度尺寸">
-                <button
-                  type="button"
-                  :aria-pressed="draft.sizeTier === 'STANDARD'"
-                  :disabled="locked"
-                  @click="draft.sizeTier = 'STANDARD'"
-                >
-                  标准
-                </button>
-                <button
-                  type="button"
-                  :aria-pressed="draft.sizeTier === 'HIGH'"
-                  :disabled="locked || !sizeHighOk"
-                  :title="sizeHighOk ? '' : '所选模型不能按 2K 出图'"
-                  @click="draft.sizeTier = 'HIGH'"
-                >
-                  高清
-                </button>
-              </div>
+          <div v-if="!noModel" class="form-row">
+            <span>清晰度</span>
+            <div
+              v-if="clarity.list.length"
+              class="seg fill"
+              role="group"
+              aria-label="清晰度"
+            >
+              <button
+                v-for="item in resolutionChoices"
+                :key="item"
+                type="button"
+                :aria-pressed="draft.resolution === item"
+                :disabled="locked || !clarity.list.includes(item)"
+                :title="
+                  clarity.list.includes(item)
+                    ? ''
+                    : `所选模型不能按 ${item} 出图`
+                "
+                @click="draft.resolution = item"
+              >
+                {{ item }}
+              </button>
             </div>
-            <div v-if="!noModel" class="form-row">
-              <span>清晰度·画质</span>
-              <div class="seg" role="group" aria-label="清晰度画质">
-                <button
-                  type="button"
-                  :aria-pressed="draft.qualityTier === 'STANDARD'"
-                  :disabled="locked"
-                  @click="draft.qualityTier = 'STANDARD'"
-                >
-                  标准
-                </button>
-                <button
-                  type="button"
-                  :aria-pressed="draft.qualityTier === 'HIGH'"
-                  :disabled="locked || !qualityHighOk"
-                  :title="qualityHighOk ? '' : '所选模型没有高清画质档'"
-                  @click="draft.qualityTier = 'HIGH'"
-                >
-                  高清
-                </button>
-              </div>
-            </div>
+            <p v-else class="hint">
+              所选模型不支持选择清晰度，按它自己的设置出图。
+            </p>
           </div>
-          <small class="hint" data-testid="clarity-hint">{{
-            noModel
-              ? '高清尺寸直接放大商品原图；原图小于高清尺寸时会变模糊。'
-              : '尺寸“高清”约为标准的 2 倍（如 1600×1600），需要能按 2K 出图的模型；画质“高清”让模型用更高的质量档。两者都会增加费用。'
-          }}</small>
-          <div class="pair">
+          <div class="pair" data-testid="size-row">
             <div class="form-row">
               <span>尺寸</span>
               <DropSelect
@@ -986,6 +964,16 @@ onMounted(() => {
               />
             </div>
           </div>
+          <small
+            v-if="large && (noModel || draft.resolution !== '2K')"
+            class="hint warn"
+            data-testid="enlarge-hint"
+            >{{
+              noModel
+                ? '所选尺寸较大：直接放大商品原图，原图较小时会变模糊。'
+                : '所选尺寸大于 1K：模型按 1K 出图后会放大，可能不够清晰；建议换支持 2K 的模型并选 2K。'
+            }}</small
+          >
         </ParamSection>
       </fieldset>
 
@@ -1068,20 +1056,10 @@ onMounted(() => {
         @redo="redo"
         @retry="shown && retry(shown.id)"
       />
-      <div class="results">
+      <div v-if="tiles.length" class="results">
         <div class="results-head">
-          <b>最近结果</b><span class="count num">{{ tiles.length }}</span>
+          <b>本次结果</b><span class="count num">{{ tiles.length }}</span>
           <span class="spacer"></span>
-          <button
-            type="button"
-            class="icon-btn"
-            aria-label="刷新结果"
-            title="刷新"
-            :disabled="w.busy"
-            @click="w.refreshHistory()"
-          >
-            <LineIcon name="refresh" />
-          </button>
           <router-link class="link-btn" to="/works">全部作品</router-link>
         </div>
         <div class="strip">
@@ -1192,7 +1170,6 @@ onMounted(() => {
               </button>
             </div>
           </article>
-          <EmptyState v-if="!tiles.length" compact>暂无结果</EmptyState>
         </div>
       </div>
     </section>

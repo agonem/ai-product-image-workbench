@@ -2,12 +2,14 @@ package com.productimage.business.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Per-model parameters and clarity support (ADR-20261009-Q), from contracts/model-parameters.json.
- * A family is matched by purpose and model id; administrators may only store the listed values, and
- * the pages' "高清" options exist only where the family says how to request them.
+ * Per-model parameters and clarity (ADR-20261009-Q, -R), from contracts/model-parameters.json. A
+ * family is matched by purpose and model id; administrators may only store the listed values, and
+ * the pages offer the clarities (1K, 2K) the family says how to request.
  */
 final class ModelParameters {
   private static final JsonNode CATALOG = load();
@@ -22,11 +24,6 @@ final class ModelParameters {
     } catch (IOException ex) {
       throw new IllegalStateException("Cannot load model parameters", ex);
     }
-  }
-
-  /** Outputs with a longer side than this are the "高清" size and need a 2K-capable model. */
-  static int standardMaxSide() {
-    return CATALOG.path("standard_max_side").asInt();
   }
 
   /** The first family of this purpose whose pattern matches the model id, or a missing node. */
@@ -53,13 +50,17 @@ final class ModelParameters {
             });
   }
 
-  /** The page may offer "画质：高清" for this model. */
-  static boolean highQuality(String model, String purpose) {
-    return family(model, purpose).has("high");
+  /** The clarities (e.g. ["1K", "2K"]) the pages may offer for this model; empty if unknown. */
+  static List<String> resolutions(String model, String purpose) {
+    var names = new ArrayList<String>();
+    family(model, purpose).path("resolutions").properties().forEach(e -> names.add(e.getKey()));
+    return names;
   }
 
-  /** The page may offer "尺寸：高清" for this model. */
-  static boolean largeSize(String model, String purpose) {
-    return family(model, purpose).has("large");
+  /** The page's starting clarity: the model's stored resolution if offered, else the first. */
+  static String defaultResolution(String model, String purpose, JsonNode stored) {
+    var offered = resolutions(model, purpose);
+    String chosen = stored.path("resolution").asText();
+    return offered.contains(chosen) ? chosen : offered.isEmpty() ? null : offered.getFirst();
   }
 }

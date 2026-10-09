@@ -292,54 +292,24 @@ test('V4-B5: a lost response is resent with the same key and body', async ({
   await expect(resend).toHaveCount(0)
 })
 
-test('V4-B8: a new result finishes on screen while another result is being viewed', async ({
+test('V4-B8: the page shows only the task being worked on', async ({
   page,
 }) => {
   await login(page)
   await page.getByRole('link', { name: '场景主图' }).click()
-  const tiles = page.getByTestId('result-card')
-  await expect(tiles.first()).toBeVisible()
-  const older = new Set(
-    await tiles.evaluateAll((items) =>
-      items.map((item) => item.getAttribute('data-task')!),
-    ),
-  )
-  // Hold the new task at QUEUED in every response until the user has moved to another result.
-  let hold = true
-  await page.route('**/api/v4/generation-tasks/*', async (route) => {
-    const id = new URL(route.request().url()).pathname.split('/').pop()!
-    if (route.request().method() !== 'GET' || !hold || older.has(id))
-      return route.continue()
-    const response = await route.fetch()
-    const detail = await response.json()
-    await route.fulfill({
-      response,
-      json: { ...detail, status: 'QUEUED', artifacts: [], bases: [] },
-    })
-  })
-  await page.route('**/api/v1/projects/*/tasks*', async (route) => {
-    if (!hold) return route.continue()
-    const response = await route.fetch()
-    const listing = await response.json()
-    for (const item of listing.items)
-      if (!older.has(item.task.id))
-        item.task = { ...item.task, status: 'QUEUED', artifacts: [] }
-    await route.fulfill({ response, json: listing })
-  })
+  // ADR-20261009-R: earlier results stay in 我的作品, not under the canvas.
+  await expect(page.getByTestId('result-card')).toHaveCount(0)
+  await expect(page.getByText('最近结果')).toHaveCount(0)
   const { id } = await submitAndTrack(page, () =>
     page.getByTestId('generate').click(),
   )
-  const fresh = page.locator(`[data-testid="result-card"][data-task="${id}"]`)
-  await expect(fresh).toHaveAttribute('data-status', 'QUEUED')
-  await expect(page.getByTestId('design-stage')).toContainText('正在生成')
-  await tiles
-    .and(page.locator(`[data-status="SUCCEEDED"]`))
-    .first()
-    .getByRole('button', { name: /^查看结果/ })
-    .click()
-  hold = false
   // No manual refresh: the background check picks up the finished task.
   await expect(done(page, id)).toHaveCount(1, { timeout: 20000 })
+  await expect(page.getByText('本次结果')).toBeVisible()
+  const tasks = await page
+    .getByTestId('result-card')
+    .evaluateAll((items) => items.map((item) => item.getAttribute('data-task')))
+  expect(new Set(tasks)).toEqual(new Set([id]))
 })
 
 test('V4-B9: text that cannot fit its box is flagged before generating', async ({
@@ -499,17 +469,8 @@ test('V4-B6: history, works, account page and the admin model settings', async (
     admin.getByRole('option', { name: /Gemini 备用.*Gemini 官方/ }),
   ).toBeVisible()
   await admin.keyboard.press('Escape')
-  // The mock default model has no 2K setting or quality level, so "高清" is off.
-  await expect(
-    admin
-      .getByRole('group', { name: '清晰度尺寸' })
-      .getByRole('button', { name: '高清' }),
-  ).toBeDisabled()
-  await expect(
-    admin
-      .getByRole('group', { name: '清晰度画质' })
-      .getByRole('button', { name: '高清' }),
-  ).toBeDisabled()
+  // The mock default model has no clarity setting (ADR-20261009-R).
+  await expect(admin.getByText('所选模型不支持选择清晰度')).toBeVisible()
   // Account management has its own page; an admin can delete others, never themself.
   await admin.getByRole('link', { name: '账号管理' }).click()
   const accountRows = admin.getByTestId('account-row')
@@ -787,13 +748,15 @@ test('V4-B16: selling text on a finished work with "keep original" (no model)', 
   // The plan shows the image itself under the text box.
   await expect(page.locator('.artboard img.base')).toBeVisible()
   await expect(page.getByTestId('generate')).toHaveText('生成 2 张')
-  // ADR-20261009-Q: without a model the "高清" size enlarges the image; no quality choice.
+  // ADR-20261009-R: sizes include the large ones; without a model there is no clarity and a
+  // large size just enlarges the image (with a warning).
   await section(page, '输出设置')
-  await expect(page.getByRole('group', { name: '清晰度画质' })).toHaveCount(0)
-  await page
-    .getByRole('group', { name: '清晰度尺寸' })
-    .getByRole('button', { name: '高清' })
-    .click()
+  await expect(page.getByRole('group', { name: '清晰度' })).toHaveCount(0)
+  await page.getByRole('button', { name: /^尺寸：/ }).click()
+  await page.getByRole('option', { name: /1600 × 1600/ }).click()
+  await expect(page.getByTestId('enlarge-hint')).toContainText(
+    '直接放大商品原图',
+  )
   await expect(
     page.locator('button.acc-head').filter({ hasText: /^输出设置/ }),
   ).toContainText('1600 × 1600')
@@ -1077,4 +1040,62 @@ test('V4-B15: image management, dashboard and operation log for admins', async (
     path: join(artifacts, 'audit-admin.png'),
     fullPage: true,
   })
+})
+
+test('V4-B20: material categories and picking across them', async ({
+  page,
+}) => {
+  const errors = watchErrors(page)
+  await login(page)
+  await page.getByRole('link', { name: '素材管理' }).click()
+  const kinds = page.getByRole('group', { name: '素材类型' })
+  for (const name of ['商品图', '赠品图', '参考图', '作品图'])
+    await expect(kinds.getByRole('button', { name })).toBeVisible()
+  await kinds.getByRole('button', { name: '参考图' }).click()
+  const before = await page.getByTestId('asset-card').count()
+  await page.getByLabel('上传参考图').setInputFiles(process.env.CORE_GIFT_FILE!)
+  await expect(toast(page)).toContainText('参考原图已保存')
+  await expect(page.getByTestId('asset-card')).toHaveCount(before + 1)
+  await kinds.getByRole('button', { name: '作品图' }).click()
+  await expect(page.getByTestId('work-asset-card').first()).toBeVisible()
+  await page.screenshot({ path: join(artifacts, 'assets-categories.png') })
+  // The product slot opens on 商品图 but can take a 参考图.
+  await page.getByRole('link', { name: '场景主图' }).click()
+  await page.getByRole('button', { name: /^商品图/ }).click()
+  await page.getByRole('menuitem', { name: '从素材库选择' }).click()
+  const picker = page.getByRole('dialog', { name: '选择商品图' })
+  const sources = picker.getByRole('group', { name: '图片来源' })
+  await expect(sources.getByRole('button', { name: '商品图' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  for (const name of ['赠品图', '参考图', '我的作品'])
+    await expect(sources.getByRole('button', { name })).toBeVisible()
+  await sources.getByRole('button', { name: '参考图' }).click()
+  await expect(picker.getByText('参考图也可以用作商品图')).toBeVisible()
+  await picker
+    .getByRole('button', { name: /^选择商品图/ })
+    .first()
+    .click()
+  await expect(picker).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: /^商品图（已选择/ }),
+  ).toBeVisible()
+  const { body, id } = await submitAndTrack(page, () =>
+    page.getByTestId('generate').click(),
+  )
+  expect(typeof body.product_asset_id).toBe('string')
+  await expect(done(page, id)).toHaveCount(1, { timeout: 60000 })
+  // The chat page's reference slot opens on 参考图.
+  await page.getByRole('link', { name: '对话生图' }).click()
+  await page.getByRole('button', { name: /^参考图1/ }).click()
+  await page.getByRole('menuitem', { name: '从素材库选择' }).click()
+  const refs = page.getByRole('dialog', { name: '选择参考图1' })
+  await expect(
+    refs
+      .getByRole('group', { name: '图片来源' })
+      .getByRole('button', { name: '参考图' }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await refs.getByRole('button', { name: '关闭' }).click()
+  expect(errors).toEqual([])
 })

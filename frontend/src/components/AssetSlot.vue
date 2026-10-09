@@ -2,17 +2,17 @@
 import { computed, inject, onUnmounted, ref } from 'vue'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import { workbenchKey } from '../workbench/useWorkbench'
+import { assetKinds, kindName, type AssetKind } from '../workbench/model'
 import LineIcon from './LineIcon.vue'
 import ModalDialog from './ModalDialog.vue'
 import EmptyState from './EmptyState.vue'
 
-// A material slot: click to pick from the library or upload a new original.
-const props = defineProps<{ label: string; kind: 'PRODUCT' | 'GIFT' }>()
+// A material slot: click to pick from the library or upload a new original. The library
+// opens on this slot's own category, and every other category and the finished works can be
+// picked too (ADR-20261009-R); uploads are filed under the slot's category.
+const props = defineProps<{ label: string; kind: AssetKind }>()
 const model = defineModel<string>({ required: true })
 const w = inject(workbenchKey)!
-const choices = computed(() =>
-  props.kind === 'PRODUCT' ? w.products : w.gifts,
-)
 // Finished results can be reused as material too (ADR-20260930-E); picking one copies it.
 const works = computed(() =>
   w.history
@@ -23,7 +23,13 @@ const works = computed(() =>
 )
 const menu = ref(false),
   picking = ref(false),
-  source = ref<'library' | 'works'>('library')
+  source = ref<AssetKind | 'works'>(props.kind)
+const choices = computed(() =>
+  source.value === 'works' ? [] : w.assetsOf(source.value),
+)
+const sourceName = computed(() =>
+  source.value === 'works' ? '我的作品' : kindName(source.value),
+)
 const root = ref<HTMLElement>(),
   file = ref<HTMLInputElement>()
 const locked = computed(() => w.busy || w.uncertain)
@@ -42,6 +48,7 @@ function hide() {
 }
 function library() {
   hide()
+  source.value = props.kind
   picking.value = true
 }
 function upload() {
@@ -123,11 +130,13 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
     >
       <div class="tabs" role="group" aria-label="图片来源">
         <button
+          v-for="item in assetKinds"
+          :key="item.id"
           type="button"
-          :aria-pressed="source === 'library'"
-          @click="source = 'library'"
+          :aria-pressed="source === item.id"
+          @click="source = item.id"
         >
-          素材库
+          {{ item.name }}
         </button>
         <button
           type="button"
@@ -176,16 +185,19 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
           <figure>
             <PrivateImage
               :path="`/assets/${asset.id}/content`"
-              :alt="`${label} ${asset.width}×${asset.height}`"
+              :alt="`${sourceName} ${asset.width}×${asset.height}`"
               :api="w.api"
             />
           </figure>
           <small class="num">{{ asset.width }} × {{ asset.height }}</small>
         </button>
       </div>
-      <EmptyState v-else art="box">素材库里还没有{{ label }}</EmptyState>
+      <EmptyState v-else art="box">素材库里还没有{{ sourceName }}</EmptyState>
+      <p v-if="source !== 'works' && source !== kind" class="hint">
+        {{ sourceName }}也可以用作{{ label }}；选中后不改变它在素材库里的分类。
+      </p>
       <button
-        v-if="source === 'library' && w.assetNext !== null"
+        v-if="source !== 'works' && w.assetNext !== null"
         type="button"
         class="btn sm"
         :disabled="w.busy"

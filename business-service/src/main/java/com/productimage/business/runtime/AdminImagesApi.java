@@ -45,7 +45,7 @@ public class AdminImagesApi {
   private static final String IMAGES =
       "SELECT a.id,a.kind,a.width,a.height,a.created_at,a.object_key,a.sha256,p.owner_id,NULL::text AS feature_type,'ORIGINAL' AS category "
           + "FROM assets a JOIN projects p ON p.id=a.project_id "
-          + "WHERE a.kind IN ('PRODUCT','GIFT') AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) "
+          + "WHERE a.kind IN ('PRODUCT','GIFT','REFERENCE') AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) "
           + "UNION ALL SELECT f.id,f.kind,f.width,f.height,f.created_at,f.object_key,f.sha256,p.owner_id,t.feature_type,'WORK' "
           + "FROM artifacts f JOIN generation_tasks t ON t.id=f.task_id JOIN projects p ON p.id=t.project_id "
           + "WHERE f.kind='COMPOSITE' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=f.id)";

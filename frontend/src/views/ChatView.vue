@@ -22,10 +22,8 @@ import LineIcon from '../components/LineIcon.vue'
 import { confirmAction } from '../workbench/confirm'
 import {
   canvasSizes,
-  clarityOf,
-  highSizes,
-  outputSize,
-  type Tier,
+  resolutionsOf,
+  type Resolution,
 } from '../workbench/generation'
 import type { Agent, Generation } from '../workbench/model'
 import { providerNames, statusLabels } from '../workbench/model'
@@ -58,8 +56,7 @@ const composer = reactive({
   model: '',
   size: 0,
   count: 1,
-  sizeTier: 'STANDARD' as Tier,
-  qualityTier: 'STANDARD' as Tier,
+  resolution: '' as Resolution | '',
 })
 // The picture the next message changes; after each result the newest one is chosen unless the
 // user picked or cleared it.
@@ -145,34 +142,27 @@ const modelOptions = computed(() =>
     hint: providerNames[item.provider] ?? item.provider,
   })),
 )
-const sizeOptions = computed(() =>
-  (composer.sizeTier === 'HIGH' ? highSizes : canvasSizes).map(
-    (size, index) => ({ value: index, label: size.label, hint: size.ratio }),
-  ),
-)
-// Clarity (ADR-20261009-Q): one choice for both settings, only what the model can do.
-const clarity = computed(() => clarityOf(w.models, composer.model))
+const sizeOptions = canvasSizes.map((size, index) => ({
+  value: index,
+  label: size.label,
+  hint: size.ratio,
+}))
+// Clarity (ADR-20261009-R): the model's 1K or 2K output, separate from the output size.
+const clarity = computed(() => resolutionsOf(w.models, composer.model))
 const clarityOptions = computed(() =>
-  [
-    { value: 'STANDARD/STANDARD', label: '标准' },
-    clarity.value.quality && { value: 'STANDARD/HIGH', label: '高清画质' },
-    clarity.value.size && { value: 'HIGH/STANDARD', label: '高清尺寸' },
-    clarity.value.quality &&
-      clarity.value.size && { value: 'HIGH/HIGH', label: '高清尺寸 + 画质' },
-  ].filter((item): item is { value: string; label: string } => !!item),
+  clarity.value.list.map((item) => ({ value: item, label: item })),
 )
-const clarityChoice = computed({
-  get: () => `${composer.sizeTier}/${composer.qualityTier}`,
-  set: (value: string) => {
-    const [size, quality] = value.split('/') as [Tier, Tier]
-    composer.sizeTier = size
-    composer.qualityTier = quality
+watch(
+  () => clarity.value.list.join(),
+  () => {
+    if (
+      !composer.resolution ||
+      !clarity.value.list.includes(composer.resolution)
+    )
+      composer.resolution = clarity.value.start ?? ''
   },
-})
-watch(clarityOptions, (options) => {
-  if (!options.some((item) => item.value === clarityChoice.value))
-    clarityChoice.value = 'STANDARD/STANDARD'
-})
+  { immediate: true },
+)
 const countOptions = computed(() =>
   Array.from({ length: w.generation?.max_count ?? 4 }, (_, i) => ({
     value: i + 1,
@@ -301,7 +291,7 @@ function clearEdit() {
 }
 
 function build(conversation: string): Record<string, unknown> {
-  const size = outputSize(composer.size, composer.sizeTier)
+  const size = canvasSizes[composer.size]!
   const refs = [composer.ref1, composer.ref2].filter(
     (id, index, all) =>
       id && id !== composer.product && all.indexOf(id) === index,
@@ -323,7 +313,7 @@ function build(conversation: string): Record<string, unknown> {
   if (refs.length) body.reference_asset_ids = refs
   if (edit.value) body.edit_artifact_id = edit.value.id
   if (composer.model) body.model_id = composer.model
-  if (composer.qualityTier === 'HIGH') body.quality = 'HIGH'
+  if (composer.resolution) body.resolution = composer.resolution
   if (agentId.value) body.agent_id = agentId.value
   if (wand.value) body.rewrite = true
   return body
@@ -701,12 +691,12 @@ onUnmounted(() => {
         </p>
         <div class="composer-assets">
           <AssetSlot v-model="composer.product" label="商品图" kind="PRODUCT" />
-          <AssetSlot v-model="composer.ref1" label="参考图1" kind="GIFT" />
+          <AssetSlot v-model="composer.ref1" label="参考图1" kind="REFERENCE" />
           <AssetSlot
             v-if="composer.ref1"
             v-model="composer.ref2"
             label="参考图2"
-            kind="GIFT"
+            kind="REFERENCE"
           />
           <div v-if="edit" class="edit-chip" data-testid="edit-target">
             <PrivateImage
@@ -847,7 +837,7 @@ onUnmounted(() => {
             :options="sizeOptions"
           />
           <DropSelect
-            v-model="clarityChoice"
+            v-model="composer.resolution"
             label="清晰度"
             :options="clarityOptions"
             :disabled="clarityOptions.length < 2"

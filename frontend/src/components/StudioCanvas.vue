@@ -120,11 +120,10 @@ const pct = (zone: Zone) => ({
 // Layout guide only: the model composes the picture; nothing here is a preview of it.
 const productZone = computed<Zone>(() => {
   const side = props.textAlign
-  if (props.feature === 'SCENE')
+  // Scene and gift pages: the product in the centre (ADR-20261009-R); the gift page has no
+  // text since ADR-20261008-G.
+  if (props.feature === 'SCENE' || props.feature === 'GIFT')
     return { left: 28, top: 18, width: 44, height: 66 }
-  // The gift page has no text (ADR-20261008-G).
-  if (props.feature === 'GIFT')
-    return { left: 18, top: 14, width: 50, height: 60 }
   return sellingProductZone(props.productPosition ?? 'AUTO', side)
 })
 // Same geometry as the Worker's card, in percent of the canvas.

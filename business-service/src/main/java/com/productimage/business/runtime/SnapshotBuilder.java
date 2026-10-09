@@ -29,10 +29,10 @@ final class SnapshotBuilder {
     String project = request.path("project_id").asText();
     String feature = request.path("feature_type").asText();
     var worker = Json.object().put("schema_version", 4).put("feature_type", feature);
-    worker.set(
-        "product_asset", asset(request.path("product_asset_id").asText(), project, "PRODUCT"));
+    // Any material category may fill any slot (ADR-20261009-R).
+    worker.set("product_asset", original(request.path("product_asset_id").asText(), project));
     if (feature.equals("GIFT")) {
-      worker.set("gift_asset", asset(request.path("gift_asset_id").asText(), project, "GIFT"));
+      worker.set("gift_asset", original(request.path("gift_asset_id").asText(), project));
       worker.set("gift_position", request.get("gift_position"));
       if (request.has("background")) worker.set("background", request.get("background"));
       // A program-drawn gift card (ADR-20261008-H); on the original background no model is
@@ -101,8 +101,8 @@ final class SnapshotBuilder {
         worker.set("product_position", request.get("product_position"));
     }
     if (request.has("style_prompt")) worker.set("style_prompt", request.get("style_prompt"));
-    // "画质：高清" (ADR-20261009-Q); the "高清" size is simply the larger output size.
-    if (request.has("quality")) worker.set("quality", request.get("quality"));
+    // Clarity, 1K or 2K model output (ADR-20261009-R); the output size is chosen separately.
+    if (request.has("resolution")) worker.set("resolution", request.get("resolution"));
     if (request.has("text")) worker.set("text", request.get("text"));
     worker.put("presets_version", presets.version());
     worker.set("output", request.get("output"));
@@ -188,11 +188,11 @@ final class SnapshotBuilder {
     return worker;
   }
 
-  /** Any original (product or gift image) of the project, as a reference. */
+  /** Any original of the project (商品图, 赠品图 or 参考图). */
   private ObjectNode original(String id, String project) {
     var kinds =
         jdbc.queryForList(
-            "SELECT kind FROM assets WHERE id=? AND project_id=? AND kind IN ('PRODUCT','GIFT')",
+            "SELECT kind FROM assets WHERE id=? AND project_id=? AND kind IN ('PRODUCT','GIFT','REFERENCE')",
             String.class,
             id,
             project);

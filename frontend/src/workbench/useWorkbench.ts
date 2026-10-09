@@ -4,10 +4,11 @@ import { ApiError, json, request } from '../api/workbench'
 import { validateContract } from '../contracts/validate'
 import { buildGeneration, newDraft } from './generation'
 import type { GenerationDraft } from './generation'
-import { Submission } from './model'
+import { Submission, kindName } from './model'
 import { prepareUpload } from './upload'
 import type {
   Asset,
+  AssetKind,
   Feature,
   Generation,
   HistoryItem,
@@ -100,6 +101,16 @@ export function useWorkbench() {
   const gifts = computed(() =>
     assets.value.filter((item) => item.kind === 'GIFT'),
   )
+  const references = computed(() =>
+    assets.value.filter((item) => item.kind === 'REFERENCE'),
+  )
+  /** The originals of one material category (ADR-20261009-R). */
+  const assetsOf = (kind: AssetKind) =>
+    kind === 'PRODUCT'
+      ? products.value
+      : kind === 'GIFT'
+        ? gifts.value
+        : references.value
   const submission = new Submission()
   let epoch = 0,
     projectEpoch = 0,
@@ -443,10 +454,7 @@ export function useWorkbench() {
       : page.items
     historyNext.value = page.next_offset
   }
-  async function upload(
-    file: File,
-    kind: 'PRODUCT' | 'GIFT',
-  ): Promise<Asset | null> {
+  async function upload(file: File, kind: AssetKind): Promise<Asset | null> {
     let created: Asset | null = null
     await action(async () => {
       const prepared = await prepareUpload(file)
@@ -461,7 +469,7 @@ export function useWorkbench() {
       assets.value.unshift(item)
       created = item
       notice.value =
-        (kind === 'PRODUCT' ? '商品原图已保存' : '赠品原图已保存') +
+        `${kindName(kind).replace('图', '')}原图已保存` +
         (prepared.converted ? '（已转为 PNG 保存）。' : '。')
     })
     return created
@@ -469,7 +477,7 @@ export function useWorkbench() {
   /** Copies a generated result into a new original (ADR-20260930-E). */
   async function reuseWork(
     artifact: string,
-    kind: 'PRODUCT' | 'GIFT',
+    kind: AssetKind,
   ): Promise<Asset | null> {
     let copied: Asset | null = null
     await action(async () => {
@@ -480,8 +488,7 @@ export function useWorkbench() {
       if (!assets.value.some((entry) => entry.id === item.id))
         assets.value.unshift(item)
       copied = item
-      notice.value =
-        kind === 'PRODUCT' ? '已把作品复制为商品图。' : '已把作品复制为赠品图。'
+      notice.value = `已把作品复制为${kindName(kind)}。`
     })
     return copied
   }
@@ -665,6 +672,8 @@ export function useWorkbench() {
     assets,
     products,
     gifts,
+    references,
+    assetsOf,
     assetNext,
     history,
     historyNext,

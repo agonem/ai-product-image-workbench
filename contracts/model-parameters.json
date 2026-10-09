@@ -1,7 +1,6 @@
 {
   "version": "model-parameters-v1",
-  "description": "Per-model parameters an administrator may set, and what the generation pages' clarity options map to (ADR-20261009-Q). Families are matched in order by purpose and a regular expression on the model id; the first match wins. Values follow OpenRouter's published Images API capabilities as of 2026-10-09 and are limited to what this system can handle (outputs up to 2K; 4K is left out). The Worker still has OpenRouter check every value before a paid call.",
-  "standard_max_side": 1280,
+  "description": "Per-model parameters an administrator may set, and which clarity (1K or 2K output) the generation pages may offer (ADR-20261009-Q, -R). Families are matched in order by purpose and a regular expression on the model id; the first match wins. Values follow OpenRouter's published Images API capabilities as of 2026-10-09 and are limited to what this system can handle (up to 2K; 4K is left out). 'resolutions' maps each clarity to the parameters that request it. The Worker still has OpenRouter check every value before a paid call.",
   "families": [
     {
       "id": "gpt-image-2.5",
@@ -13,16 +12,36 @@
           "label": "画质档",
           "default": "auto",
           "values": [
-            { "value": "auto", "label": "自动" },
-            { "value": "low", "label": "低" },
-            { "value": "medium", "label": "中" },
-            { "value": "high", "label": "高" },
-            { "value": "xhigh", "label": "很高" },
-            { "value": "max", "label": "最高" }
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "low",
+              "label": "低"
+            },
+            {
+              "value": "medium",
+              "label": "中"
+            },
+            {
+              "value": "high",
+              "label": "高"
+            },
+            {
+              "value": "xhigh",
+              "label": "很高"
+            },
+            {
+              "value": "max",
+              "label": "最高"
+            }
           ]
         }
       },
-      "high": { "quality": "high" }
+      "resolutions": {
+        "1K": {}
+      }
     },
     {
       "id": "gpt-image",
@@ -34,14 +53,28 @@
           "label": "画质档",
           "default": "auto",
           "values": [
-            { "value": "auto", "label": "自动" },
-            { "value": "low", "label": "低" },
-            { "value": "medium", "label": "中" },
-            { "value": "high", "label": "高" }
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "low",
+              "label": "低"
+            },
+            {
+              "value": "medium",
+              "label": "中"
+            },
+            {
+              "value": "high",
+              "label": "高"
+            }
           ]
         }
       },
-      "high": { "quality": "high" }
+      "resolutions": {
+        "1K": {}
+      }
     },
     {
       "id": "seedream-lite",
@@ -52,10 +85,19 @@
         "resolution": {
           "label": "分辨率",
           "default": "2K",
-          "values": [{ "value": "2K", "label": "2K" }]
+          "values": [
+            {
+              "value": "2K",
+              "label": "2K"
+            }
+          ]
         }
       },
-      "large": { "resolution": "2K" }
+      "resolutions": {
+        "2K": {
+          "resolution": "2K"
+        }
+      }
     },
     {
       "id": "seedream",
@@ -67,20 +109,35 @@
           "label": "分辨率",
           "default": "1K",
           "values": [
-            { "value": "1K", "label": "1K" },
-            { "value": "2K", "label": "2K" }
+            {
+              "value": "1K",
+              "label": "1K"
+            },
+            {
+              "value": "2K",
+              "label": "2K"
+            }
           ]
         }
       },
-      "high": { "resolution": "2K" },
-      "large": { "resolution": "2K" }
+      "resolutions": {
+        "1K": {
+          "resolution": "1K"
+        },
+        "2K": {
+          "resolution": "2K"
+        }
+      }
     },
     {
       "id": "gemini-lite-image",
       "name": "Nano Banana 2 Lite",
       "purpose": "IMAGE",
       "match": "^(google/)?gemini-3\\.1-flash-lite-image",
-      "parameters": {}
+      "parameters": {},
+      "resolutions": {
+        "1K": {}
+      }
     },
     {
       "id": "gemini-image",
@@ -92,13 +149,25 @@
           "label": "分辨率",
           "default": "1K",
           "values": [
-            { "value": "1K", "label": "1K" },
-            { "value": "2K", "label": "2K" }
+            {
+              "value": "1K",
+              "label": "1K"
+            },
+            {
+              "value": "2K",
+              "label": "2K"
+            }
           ]
         }
       },
-      "high": { "resolution": "2K" },
-      "large": { "resolution": "2K" }
+      "resolutions": {
+        "1K": {
+          "resolution": "1K"
+        },
+        "2K": {
+          "resolution": "2K"
+        }
+      }
     },
     {
       "id": "text",
@@ -110,10 +179,22 @@
           "label": "创意程度（温度）",
           "default": "0.7",
           "values": [
-            { "value": "0.2", "label": "严谨（0.2）" },
-            { "value": "0.5", "label": "平衡（0.5）" },
-            { "value": "0.7", "label": "默认（0.7）" },
-            { "value": "1.0", "label": "更有创意（1.0）" }
+            {
+              "value": "0.2",
+              "label": "严谨（0.2）"
+            },
+            {
+              "value": "0.5",
+              "label": "平衡（0.5）"
+            },
+            {
+              "value": "0.7",
+              "label": "默认（0.7）"
+            },
+            {
+              "value": "1.0",
+              "label": "更有创意（1.0）"
+            }
           ]
         }
       }

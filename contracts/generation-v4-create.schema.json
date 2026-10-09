@@ -57,9 +57,12 @@
             "count"
           ]
         },
-        "quality": {
-          "const": "HIGH",
-          "description": "画质：高清 (ADR-20261009-Q); absent = standard. The 高清 size is the larger output size itself."
+        "resolution": {
+          "enum": [
+            "1K",
+            "2K"
+          ],
+          "description": "Clarity: the model's output resolution (ADR-20261009-R); the output size is chosen separately."
         },
         "feature_type": {
           "const": "GIFT"
@@ -337,9 +340,12 @@
             "count"
           ]
         },
-        "quality": {
-          "const": "HIGH",
-          "description": "画质：高清 (ADR-20261009-Q); absent = standard. The 高清 size is the larger output size itself."
+        "resolution": {
+          "enum": [
+            "1K",
+            "2K"
+          ],
+          "description": "Clarity: the model's output resolution (ADR-20261009-R); the output size is chosen separately."
         },
         "feature_type": {
           "const": "SCENE"
@@ -438,9 +444,12 @@
             "count"
           ]
         },
-        "quality": {
-          "const": "HIGH",
-          "description": "画质：高清 (ADR-20261009-Q); absent = standard. The 高清 size is the larger output size itself."
+        "resolution": {
+          "enum": [
+            "1K",
+            "2K"
+          ],
+          "description": "Clarity: the model's output resolution (ADR-20261009-R); the output size is chosen separately."
         },
         "feature_type": {
           "const": "SELLING_POINT"
@@ -673,9 +682,12 @@
             "count"
           ]
         },
-        "quality": {
-          "const": "HIGH",
-          "description": "画质：高清 (ADR-20261009-Q); absent = standard. The 高清 size is the larger output size itself."
+        "resolution": {
+          "enum": [
+            "1K",
+            "2K"
+          ],
+          "description": "Clarity: the model's output resolution (ADR-20261009-R); the output size is chosen separately."
         },
         "feature_type": {
           "const": "CUSTOM"

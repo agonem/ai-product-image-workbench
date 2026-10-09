@@ -300,6 +300,19 @@ input[type='checkbox'] {
 .seg button:disabled {
   color: var(--ink-3);
 }
+/* Full-width choice groups in the parameter panel: equal buttons across the row
+   (ADR-20261009-R), instead of buttons huddled on the left of a stretched frame. */
+.seg.fill {
+  display: flex;
+  width: 100%;
+}
+.seg.fill button {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 8px;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
 .switch {
   position: relative;
   width: 34px;
@@ -1541,6 +1554,10 @@ dialog.modal::backdrop {
   display: grid;
   grid-template-rows: minmax(0, 3fr) minmax(0, 1fr);
   overflow: hidden;
+}
+/* Without a current task there is no result strip: the canvas takes the whole height. */
+.studio-right:not(:has(> .results)) {
+  grid-template-rows: minmax(0, 1fr);
 }
 .stage {
   min-height: 0;

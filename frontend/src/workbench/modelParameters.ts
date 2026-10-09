@@ -20,7 +20,7 @@ export function paramSpecs(
   purpose: 'IMAGE' | 'TEXT',
 ): Record<string, ParamSpec> {
   if (!model.trim()) return {}
-  const family = (catalog.families as Family[]).find(
+  const family = (catalog.families as unknown as Family[]).find(
     (item) => item.purpose === purpose && new RegExp(item.match).test(model),
   )
   return family?.parameters ?? {}

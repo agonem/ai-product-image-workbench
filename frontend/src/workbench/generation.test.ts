@@ -5,9 +5,7 @@ import {
   buildGeneration,
   callsNoModel,
   canvasSizes,
-  clarityOf,
-  highSizes,
-  outputSize,
+  resolutionsOf,
   keepsPicture,
   reshootsGift,
   giftCardBox,
@@ -250,6 +248,12 @@ test('ADR-20261008-H: the card geometry matches the Worker', () => {
 test('ADR-20261008-H: product position travels only with an AI style', () => {
   const draft = ready()
   draft.points = '安全材质'
+  // ADR-20261009-R: the product sits in the centre by default; "自动" sends nothing.
+  assert.equal(
+    buildGeneration('SELLING_POINT', 'p', draft).product_position,
+    'CENTER',
+  )
+  draft.productPosition = 'AUTO'
   assert.equal(
     'product_position' in buildGeneration('SELLING_POINT', 'p', draft),
     false,
@@ -270,48 +274,55 @@ test('ADR-20261008-H: product position travels only with an AI style', () => {
   assert.equal(zoneOverlap(zone, presetBox('SELLING_POINT', 'TR')), 0)
 })
 
-test('ADR-20261009-Q: clarity sets the output size and asks for high quality', () => {
-  assert.equal(highSizes.length, canvasSizes.length)
-  for (const [index, size] of highSizes.entries()) {
-    const standard = canvasSizes[index]!
-    assert.equal(size.ratio, standard.ratio)
+test('ADR-20261009-R: sizes and the 1K/2K clarity are chosen separately', () => {
+  // The larger sizes are appended (saved templates keep their index) and keep their ratio.
+  assert.equal(canvasSizes.length, 14)
+  for (const size of canvasSizes.slice(7)) {
     const [w, h] = size.ratio.split(':').map(Number) as [number, number]
-    assert.equal(size.width * h, size.height * w) // exact ratio
+    assert.equal(size.width * h, size.height * w)
     assert.ok(Math.max(size.width, size.height) <= 2048)
     assert.ok(size.width * size.height <= 4_194_304)
-    assert.ok(size.width >= standard.width * 1.5)
   }
-  assert.deepEqual(outputSize(0, 'HIGH'), highSizes[0])
   const models = [
-    { id: 'a', name: 'A', provider: 'openrouter', model: 'x', default: true },
+    {
+      id: 'a',
+      name: 'A',
+      provider: 'openrouter',
+      model: 'x',
+      default: true,
+      resolutions: ['1K'],
+    },
     {
       id: 'b',
       name: 'B',
       provider: 'openrouter',
       model: 'y',
       default: false,
-      quality_high: true,
-      size_high: true,
+      resolutions: ['1K', '2K'],
+      resolution: '2K',
     },
   ]
-  assert.deepEqual(clarityOf(models, ''), { quality: false, size: false })
-  assert.deepEqual(clarityOf(models, 'b'), { quality: true, size: true })
+  assert.deepEqual(resolutionsOf(models, ''), { list: ['1K'], start: '1K' })
+  assert.deepEqual(resolutionsOf(models, 'b'), {
+    list: ['1K', '2K'],
+    start: '2K',
+  })
   const draft = ready()
   draft.model = 'b'
-  draft.sizeTier = 'HIGH'
-  draft.qualityTier = 'HIGH'
+  draft.size = 7
+  draft.resolution = '2K'
   const scene = buildGeneration('SCENE', 'p', draft)
   const output = scene.output as { width: number; height: number }
   assert.deepEqual([output.width, output.height], [1600, 1600])
-  assert.equal(scene.quality, 'HIGH')
-  // Without a model call there is no quality to ask for.
+  assert.equal(scene.resolution, '2K')
+  // Without a model call there is no clarity to ask for.
   const kept = buildGeneration('SELLING_POINT', 'p', {
     ...draft,
     keepOriginal: true,
     title: '标题',
     points: '卖点',
   })
-  assert.equal('quality' in kept, false)
+  assert.equal('resolution' in kept, false)
 })
 
 test('ADR-20261009-Q: model parameters follow the same families as the server', () => {

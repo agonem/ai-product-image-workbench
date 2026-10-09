@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(16, flyway.migrate().migrationsExecuted);
+    assertEquals(17, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -141,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(15, upgrade.migrate().migrationsExecuted);
+      assertEquals(16, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(14, current.migrate().migrationsExecuted);
+      assertEquals(15, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -355,7 +355,7 @@ class DatabaseMigrationIT {
   }
 
   @Test
-  void materialRolesCannotBeConfused() throws SQLException {
+  void anyMaterialCategoryFillsAnySlotButNeverAMask() throws SQLException {
     sql(
         "INSERT INTO assets(id,project_id,kind,object_key,sha256,width,height) VALUES ('gift','p','GIFT','fixtures/gift','"
             + "c".repeat(64)
@@ -364,15 +364,35 @@ class DatabaseMigrationIT {
         "INSERT INTO assets(id,project_id,kind,source_asset_id,object_key,sha256,width,height) VALUES ('alpha','p','ALPHA','product','fixtures/alpha','"
             + "d".repeat(64)
             + "',64,64)");
+    sql(
+        "INSERT INTO assets(id,project_id,kind,object_key,sha256,width,height) VALUES ('ref','p','REFERENCE','fixtures/ref','"
+            + "f".repeat(64)
+            + "',64,64)");
     rejects(
-        "23514", task("bad", "u", "SCENE", "key", "a".repeat(64)).replace("'product'", "'gift'"));
+        "23514",
+        "INSERT INTO assets(id,project_id,kind,object_key,sha256,width,height) VALUES ('odd','p','OTHER','fixtures/odd','"
+            + "9".repeat(64)
+            + "',64,64)");
+    // ADR-20261009-R: a 赠品图 or 参考图 may be the product and the product image the gift.
+    sql(task("g", "u", "SCENE", "k1", "a".repeat(64)).replace("'product'", "'gift'"));
+    sql(task("r", "u", "SCENE", "k2", "a".repeat(64)).replace("'product'", "'ref'"));
     rejects(
-        "23514", task("bad", "u", "SCENE", "key", "a".repeat(64)).replace("'product'", "'alpha'"));
+        "23514", task("bad", "u", "SCENE", "k3", "a".repeat(64)).replace("'product'", "'alpha'"));
     String giftTask =
         task("t", "u", "GIFT", "key", "a".repeat(64))
             .replace("request_snapshot_json)", "request_snapshot_json,gift_asset_id)")
             .replace("'{}')", "'{}','gift')");
-    rejects("23514", giftTask.replace("'gift')", "'product')"));
+    sql(
+        giftTask
+            .replace("'t'", "'swapped'")
+            .replace("'key'", "'k4'")
+            .replace("'gift')", "'product')"));
+    rejects(
+        "23514",
+        giftTask
+            .replace("'t'", "'masked'")
+            .replace("'key'", "'k5'")
+            .replace("'gift')", "'alpha')"));
     sql(giftTask);
     rejects(
         "23514",
@@ -475,7 +495,7 @@ class DatabaseMigrationIT {
           "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(9, upgrade.migrate().migrationsExecuted);
+      assertEquals(10, upgrade.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery("SELECT provider,active_version_id FROM provider_config_state")) {
         assertTrue(rows.next());

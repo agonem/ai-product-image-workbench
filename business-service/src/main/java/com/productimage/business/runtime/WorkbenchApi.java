@@ -96,7 +96,7 @@ public class WorkbenchApi {
     int offset = offset(request);
     var rows =
         jdbc.queryForList(
-            "SELECT a.id,EXISTS(SELECT 1 FROM assets b WHERE b.project_id=a.project_id AND b.source_asset_id=a.id AND b.kind='ALPHA' AND b.review_status='APPROVED') AS cutout_ready FROM assets a WHERE a.project_id=? AND a.kind IN ('PRODUCT','GIFT') AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) ORDER BY a.created_at DESC,a.id DESC LIMIT 21 OFFSET ?",
+            "SELECT a.id,EXISTS(SELECT 1 FROM assets b WHERE b.project_id=a.project_id AND b.source_asset_id=a.id AND b.kind='ALPHA' AND b.review_status='APPROVED') AS cutout_ready FROM assets a WHERE a.project_id=? AND a.kind IN ('PRODUCT','GIFT','REFERENCE') AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) ORDER BY a.created_at DESC,a.id DESC LIMIT 21 OFFSET ?",
             id,
             offset);
     var result = Json.object();
