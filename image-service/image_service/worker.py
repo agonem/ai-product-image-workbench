@@ -120,7 +120,13 @@ def process(
             # The admin-chosen provider type selects OpenRouter, OpenAI or Gemini formats.
             with providers.model_adapter(config) as adapter:
                 return generation.process_generation(
-                    api, request, lease, adapter, cancelled=cancelled, text_config=text_config
+                    api,
+                    request,
+                    lease,
+                    adapter,
+                    cancelled=cancelled,
+                    text_config=text_config,
+                    image_config=config,
                 )
         except typeset.TextOverflow:
             return failure(request, "TEXT_OVERFLOW", False)

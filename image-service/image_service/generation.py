@@ -19,7 +19,7 @@ import uuid
 
 from PIL import Image, ImageOps
 
-from image_service import giftcard, text_models, typeset
+from image_service import giftcard, model_parameters, text_models, typeset
 from image_service.background import BackgroundError, BackgroundRequest
 from image_service.poc import budget
 
@@ -492,7 +492,7 @@ RESHOOT_FIELDS = (
 )
 
 
-def _reshoot_gift(api, request, lease, adapter, gift_raw):
+def _reshoot_gift(api, request, lease, adapter, gift_raw, image_config=None):
     """One paid call per attempt: the gift alone on white. Its permit is ordinal ``count``, after
     the images' own ordinals 0..count-1. Returns (picture, provenance)."""
     attempt, count = request["attempt_id"], request["output"]["count"]
@@ -507,6 +507,7 @@ def _reshoot_gift(api, request, lease, adapter, gift_raw):
             resolution=None,
             output_format=None,
             references=(_reference(gift_raw),),
+            parameters=model_parameters.for_call(image_config, request, gift=True),
         )
     )
     with Image.open(io.BytesIO(generated.content)) as image:
@@ -525,7 +526,9 @@ def _palette(request, ordinal):
     return {**DEFAULT_PALETTE, "badge_text_color": text["color"], "accent_color": text["color"]}
 
 
-def process_generation(api, request, lease, adapter, *, cancelled=None, text_config=None):
+def process_generation(
+    api, request, lease, adapter, *, cancelled=None, text_config=None, image_config=None
+):
     started = time.monotonic()
     output = request["output"]
     count, width, height = output["count"], output["width"], output["height"]
@@ -566,7 +569,7 @@ def process_generation(api, request, lease, adapter, *, cancelled=None, text_con
             if request.get("gift_reshoot") and not retypeset:
                 if cancelled is not None and cancelled():
                     raise ValueError("generation lease or time budget exhausted")
-                white = _reshoot_gift(api, request, lease, adapter, gift_raw)
+                white = _reshoot_gift(api, request, lease, adapter, gift_raw, image_config)
             sticker, offset, card_info = giftcard.render(gift_raw, card, box, font, white)
         elif not retypeset and not original:
             references.append(_reference(_raw(api, request, lease, "gift_asset")))
@@ -603,6 +606,8 @@ def process_generation(api, request, lease, adapter, *, cancelled=None, text_con
             analysis = written
         if look:
             analysis_info = {"text": written, "text_model": text_config.model}
+    # The model's parameters plus this task's clarity (ADR-20261009-Q), checked before any call.
+    parameters = () if retypeset or original else model_parameters.for_call(image_config, request)
     artifacts, generations, hashes = [], [], set()
     for ordinal in range(count):
         if retypeset:
@@ -631,6 +636,7 @@ def process_generation(api, request, lease, adapter, *, cancelled=None, text_con
                     resolution=None,
                     output_format=None,
                     references=tuple(references),
+                    parameters=parameters,
                 )
             )
             content = generated.content

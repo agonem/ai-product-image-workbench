@@ -77,6 +77,8 @@ class MockModel:
                 "parameters": {
                     "aspect_ratio": request.aspect_ratio,
                     "input_references": len(request.references),
+                    # Quality or resolution the real adapter would send (ADR-20261009-Q).
+                    **dict(request.parameters),
                 },
                 "correlation_id": request.correlation_id,
                 "output_source": "mock-acceptance-only",

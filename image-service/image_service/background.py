@@ -29,6 +29,8 @@ class BackgroundRequest:
     resolution: str | None
     output_format: str | None
     references: tuple = field(default=(), repr=False)
+    # Extra model parameters as (name, value) pairs: quality or resolution (ADR-20261009-Q).
+    parameters: tuple = ()
 
     def __post_init__(self):
         if (
@@ -44,6 +46,15 @@ class BackgroundRequest:
             or self.resolution not in (None, "512", "1K", "2K", "4K")
             or self.output_format not in (None, "png", "jpeg")
             or (self.resolution is None) != (self.output_format is None)
+            or not isinstance(self.parameters, tuple)
+            or any(
+                not isinstance(pair, tuple)
+                or len(pair) != 2
+                or pair[0] not in ("quality", "resolution")
+                or not isinstance(pair[1], str)
+                or not re.fullmatch(r"[\w.-]{1,20}", pair[1])
+                for pair in self.parameters
+            )
             or not isinstance(self.references, tuple)
             or len(self.references) > 4
             or any(

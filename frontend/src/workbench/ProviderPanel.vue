@@ -6,9 +6,11 @@ import LineIcon from '../components/LineIcon.vue'
 import ModalDialog from '../components/ModalDialog.vue'
 import { confirmAction } from './confirm'
 import { providerNames } from './model'
+import { paramSpecs, paramSummary } from './modelParameters'
 
 // Admin model catalogue (ADR-20260929-C): several models, one default, per-model proxy;
-// third-party endpoints in the OpenAI or Gemini format again since ADR-20260930-E.
+// third-party endpoints in the OpenAI or Gemini format again since ADR-20260930-E. Since
+// ADR-20261009-Q a model is edited in place (with its parameters) and can be deleted.
 const props = defineProps<{
   api: <T>(path: string, init?: RequestInit) => Promise<T>
 }>()
@@ -32,6 +34,8 @@ type Item = {
   created_at: string
   /** IMAGE draws pictures; TEXT rewrites briefs for agents (ADR-20261008-L). */
   purpose?: 'IMAGE' | 'TEXT'
+  /** Stored parameters such as quality or resolution (ADR-20261009-Q). */
+  parameters?: Record<string, string>
 }
 type Proxy = { configured: boolean; mask?: string; updated_at?: string }
 type Listing = { default_id: string | null; items: Item[]; proxy: Proxy }
@@ -57,7 +61,7 @@ const busy = ref(false),
   error = ref(''),
   notice = ref('')
 const listing = ref<Listing | null>(null)
-const dialog = ref<'' | 'create' | 'key' | 'rename'>('')
+const dialog = ref<'' | 'create' | 'edit' | 'key'>('')
 const target = ref<Item | null>(null)
 const form = ref({
   name: '',
@@ -69,8 +73,11 @@ const form = ref({
   proxy: false,
   enabled: true,
   purpose: 'IMAGE' as 'IMAGE' | 'TEXT',
+  params: {} as Record<string, string>,
 })
 const proxyUrl = ref('')
+// The parameters this model id supports; unknown models have none.
+const specs = computed(() => paramSpecs(form.value.model, form.value.purpose))
 const selectedType = computed(
   () => types.find((t) => t.id === form.value.provider)!,
 )
@@ -127,18 +134,20 @@ async function action(fn: () => Promise<void>) {
     form.value.key = ''
   }
 }
-function open(kind: 'create' | 'key' | 'rename', item: Item | null = null) {
+function open(kind: 'create' | 'edit' | 'key', item: Item | null = null) {
   target.value = item
+  const editing = kind === 'edit' && item
   form.value = {
     name: item?.name ?? '',
-    provider: 'openrouter',
-    model: '',
-    tag: '',
-    base: '',
+    provider: editing ? item.provider : 'openrouter',
+    model: editing ? item.model : '',
+    tag: editing ? (item.provider_tag ?? '') : '',
+    base: editing ? (item.base_url ?? '') : '',
     key: '',
-    proxy: false,
-    enabled: true,
-    purpose: 'IMAGE',
+    proxy: editing ? item.use_proxy : false,
+    enabled: editing ? item.enabled : true,
+    purpose: editing ? (item.purpose ?? 'IMAGE') : 'IMAGE',
+    params: editing ? { ...(item.parameters ?? {}) } : {},
   }
   error.value = ''
   dialog.value = kind
@@ -148,7 +157,15 @@ function close() {
   target.value = null
   form.value.key = ''
 }
-async function create() {
+/** Only the parameters this model supports, and only those set to a value. */
+function chosenParams(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(form.value.params).filter(
+      ([key, value]) => value && key in specs.value,
+    ),
+  )
+}
+async function save() {
   if (thirdParty.value) {
     const problem = baseProblem(form.value.base.trim())
     if (problem) {
@@ -156,24 +173,48 @@ async function create() {
       return
     }
   }
+  const editing = dialog.value === 'edit' ? target.value : null
   await action(async () => {
     const f = form.value
     const body: Record<string, unknown> = {
       name: f.name.trim(),
       provider: f.provider,
       model: f.model.trim(),
-      api_key: f.key,
       enabled: f.enabled,
       use_proxy: f.proxy,
+      parameters: chosenParams(),
     }
-    if (f.purpose === 'TEXT') body.purpose = 'TEXT'
+    if (!editing || f.key) body.api_key = f.key
+    if (!editing && f.purpose === 'TEXT') body.purpose = 'TEXT'
     if (f.provider === 'openrouter' && (f.tag.trim() || f.purpose !== 'TEXT'))
       body.provider_tag = f.tag.trim()
     if (thirdParty.value) body.base_url = f.base.trim()
-    await props.api('/admin/provider-configs', json(body))
+    if (editing)
+      await props.api(
+        `/admin/provider-configs/${editing.id}/settings`,
+        json(body),
+      )
+    else await props.api('/admin/provider-configs', json(body))
     close()
     await load()
-    notice.value = '模型已添加；运营可在生成页选择已启用的模型。'
+    notice.value = editing
+      ? `已保存「${f.name.trim()}」；已提交还未完成的任务也按新设置执行。`
+      : '模型已添加；运营可在生成页选择已启用的模型。'
+  })
+}
+async function remove(item: Item) {
+  if (
+    !(await confirmAction(
+      '删除模型',
+      `删除「${item.name}」后不可恢复。还在排队、生成中或失败待重试的任务会改用默认模型；已完成的图片不受影响。`,
+      '删除',
+    ))
+  )
+    return
+  await action(async () => {
+    await props.api(`/admin/provider-configs/${item.id}`, { method: 'DELETE' })
+    await load()
+    notice.value = `已删除「${item.name}」。`
   })
 }
 async function rotate() {
@@ -186,20 +227,7 @@ async function rotate() {
     )
     close()
     await load()
-    notice.value = '密钥已更换；之前提交的任务仍按原密钥执行。'
-  })
-}
-async function rename() {
-  const item = target.value
-  if (!item) return
-  await action(async () => {
-    await props.api(
-      `/admin/provider-configs/${item.id}/settings`,
-      json({ name: form.value.name.trim() }),
-    )
-    close()
-    await load()
-    notice.value = '名称已更新。'
+    notice.value = '密钥已更换；已提交还未完成的任务也会使用新密钥。'
   })
 }
 async function settings(item: Item, change: Record<string, boolean>) {
@@ -333,6 +361,24 @@ async function clearProxy() {
               <small v-if="item.base_url" class="mono">
                 · {{ item.base_url }}</small
               >
+              <small
+                v-if="
+                  paramSummary(
+                    item.model,
+                    item.purpose ?? 'IMAGE',
+                    item.parameters,
+                  )
+                "
+                class="params"
+                data-testid="model-params"
+                ><br />{{
+                  paramSummary(
+                    item.model,
+                    item.purpose ?? 'IMAGE',
+                    item.parameters,
+                  )
+                }}</small
+              >
             </td>
             <td class="mono">{{ item.api_key_mask }}</td>
             <td>
@@ -381,9 +427,23 @@ async function clearProxy() {
                   type="button"
                   class="link-btn"
                   :disabled="busy"
-                  @click="open('rename', item)"
+                  @click="open('edit', item)"
                 >
-                  改名
+                  编辑
+                </button>
+                <button
+                  type="button"
+                  class="link-btn danger"
+                  :disabled="busy || item.default"
+                  :title="
+                    item.default
+                      ? '默认模型不能删除，请先把其他模型设为默认'
+                      : ''
+                  "
+                  :aria-label="`删除 ${item.name}`"
+                  @click="remove(item)"
+                >
+                  删除
                 </button>
               </div>
             </td>
@@ -443,8 +503,15 @@ async function clearProxy() {
     </form>
   </section>
 
-  <ModalDialog v-if="dialog === 'create'" title="添加模型" @close="close">
-    <form id="model-form" class="form-grid" @submit.prevent="create">
+  <ModalDialog
+    v-if="dialog === 'create' || (dialog === 'edit' && target)"
+    :title="dialog === 'edit' ? `编辑「${target?.name}」` : '添加模型'"
+    @close="close"
+  >
+    <form id="model-form" class="form-grid" @submit.prevent="save">
+      <p v-if="dialog === 'edit'" class="hint">
+        修改后立即生效：已提交还未完成、以及失败后重试的任务也按新设置执行。
+      </p>
       <p v-if="error" class="banner error" role="alert">
         <LineIcon name="alert" :size="14" />{{ error }}
       </p>
@@ -464,7 +531,11 @@ async function clearProxy() {
       >
       <label class="form-row"
         ><span>用途</span
-        ><select v-model="form.purpose" aria-label="用途" :disabled="busy">
+        ><select
+          v-model="form.purpose"
+          aria-label="用途"
+          :disabled="busy || dialog === 'edit'"
+        >
           <option value="IMAGE">出图（生成页可选）</option>
           <option value="TEXT">文本（对话生图的魔法棒改写）</option>
         </select></label
@@ -531,10 +602,40 @@ async function clearProxy() {
           v-model="form.key"
           type="password"
           autocomplete="new-password"
-          required
+          :required="dialog !== 'edit'"
+          :placeholder="
+            dialog === 'edit'
+              ? `留空则不修改（当前 ${target?.api_key_mask}）`
+              : ''
+          "
           :disabled="busy"
         /><small id="api-key-hint">保存后不可查看，只显示掩码。</small></label
       >
+      <fieldset v-if="Object.keys(specs).length" class="params-group">
+        <legend>模型参数</legend>
+        <label v-for="(spec, key) in specs" :key="key" class="form-row"
+          ><span>{{ spec.label }}</span
+          ><select
+            v-model="form.params[key]"
+            :aria-label="spec.label"
+            :disabled="busy"
+          >
+            <option value="">不指定（模型默认）</option>
+            <option
+              v-for="option in spec.values"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </select></label
+        >
+        <small
+          >选项按该模型在 OpenRouter
+          公布的能力整理；生成页选“高清”时会在此基础上调高。</small
+        >
+      </fieldset>
+      <p v-else-if="form.model.trim()" class="hint">该模型没有可调参数。</p>
       <label class="check"
         ><input
           v-model="form.proxy"
@@ -543,11 +644,9 @@ async function clearProxy() {
         />通过网络代理访问</label
       >
       <label class="check"
-        ><input
-          v-model="form.enabled"
-          type="checkbox"
-          :disabled="busy"
-        />保存后启用</label
+        ><input v-model="form.enabled" type="checkbox" :disabled="busy" />{{
+          dialog === 'edit' ? '启用' : '保存后启用'
+        }}</label
       >
     </form>
     <template #footer>
@@ -595,33 +694,6 @@ async function clearProxy() {
         :disabled="busy"
       >
         保存新密钥
-      </button>
-    </template>
-  </ModalDialog>
-
-  <ModalDialog
-    v-if="dialog === 'rename' && target"
-    title="修改显示名称"
-    @close="close"
-  >
-    <form id="rename-form" class="form-grid" @submit.prevent="rename">
-      <p v-if="error" class="banner error" role="alert">
-        <LineIcon name="alert" :size="14" />{{ error }}
-      </p>
-      <label class="form-row"
-        ><span>显示名称</span
-        ><input v-model="form.name" maxlength="40" required :disabled="busy"
-      /></label>
-    </form>
-    <template #footer>
-      <button type="button" class="btn" @click="close">取消</button>
-      <button
-        type="submit"
-        form="rename-form"
-        class="btn primary"
-        :disabled="busy"
-      >
-        保存
       </button>
     </template>
   </ModalDialog>

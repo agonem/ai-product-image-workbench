@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(15, flyway.migrate().migrationsExecuted);
+    assertEquals(16, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -141,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(14, upgrade.migrate().migrationsExecuted);
+      assertEquals(15, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(13, current.migrate().migrationsExecuted);
+      assertEquals(14, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -382,11 +382,15 @@ class DatabaseMigrationIT {
   }
 
   @Test
-  void providerConfigVersionsAreImmutableAndTaskBound() throws SQLException {
+  void providerConfigsAreEditedInPlaceAndDeletionUnbindsTasks() throws SQLException {
     sql(
         "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,api_key_cipher,api_key_mask,created_by) VALUES ('cfg','主力','openrouter','test/model','openai','cipher','****st','u')");
-    rejects("23514", "UPDATE provider_config_versions SET model='other/model' WHERE id='cfg'");
-    rejects("23514", "UPDATE provider_config_versions SET api_key_cipher='plain' WHERE id='cfg'");
+    // ADR-20261009-Q: model, key and parameters change in place; identity and purpose do not.
+    sql(
+        "UPDATE provider_config_versions SET model='other/model',api_key_cipher='c2',parameters='{\"quality\":\"high\"}' WHERE id='cfg'");
+    rejects("23514", "UPDATE provider_config_versions SET purpose='TEXT' WHERE id='cfg'");
+    rejects("23514", "UPDATE provider_config_versions SET created_by='x' WHERE id='cfg'");
+    rejects("23514", "UPDATE provider_config_versions SET parameters='[]' WHERE id='cfg'");
     rejects(
         "23503",
         "INSERT INTO provider_config_state(provider,active_version_id) VALUES ('active','missing')");
@@ -400,7 +404,6 @@ class DatabaseMigrationIT {
     rejects("23514", "UPDATE provider_config_versions SET retired=true WHERE id='cfg'");
     rejects("23514", "UPDATE provider_config_versions SET name=' ' WHERE id='cfg'");
     seedTaskAndAttempt();
-    rejects("23514", "UPDATE generation_tasks SET provider_config_version='cfg' WHERE id='t'");
     rejects(
         "23503",
         task("bound", "u", "SCENE", "cfgkey", "a".repeat(64))
@@ -410,6 +413,19 @@ class DatabaseMigrationIT {
         task("bound", "u", "SCENE", "cfgkey", "a".repeat(64))
             .replace("request_snapshot_json)", "request_snapshot_json,provider_config_version)")
             .replace("'{}')", "'{}','cfg')"));
+    // A task can move to another model, and deleting a model unbinds the tasks still on it.
+    sql(
+        "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,api_key_cipher,api_key_mask,created_by) VALUES ('spare','备用','openrouter','test/spare','openai','cipher','****st','u')");
+    sql("UPDATE generation_tasks SET provider_config_version='spare' WHERE id='bound'");
+    sql("DELETE FROM provider_config_versions WHERE id='spare'");
+    try (var connection = connection();
+        var query = connection.createStatement();
+        var rows =
+            query.executeQuery(
+                "SELECT provider_config_version FROM generation_tasks WHERE id='bound'")) {
+      assertTrue(rows.next());
+      assertNull(rows.getString(1));
+    }
   }
 
   @Test
@@ -433,8 +449,10 @@ class DatabaseMigrationIT {
     rejects(
         "23514",
         insert + "('x7','n','gemini-compatible','m',NULL,'ftp://a.example','c','****','u')");
+    // Editable since ADR-20261009-Q, still within the format's rules.
+    sql("UPDATE provider_config_versions SET base_url='https://b.example' WHERE id='oc'");
     rejects(
-        "23514", "UPDATE provider_config_versions SET base_url='https://b.example' WHERE id='oc'");
+        "23514", "UPDATE provider_config_versions SET base_url='ftp://b.example' WHERE id='oc'");
   }
 
   @Test
@@ -457,7 +475,7 @@ class DatabaseMigrationIT {
           "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(8, upgrade.migrate().migrationsExecuted);
+      assertEquals(9, upgrade.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery("SELECT provider,active_version_id FROM provider_config_state")) {
         assertTrue(rows.next());

@@ -57,6 +57,10 @@
             "count"
           ]
         },
+        "quality": {
+          "const": "HIGH",
+          "description": "画质：高清 (ADR-20261009-Q); absent = standard. The 高清 size is the larger output size itself."
+        },
         "feature_type": {
           "const": "GIFT"
         },
@@ -333,6 +337,10 @@
             "count"
           ]
         },
+        "quality": {
+          "const": "HIGH",
+          "description": "画质：高清 (ADR-20261009-Q); absent = standard. The 高清 size is the larger output size itself."
+        },
         "feature_type": {
           "const": "SCENE"
         },
@@ -429,6 +437,10 @@
             "format",
             "count"
           ]
+        },
+        "quality": {
+          "const": "HIGH",
+          "description": "画质：高清 (ADR-20261009-Q); absent = standard. The 高清 size is the larger output size itself."
         },
         "feature_type": {
           "const": "SELLING_POINT"
@@ -660,6 +672,10 @@
             "format",
             "count"
           ]
+        },
+        "quality": {
+          "const": "HIGH",
+          "description": "画质：高清 (ADR-20261009-Q); absent = standard. The 高清 size is the larger output size itself."
         },
         "feature_type": {
           "const": "CUSTOM"

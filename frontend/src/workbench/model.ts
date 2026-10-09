@@ -104,6 +104,9 @@ export interface ModelChoice {
   provider: 'openrouter' | 'openai' | 'gemini' | string
   model: string
   default: boolean
+  /** The pages may offer "画质：高清" / the "高清" size with this model (ADR-20261009-Q). */
+  quality_high?: boolean
+  size_high?: boolean
 }
 export interface Options {
   mode: 'development-only' | 'production-local'

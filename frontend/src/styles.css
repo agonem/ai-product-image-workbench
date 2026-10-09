@@ -3198,3 +3198,27 @@ dialog.viewer::backdrop {
 .composer-bar .agent-picker {
   min-width: 0;
 }
+
+/* Model parameters in the add/edit model dialog (ADR-20261009-Q). */
+.params-group {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  min-width: 0;
+}
+.params-group legend {
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.params-group small {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+td small.params {
+  color: var(--ink-3);
+}

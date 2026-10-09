@@ -26,7 +26,11 @@ const messages: Record<string, string> = {
   ASSET_DELETED: '原图已删除，不能再用于生成或重试。',
   INVALID_CONTRACT: '请求内容不符合接口要求，请检查输入。',
   MODEL_UNAVAILABLE: '所选模型已停用或不存在，请重新选择模型。',
-  DEFAULT_MODEL: '默认模型不能停用，请先把其他模型设为默认。',
+  DEFAULT_MODEL: '默认模型不能停用或删除，请先把其他模型设为默认。',
+  MODEL_QUALITY_UNSUPPORTED:
+    '所选模型没有“高清”画质，请把画质改回标准或换一个模型。',
+  MODEL_SIZE_UNSUPPORTED:
+    '所选模型不能按 2K 出图，请把尺寸改回标准或换一个支持 2K 的模型。',
   SELF_DELETE: '不能删除当前登录的账号。',
   ACCOUNT_BUSY: '该账号还有生成中的任务，请稍后再删除。',
 }

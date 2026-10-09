@@ -101,6 +101,8 @@ final class SnapshotBuilder {
         worker.set("product_position", request.get("product_position"));
     }
     if (request.has("style_prompt")) worker.set("style_prompt", request.get("style_prompt"));
+    // "画质：高清" (ADR-20261009-Q); the "高清" size is simply the larger output size.
+    if (request.has("quality")) worker.set("quality", request.get("quality"));
     if (request.has("text")) worker.set("text", request.get("text"));
     worker.put("presets_version", presets.version());
     worker.set("output", request.get("output"));

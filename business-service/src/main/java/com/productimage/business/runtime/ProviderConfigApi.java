@@ -44,7 +44,10 @@ public class ProviderConfigApi {
         .body(configs.create(actor, body(request)));
   }
 
-  /** {name?, enabled?, use_proxy?} */
+  /**
+   * Edit in place (ADR-20261009-Q): {name?, enabled?, use_proxy?, provider?, model?, provider_tag?,
+   * base_url?, api_key?, parameters?}.
+   */
   @PostMapping("/api/v1/admin/provider-configs/{id}/settings")
   ResponseEntity<Void> settings(@PathVariable String id, HttpServletRequest request) {
     String actor = admin(request);
@@ -68,7 +71,14 @@ public class ProviderConfigApi {
     return done();
   }
 
-  /** {api_key}: replaces the key with a new version and retires the old one. */
+  /** Delete for good; unfinished tasks move to the default model (ADR-20261009-Q). */
+  @DeleteMapping("/api/v1/admin/provider-configs/{id}")
+  ResponseEntity<Void> delete(@PathVariable String id, HttpServletRequest request) {
+    configs.delete(admin(request), id);
+    return done();
+  }
+
+  /** {api_key}: replaces the key in place. */
   @PostMapping("/api/v1/admin/provider-configs/{id}/key")
   ResponseEntity<JsonNode> rotate(@PathVariable String id, HttpServletRequest request) {
     String actor = admin(request);

@@ -20,7 +20,13 @@ import AgentDialog from '../components/AgentDialog.vue'
 import ImageViewer from '../components/ImageViewer.vue'
 import LineIcon from '../components/LineIcon.vue'
 import { confirmAction } from '../workbench/confirm'
-import { canvasSizes } from '../workbench/generation'
+import {
+  canvasSizes,
+  clarityOf,
+  highSizes,
+  outputSize,
+  type Tier,
+} from '../workbench/generation'
 import type { Agent, Generation } from '../workbench/model'
 import { providerNames, statusLabels } from '../workbench/model'
 import PrivateImage from '../workbench/PrivateImage.vue'
@@ -52,6 +58,8 @@ const composer = reactive({
   model: '',
   size: 0,
   count: 1,
+  sizeTier: 'STANDARD' as Tier,
+  qualityTier: 'STANDARD' as Tier,
 })
 // The picture the next message changes; after each result the newest one is chosen unless the
 // user picked or cleared it.
@@ -137,11 +145,34 @@ const modelOptions = computed(() =>
     hint: providerNames[item.provider] ?? item.provider,
   })),
 )
-const sizeOptions = canvasSizes.map((size, index) => ({
-  value: index,
-  label: size.label,
-  hint: size.ratio,
-}))
+const sizeOptions = computed(() =>
+  (composer.sizeTier === 'HIGH' ? highSizes : canvasSizes).map(
+    (size, index) => ({ value: index, label: size.label, hint: size.ratio }),
+  ),
+)
+// Clarity (ADR-20261009-Q): one choice for both settings, only what the model can do.
+const clarity = computed(() => clarityOf(w.models, composer.model))
+const clarityOptions = computed(() =>
+  [
+    { value: 'STANDARD/STANDARD', label: '标准' },
+    clarity.value.quality && { value: 'STANDARD/HIGH', label: '高清画质' },
+    clarity.value.size && { value: 'HIGH/STANDARD', label: '高清尺寸' },
+    clarity.value.quality &&
+      clarity.value.size && { value: 'HIGH/HIGH', label: '高清尺寸 + 画质' },
+  ].filter((item): item is { value: string; label: string } => !!item),
+)
+const clarityChoice = computed({
+  get: () => `${composer.sizeTier}/${composer.qualityTier}`,
+  set: (value: string) => {
+    const [size, quality] = value.split('/') as [Tier, Tier]
+    composer.sizeTier = size
+    composer.qualityTier = quality
+  },
+})
+watch(clarityOptions, (options) => {
+  if (!options.some((item) => item.value === clarityChoice.value))
+    clarityChoice.value = 'STANDARD/STANDARD'
+})
 const countOptions = computed(() =>
   Array.from({ length: w.generation?.max_count ?? 4 }, (_, i) => ({
     value: i + 1,
@@ -270,7 +301,7 @@ function clearEdit() {
 }
 
 function build(conversation: string): Record<string, unknown> {
-  const size = canvasSizes[composer.size]!
+  const size = outputSize(composer.size, composer.sizeTier)
   const refs = [composer.ref1, composer.ref2].filter(
     (id, index, all) =>
       id && id !== composer.product && all.indexOf(id) === index,
@@ -292,6 +323,7 @@ function build(conversation: string): Record<string, unknown> {
   if (refs.length) body.reference_asset_ids = refs
   if (edit.value) body.edit_artifact_id = edit.value.id
   if (composer.model) body.model_id = composer.model
+  if (composer.qualityTier === 'HIGH') body.quality = 'HIGH'
   if (agentId.value) body.agent_id = agentId.value
   if (wand.value) body.rewrite = true
   return body
@@ -813,6 +845,12 @@ onUnmounted(() => {
             v-model="composer.size"
             label="尺寸"
             :options="sizeOptions"
+          />
+          <DropSelect
+            v-model="clarityChoice"
+            label="清晰度"
+            :options="clarityOptions"
+            :disabled="clarityOptions.length < 2"
           />
           <DropSelect
             v-model="composer.count"

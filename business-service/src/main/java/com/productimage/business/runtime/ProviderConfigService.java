@@ -15,10 +15,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Admin-managed model catalog (ADR-20260929-C): OpenRouter, official OpenAI and official Gemini.
- * Several models can be enabled; operators choose one per task and the admin marks a default. A
- * row's identity and secret never change: rotating a key adds a row and retires the old one, so
- * queued and retried tasks keep their frozen binding. Keys and the proxy URL are encrypted under
- * the external master key and are never echoed or logged.
+ * Several models can be enabled; operators choose one per task and the admin marks a default. Since
+ * ADR-20261009-Q (user decision) a model is edited in place - submitted tasks use the edited
+ * settings - and can be deleted, its unfinished tasks moving to the default model. Keys and the
+ * proxy URL are encrypted under the external master key and are never echoed or logged.
  */
 public final class ProviderConfigService {
   // Third-party endpoints in the OpenAI or Gemini format are offered again (ADR-20260930-E).
@@ -28,8 +28,18 @@ public final class ProviderConfigService {
       Set.of("name", "provider", "model", "api_key", "enabled", "use_proxy");
   // IMAGE models generate pictures; TEXT models rewrite briefs for agents (ADR-20261008-L).
   static final Set<String> PURPOSES = Set.of("IMAGE", "TEXT");
-  private static final Map<String, Set<String>> SETTINGS =
-      Map.of("name", Set.of(), "enabled", Set.of(), "use_proxy", Set.of());
+  // Fields an edit may change; the purpose (picture or text) is fixed for a model's lifetime.
+  private static final Set<String> EDITABLE =
+      Set.of(
+          "name",
+          "enabled",
+          "use_proxy",
+          "provider",
+          "model",
+          "provider_tag",
+          "base_url",
+          "api_key",
+          "parameters");
   private final JdbcTemplate jdbc;
   private final TransactionTemplate tx;
   private final byte[] master;
@@ -106,7 +116,7 @@ public final class ProviderConfigService {
     if (master == null) throw new Problem(503, "PROVIDER_UNAVAILABLE");
     var rows =
         jdbc.queryForList(
-            "SELECT provider,model,provider_tag,base_url,api_key_cipher,use_proxy FROM provider_config_versions WHERE id=?",
+            "SELECT provider,model,provider_tag,base_url,api_key_cipher,use_proxy,parameters FROM provider_config_versions WHERE id=?",
             versionId);
     if (rows.isEmpty()) throw new Problem(503, "PROVIDER_UNAVAILABLE");
     var row = rows.getFirst();
@@ -117,6 +127,7 @@ public final class ProviderConfigService {
               .put("model", row.get("model").toString());
       optional(config, "provider_tag", row.get("provider_tag"));
       optional(config, "base_url", row.get("base_url"));
+      config.set("parameters", Json.parse(row.get("parameters").toString()));
       config.put("api_key", ProviderCrypto.decrypt(master, row.get("api_key_cipher").toString()));
       // Only models marked "use proxy" leave through it; without a saved proxy they go direct.
       if (Boolean.TRUE.equals(row.get("use_proxy"))) {
@@ -150,6 +161,7 @@ public final class ProviderConfigService {
       throw new Problem(400, "INVALID_CONTRACT");
     var expected = new HashSet<>(BASE);
     if (body.has("purpose")) expected.add("purpose");
+    if (body.has("parameters")) expected.add("parameters");
     // OpenRouter image models pin a provider; a text model may leave routing to OpenRouter.
     boolean text = "TEXT".equals(body.path("purpose").asText());
     if (provider.equals("openrouter") && !(text && !body.has("provider_tag")))
@@ -173,6 +185,9 @@ public final class ProviderConfigService {
         || !validKey(body.path("api_key"))
         || (body.has("purpose") && !PURPOSES.contains(body.path("purpose").asText())))
       throw new Problem(400, "INVALID_CONTRACT");
+    // Only the parameters this model supports, with listed values (ADR-20261009-Q).
+    if (body.has("parameters"))
+      ModelParameters.validate(model, body.path("purpose").asText("IMAGE"), body.get("parameters"));
   }
 
   /**
@@ -254,6 +269,7 @@ public final class ProviderConfigService {
             .put("model", row.get("model").toString());
     optional(item, "provider_tag", row.get("provider_tag"));
     optional(item, "base_url", row.get("base_url"));
+    item.set("parameters", Json.parse(row.get("parameters").toString()));
     return item.put("api_key_mask", row.get("api_key_mask").toString())
         .put("enabled", Boolean.TRUE.equals(row.get("enabled")))
         .put("use_proxy", Boolean.TRUE.equals(row.get("use_proxy")))
@@ -262,7 +278,7 @@ public final class ProviderConfigService {
   }
 
   private static final String COLUMNS =
-      "id,name,provider,model,provider_tag,base_url,api_key_mask,enabled,use_proxy,created_at,purpose";
+      "id,name,provider,model,provider_tag,base_url,api_key_mask,enabled,use_proxy,created_at,purpose,parameters";
 
   public JsonNode list() {
     var result = Json.object();
@@ -283,21 +299,41 @@ public final class ProviderConfigService {
     return result;
   }
 
-  /** Enabled models for the generation pages: names only, never keys or routing details. */
+  /**
+   * Enabled models for the generation pages: names only, never keys or routing details, and whether
+   * the pages may offer high quality and the high-definition size (ADR-20261009-Q).
+   */
   public JsonNode choices() {
     var result = Json.MAPPER.createArrayNode();
     String defaultId = defaultId();
     for (var row :
         jdbc.queryForList(
-            "SELECT id,name,provider,model FROM provider_config_versions WHERE enabled AND NOT retired AND purpose='IMAGE' ORDER BY created_at,id"))
+            "SELECT id,name,provider,model FROM provider_config_versions WHERE enabled AND NOT retired AND purpose='IMAGE' ORDER BY created_at,id")) {
+      String model = row.get("model").toString();
       result.add(
           Json.object()
               .put("id", row.get("id").toString())
               .put("name", row.get("name").toString())
               .put("provider", row.get("provider").toString())
-              .put("model", row.get("model").toString())
-              .put("default", row.get("id").toString().equals(defaultId)));
+              .put("model", model)
+              .put("default", row.get("id").toString().equals(defaultId))
+              .put("quality_high", ModelParameters.highQuality(model, "IMAGE"))
+              .put("size_high", ModelParameters.largeSize(model, "IMAGE")));
+    }
     return result;
+  }
+
+  /** What a bound model supports: [high quality, high-definition size]. */
+  boolean[] clarity(String versionId) {
+    var rows =
+        jdbc.queryForList(
+            "SELECT model,purpose FROM provider_config_versions WHERE id=?", versionId);
+    if (rows.isEmpty()) return new boolean[] {false, false};
+    String model = rows.getFirst().get("model").toString();
+    String purpose = rows.getFirst().get("purpose").toString();
+    return new boolean[] {
+      ModelParameters.highQuality(model, purpose), ModelParameters.largeSize(model, purpose)
+    };
   }
 
   private void requireMaster() {
@@ -333,7 +369,7 @@ public final class ProviderConfigService {
         status -> {
           String id = UUID.randomUUID().toString();
           jdbc.update(
-              "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,enabled,use_proxy,created_by,purpose) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+              "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,enabled,use_proxy,created_by,purpose,parameters) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb)",
               id,
               body.path("name").asText().strip(),
               body.path("provider").asText(),
@@ -345,7 +381,8 @@ public final class ProviderConfigService {
               body.path("enabled").asBoolean(),
               body.path("use_proxy").asBoolean(),
               actor,
-              body.path("purpose").asText("IMAGE"));
+              body.path("purpose").asText("IMAGE"),
+              body.has("parameters") ? body.get("parameters").toString() : "{}");
           // The first usable model becomes the default so generation works right away.
           if (body.path("enabled").asBoolean()) {
             String current = defaultId(body.path("purpose").asText("IMAGE"));
@@ -365,41 +402,110 @@ public final class ProviderConfigService {
         });
   }
 
-  /** Rename, enable or disable, or route through the proxy. The default cannot be disabled. */
+  /**
+   * Edit a model in place (ADR-20261009-Q): any of name, enabled, use_proxy, provider, model,
+   * provider_tag, base_url, a new api_key and parameters; a null tag or address removes it. The
+   * result must pass the same checks as a new model. Submitted tasks use the edited settings. The
+   * default cannot be disabled and the purpose never changes.
+   */
   public void update(String actor, String id, JsonNode body) {
     if (!body.isObject() || body.isEmpty()) throw new Problem(400, "INVALID_CONTRACT");
     body.fieldNames()
         .forEachRemaining(
             field -> {
-              if (!SETTINGS.containsKey(field)) throw new Problem(400, "INVALID_CONTRACT");
+              if (!EDITABLE.contains(field)) throw new Problem(400, "INVALID_CONTRACT");
             });
-    if ((body.has("name") && !validName(body.get("name")))
-        || (body.has("enabled") && !body.get("enabled").isBoolean())
-        || (body.has("use_proxy") && !body.get("use_proxy").isBoolean()))
-      throw new Problem(400, "INVALID_CONTRACT");
+    if (body.has("api_key")) requireMaster();
     tx.executeWithoutResult(
         status -> {
-          live(id, true);
-          if (body.has("enabled")
-              && !body.get("enabled").asBoolean()
-              && (id.equals(defaultId("IMAGE")) || id.equals(defaultId("TEXT"))))
+          var row = live(id, true);
+          String purpose = row.get("purpose").toString();
+          var merged =
+              Json.object()
+                  .put("name", row.get("name").toString())
+                  .put("provider", row.get("provider").toString())
+                  .put("model", row.get("model").toString())
+                  .put("enabled", Boolean.TRUE.equals(row.get("enabled")))
+                  .put("use_proxy", Boolean.TRUE.equals(row.get("use_proxy")))
+                  .put("purpose", purpose)
+                  // Stands in for the stored key during the checks; never written.
+                  .put("api_key", "unchanged");
+          merged.set("parameters", Json.parse(row.get("parameters").toString()));
+          // A new provider type brings its own routing fields; old ones do not carry over.
+          if (!body.has("provider")) {
+            optional(merged, "provider_tag", row.get("provider_tag"));
+            optional(merged, "base_url", row.get("base_url"));
+          }
+          // Another model family has other parameters; unless new ones are given, start empty.
+          if (body.has("model")
+              && !body.has("parameters")
+              && !ModelParameters.family(body.path("model").asText(), purpose)
+                  .path("id")
+                  .equals(ModelParameters.family(row.get("model").toString(), purpose).path("id")))
+            merged.set("parameters", Json.object());
+          body.properties()
+              .forEach(
+                  entry -> {
+                    if (entry.getValue().isNull()
+                        && Set.of("provider_tag", "base_url").contains(entry.getKey()))
+                      merged.remove(entry.getKey());
+                    else merged.set(entry.getKey(), entry.getValue());
+                  });
+          validate(merged);
+          if (!merged.path("enabled").asBoolean() && id.equals(defaultId(purpose)))
             throw new Problem(409, "DEFAULT_MODEL");
-          if (body.has("name"))
+          jdbc.update(
+              "UPDATE provider_config_versions SET name=?,provider=?,model=?,provider_tag=?,base_url=?,enabled=?,use_proxy=?,parameters=?::jsonb WHERE id=?",
+              merged.path("name").asText().strip(),
+              merged.path("provider").asText(),
+              merged.path("model").asText(),
+              merged.has("provider_tag") ? merged.path("provider_tag").asText() : null,
+              merged.has("base_url") ? merged.path("base_url").asText() : null,
+              merged.path("enabled").asBoolean(),
+              merged.path("use_proxy").asBoolean(),
+              merged.get("parameters").toString(),
+              id);
+          if (body.has("api_key"))
             jdbc.update(
-                "UPDATE provider_config_versions SET name=? WHERE id=?",
-                body.get("name").asText().strip(),
-                id);
-          if (body.has("enabled"))
-            jdbc.update(
-                "UPDATE provider_config_versions SET enabled=? WHERE id=?",
-                body.get("enabled").asBoolean(),
-                id);
-          if (body.has("use_proxy"))
-            jdbc.update(
-                "UPDATE provider_config_versions SET use_proxy=? WHERE id=?",
-                body.get("use_proxy").asBoolean(),
+                "UPDATE provider_config_versions SET api_key_cipher=?,api_key_mask=? WHERE id=?",
+                ProviderCrypto.encrypt(master, body.path("api_key").asText()),
+                ProviderCrypto.mask(body.path("api_key").asText()),
                 id);
           audit(actor, "PROVIDER_CONFIG_UPDATED", id);
+        });
+  }
+
+  /**
+   * Delete a model for good (ADR-20261009-Q). The default of its purpose cannot be deleted. Its
+   * queued, running and failed tasks move to the default (or another enabled model of the same
+   * purpose) so they finish or retry there; finished tasks keep their receipts and lose the link.
+   */
+  public void delete(String actor, String id) {
+    tx.executeWithoutResult(
+        status -> {
+          var row = live(id, true);
+          String purpose = row.get("purpose").toString();
+          if (id.equals(defaultId(purpose))) throw new Problem(409, "DEFAULT_MODEL");
+          var replacements =
+              jdbc.queryForList(
+                  "SELECT id FROM provider_config_versions WHERE enabled AND NOT retired AND purpose=? AND id<>? ORDER BY (id=?) DESC,created_at,id LIMIT 1",
+                  purpose,
+                  id,
+                  String.valueOf(defaultId(purpose)));
+          String replacement =
+              replacements.isEmpty() ? null : replacements.getFirst().get("id").toString();
+          String column =
+              purpose.equals("TEXT") ? "text_config_version" : "provider_config_version";
+          jdbc.update(
+              "UPDATE generation_tasks SET "
+                  + column
+                  + "=? WHERE "
+                  + column
+                  + "=? AND status IN ('QUEUED','RUNNING','FAILED')",
+              replacement,
+              id);
+          jdbc.update("DELETE FROM provider_config_versions WHERE id=?", id);
+          audit(actor, "PROVIDER_CONFIG_DELETED", id);
         });
   }
 
@@ -413,7 +519,7 @@ public final class ProviderConfigService {
         });
   }
 
-  /** New key: a new row replaces the old one (retired), keeping name, model and settings. */
+  /** New key, in place (ADR-20261009-Q): submitted tasks use it too. */
   public JsonNode rotate(String actor, String id, JsonNode body) {
     if (!body.isObject() || body.size() != 1 || !validKey(body.path("api_key")))
       throw new Problem(400, "INVALID_CONTRACT");
@@ -421,29 +527,16 @@ public final class ProviderConfigService {
     String key = body.path("api_key").asText();
     return tx.execute(
         status -> {
-          var old = live(id, true);
-          String next = UUID.randomUUID().toString();
+          live(id, true);
           jdbc.update(
-              "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,enabled,use_proxy,created_by,purpose) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-              next,
-              old.get("name"),
-              old.get("provider"),
-              old.get("model"),
-              old.get("provider_tag"),
-              old.get("base_url"),
+              "UPDATE provider_config_versions SET api_key_cipher=?,api_key_mask=? WHERE id=?",
               ProviderCrypto.encrypt(master, key),
               ProviderCrypto.mask(key),
-              old.get("enabled"),
-              old.get("use_proxy"),
-              actor,
-              old.get("purpose"));
-          jdbc.update(
-              "UPDATE provider_config_versions SET retired=true,enabled=false WHERE id=?", id);
-          if (id.equals(defaultId(old.get("purpose").toString()))) pointDefault(next);
-          audit(actor, "PROVIDER_CONFIG_ROTATED", next);
+              id);
+          audit(actor, "PROVIDER_CONFIG_ROTATED", id);
           return item(
               jdbc.queryForMap(
-                  "SELECT " + COLUMNS + " FROM provider_config_versions WHERE id=?", next));
+                  "SELECT " + COLUMNS + " FROM provider_config_versions WHERE id=?", id));
         });
   }
 

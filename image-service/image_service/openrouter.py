@@ -137,6 +137,8 @@ class OpenRouterAdapter:
             raise BackgroundError("INVALID_INPUT")
         parameters = {
             "aspect_ratio": request.aspect_ratio,
+            # Quality or resolution (ADR-20261009-Q); checked against the endpoint below.
+            **dict(request.parameters),
         }
         if request.resolution is not None:
             parameters.update(resolution=request.resolution, output_format=request.output_format)

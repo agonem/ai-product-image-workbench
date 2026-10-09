@@ -6,7 +6,7 @@ from PIL import Image, ImageChops, ImageDraw
 
 # Offline experiment resource limits, not platform or business image rules.
 MAX_SIDE = 4096
-MAX_PIXELS = 4_194_304
+MAX_PIXELS = 16_777_216  # 2K model outputs exceed 4 MP (ADR-20261009-Q)
 
 
 def budget(size):

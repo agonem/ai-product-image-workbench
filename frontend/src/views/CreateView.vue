@@ -27,6 +27,9 @@ import {
   keepsPicture,
   reshootsGift,
   canvasSizes,
+  clarityOf,
+  highSizes,
+  outputSize as tierSize,
   giftCardSizes,
   productPositions,
   sellingProductZone,
@@ -84,7 +87,8 @@ const shown = computed<Generation | null>(() =>
   view.value && w.selected?.id === view.value.task ? w.selected : null,
 )
 const outputSize = computed(() => {
-  const size = shown.value?.output ?? canvasSizes[draft.value.size]!
+  const size =
+    shown.value?.output ?? tierSize(draft.value.size, draft.value.sizeTier)
   return { width: size.width, height: size.height }
 })
 const stageImage = computed(() => {
@@ -228,11 +232,20 @@ const modelOptions = computed(() =>
     hint: providerNames[item.provider] ?? item.provider,
   })),
 )
-const sizeOptions = canvasSizes.map((size, index) => ({
-  value: index,
-  label: size.label,
-  hint: size.ratio,
-}))
+const sizeOptions = computed(() =>
+  (draft.value.sizeTier === 'HIGH' ? highSizes : canvasSizes).map(
+    (size, index) => ({ value: index, label: size.label, hint: size.ratio }),
+  ),
+)
+// Clarity (ADR-20261009-Q): what the chosen model can do. Without a model call the "高清"
+// size only enlarges the product image itself, and quality does not apply.
+const clarity = computed(() => clarityOf(w.models, draft.value.model))
+const sizeHighOk = computed(() => noModel.value || clarity.value.size)
+const qualityHighOk = computed(() => !noModel.value && clarity.value.quality)
+watch([sizeHighOk, qualityHighOk], ([size, quality]) => {
+  if (!size) draft.value.sizeTier = 'STANDARD'
+  if (!quality) draft.value.qualityTier = 'STANDARD'
+})
 const countOptions = computed(() =>
   Array.from({ length: w.generation?.max_count ?? 4 }, (_, i) => ({
     value: i + 1,
@@ -278,8 +291,10 @@ const summary = computed(() => {
           .join(' · ')
       : '不加',
     output: `${noModel.value ? '不调用模型' : model} · ${
-      canvasSizes[d.size]!.label
-    } · ${imageCount.value} 张`,
+      tierSize(d.size, d.sizeTier).label
+    }${d.qualityTier === 'HIGH' && !noModel.value ? ' · 高清画质' : ''} · ${
+      imageCount.value
+    } 张`,
   }
 })
 
@@ -887,6 +902,57 @@ onMounted(() => {
               保持原图；只用所选模型把赠品重拍成白底（1 次）
             </small>
           </div>
+          <div class="pair">
+            <div class="form-row">
+              <span>清晰度·尺寸</span>
+              <div class="seg" role="group" aria-label="清晰度尺寸">
+                <button
+                  type="button"
+                  :aria-pressed="draft.sizeTier === 'STANDARD'"
+                  :disabled="locked"
+                  @click="draft.sizeTier = 'STANDARD'"
+                >
+                  标准
+                </button>
+                <button
+                  type="button"
+                  :aria-pressed="draft.sizeTier === 'HIGH'"
+                  :disabled="locked || !sizeHighOk"
+                  :title="sizeHighOk ? '' : '所选模型不能按 2K 出图'"
+                  @click="draft.sizeTier = 'HIGH'"
+                >
+                  高清
+                </button>
+              </div>
+            </div>
+            <div v-if="!noModel" class="form-row">
+              <span>清晰度·画质</span>
+              <div class="seg" role="group" aria-label="清晰度画质">
+                <button
+                  type="button"
+                  :aria-pressed="draft.qualityTier === 'STANDARD'"
+                  :disabled="locked"
+                  @click="draft.qualityTier = 'STANDARD'"
+                >
+                  标准
+                </button>
+                <button
+                  type="button"
+                  :aria-pressed="draft.qualityTier === 'HIGH'"
+                  :disabled="locked || !qualityHighOk"
+                  :title="qualityHighOk ? '' : '所选模型没有高清画质档'"
+                  @click="draft.qualityTier = 'HIGH'"
+                >
+                  高清
+                </button>
+              </div>
+            </div>
+          </div>
+          <small class="hint" data-testid="clarity-hint">{{
+            noModel
+              ? '高清尺寸直接放大商品原图；原图小于高清尺寸时会变模糊。'
+              : '尺寸“高清”约为标准的 2 倍（如 1600×1600），需要能按 2K 出图的模型；画质“高清”让模型用更高的质量档。两者都会增加费用。'
+          }}</small>
           <div class="pair">
             <div class="form-row">
               <span>尺寸</span>

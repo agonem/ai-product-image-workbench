@@ -35,6 +35,11 @@ def _mime(content):
     return "image/png" if content[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
 
 
+def _temperature(config):
+    """The model's stored "创意程度" (ADR-20261009-Q), 0.7 when not set."""
+    return float(dict(config.parameters).get("temperature", "0.7"))
+
+
 def _request(config, system, user, images=(), max_tokens=800):
     """``images`` are (name, bytes) pairs; each is introduced by its name before the picture."""
     if images:
@@ -54,7 +59,7 @@ def _request(config, system, user, images=(), max_tokens=800):
             "model": config.model,
             "messages": messages,
             "max_tokens": max_tokens,
-            "temperature": 0.7,
+            "temperature": _temperature(config),
         }
         if config.provider_tag:
             body["provider"] = {"order": [config.provider_tag], "allow_fallbacks": True}
@@ -71,7 +76,7 @@ def _request(config, system, user, images=(), max_tokens=800):
                 "model": config.model,
                 "messages": messages,
                 "max_tokens": max_tokens,
-                "temperature": 0.7,
+                "temperature": _temperature(config),
             },
         )
     if config.provider in ("gemini", "gemini-compatible"):
@@ -92,7 +97,10 @@ def _request(config, system, user, images=(), max_tokens=800):
             {
                 "systemInstruction": {"parts": [{"text": system}]},
                 "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7},
+                "generationConfig": {
+                    "maxOutputTokens": max_tokens,
+                    "temperature": _temperature(config),
+                },
             },
         )
     raise BackgroundError("CONFIGURATION")

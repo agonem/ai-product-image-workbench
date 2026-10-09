@@ -447,10 +447,33 @@ test('V4-B6: history, works, account page and the admin model settings', async (
   await expect(rows.filter({ hasText: '中转备用' })).toContainText(
     'http://10.0.0.5:3000/v1',
   )
+  // ADR-20261009-Q: edit in place with the model's own parameters, then delete.
+  await rows
+    .filter({ hasText: '中转备用' })
+    .getByRole('button', { name: '编辑' })
+    .click()
+  const editor = admin.getByRole('dialog', { name: '编辑「中转备用」' })
+  await expect(editor.getByLabel('API Key')).toHaveAttribute(
+    'placeholder',
+    /留空则不修改/,
+  )
+  await expect(editor.getByLabel('用途')).toBeDisabled()
+  await editor.getByLabel('画质档').selectOption('high')
+  await editor.getByLabel('显示名称').fill('中转高画质')
+  await editor.getByRole('button', { name: '保存模型' }).click()
+  await expect(editor).toHaveCount(0)
+  const edited = rows.filter({ hasText: '中转高画质' })
+  await expect(edited.getByTestId('model-params')).toContainText('画质档：高')
+  await expect(
+    main.getByRole('button', { name: '删除 模拟主力' }),
+  ).toBeDisabled()
   await admin.screenshot({
     path: join(artifacts, 'models-admin.png'),
     fullPage: true,
   })
+  await edited.getByRole('button', { name: '删除 中转高画质' }).click()
+  await confirm(admin, '删除模型')
+  await expect(edited).toHaveCount(0)
   // Proxy (its own tab): no paths; credentials are masked once saved.
   await admin.getByRole('button', { name: '网络代理' }).click()
   await admin
@@ -476,6 +499,17 @@ test('V4-B6: history, works, account page and the admin model settings', async (
     admin.getByRole('option', { name: /Gemini 备用.*Gemini 官方/ }),
   ).toBeVisible()
   await admin.keyboard.press('Escape')
+  // The mock default model has no 2K setting or quality level, so "高清" is off.
+  await expect(
+    admin
+      .getByRole('group', { name: '清晰度尺寸' })
+      .getByRole('button', { name: '高清' }),
+  ).toBeDisabled()
+  await expect(
+    admin
+      .getByRole('group', { name: '清晰度画质' })
+      .getByRole('button', { name: '高清' }),
+  ).toBeDisabled()
   // Account management has its own page; an admin can delete others, never themself.
   await admin.getByRole('link', { name: '账号管理' }).click()
   const accountRows = admin.getByTestId('account-row')
@@ -753,6 +787,16 @@ test('V4-B16: selling text on a finished work with "keep original" (no model)', 
   // The plan shows the image itself under the text box.
   await expect(page.locator('.artboard img.base')).toBeVisible()
   await expect(page.getByTestId('generate')).toHaveText('生成 2 张')
+  // ADR-20261009-Q: without a model the "高清" size enlarges the image; no quality choice.
+  await section(page, '输出设置')
+  await expect(page.getByRole('group', { name: '清晰度画质' })).toHaveCount(0)
+  await page
+    .getByRole('group', { name: '清晰度尺寸' })
+    .getByRole('button', { name: '高清' })
+    .click()
+  await expect(
+    page.locator('button.acc-head').filter({ hasText: /^输出设置/ }),
+  ).toContainText('1600 × 1600')
   await page.screenshot({ path: join(artifacts, 'selling-original-plan.png') })
   const { body, id } = await submitAndTrack(page, () =>
     page.getByTestId('generate').click(),
@@ -760,6 +804,8 @@ test('V4-B16: selling text on a finished work with "keep original" (no model)', 
   expect(body.keep_original).toBe(true)
   expect(body.style).toBeUndefined()
   expect(body.model_id).toBeUndefined()
+  expect(body.quality).toBeUndefined()
+  expect([body.output.width, body.output.height]).toEqual([1600, 1600])
   expect(body.output.count).toBe(2)
   expect(body.text.color).toBe('#1E3A5F')
   await expect(done(page, id)).toHaveCount(2, { timeout: 60000 })

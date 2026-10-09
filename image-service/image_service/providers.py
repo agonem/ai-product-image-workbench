@@ -158,6 +158,10 @@ class OpenAIImagesAdapter(_Adapter):
             raise BackgroundError("INVALID_INPUT")
         size = openai_size(request.aspect_ratio)
         fields = {"model": self.config.model, "prompt": request.prompt, "n": "1", "size": size}
+        extra = dict(request.parameters)
+        if set(extra) - {"quality"}:
+            raise BackgroundError("UNSUPPORTED_CAPABILITY")
+        fields.update(extra)
         started = time.monotonic()
         if request.references:
             files = [
@@ -167,7 +171,7 @@ class OpenAIImagesAdapter(_Adapter):
             response = self._post("images/edits", data=fields, files=files)
         else:
             response = self._post("images/generations", json={**fields, "n": 1})
-        parameters = {"aspect_ratio": request.aspect_ratio, "size": size}
+        parameters = {"aspect_ratio": request.aspect_ratio, "size": size, **extra}
         return self._result(request, response, parameters, response.get("usage"), started)
 
 
@@ -184,11 +188,17 @@ class GeminiAdapter(_Adapter):
             {"inline_data": {"mime_type": _mime(item), "data": base64.b64encode(item).decode()}}
             for item in request.references
         ]
+        extra = dict(request.parameters)
+        if set(extra) - {"resolution"}:
+            raise BackgroundError("UNSUPPORTED_CAPABILITY")
+        image_config = {"aspectRatio": request.aspect_ratio}
+        if "resolution" in extra:
+            image_config["imageSize"] = extra["resolution"]
         body = {
             "contents": [{"role": "user", "parts": parts}],
             "generationConfig": {
                 "responseModalities": ["TEXT", "IMAGE"],
-                "imageConfig": {"aspectRatio": request.aspect_ratio},
+                "imageConfig": image_config,
             },
         }
         model = self.config.model.removeprefix("models/")
@@ -206,5 +216,5 @@ class GeminiAdapter(_Adapter):
         except (KeyError, IndexError, TypeError, AttributeError, StopIteration):
             # A refusal or a text-only answer: the paid call produced no usable image.
             raise BackgroundError("INVALID_OUTPUT", ambiguous=True) from None
-        parameters = {"aspect_ratio": request.aspect_ratio}
+        parameters = {"aspect_ratio": request.aspect_ratio, **extra}
         return self._result(request, shaped, parameters, response.get("usageMetadata"), started)

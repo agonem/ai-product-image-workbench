@@ -4,6 +4,10 @@ import {
   adoptText,
   buildGeneration,
   callsNoModel,
+  canvasSizes,
+  clarityOf,
+  highSizes,
+  outputSize,
   keepsPicture,
   reshootsGift,
   giftCardBox,
@@ -17,6 +21,7 @@ import {
   widestPoint,
 } from './generation.ts'
 import { Submission } from './model.ts'
+import { paramSpecs, paramSummary } from './modelParameters.ts'
 
 const ready = () => ({ ...newDraft(), product: 'product', gift: 'gift' })
 
@@ -263,4 +268,69 @@ test('ADR-20261008-H: product position travels only with an AI style', () => {
   const zone = sellingProductZone('LEFT', 'left')
   assert.ok(zoneOverlap(zone, presetBox('SELLING_POINT', 'TL')) > 0.25)
   assert.equal(zoneOverlap(zone, presetBox('SELLING_POINT', 'TR')), 0)
+})
+
+test('ADR-20261009-Q: clarity sets the output size and asks for high quality', () => {
+  assert.equal(highSizes.length, canvasSizes.length)
+  for (const [index, size] of highSizes.entries()) {
+    const standard = canvasSizes[index]!
+    assert.equal(size.ratio, standard.ratio)
+    const [w, h] = size.ratio.split(':').map(Number) as [number, number]
+    assert.equal(size.width * h, size.height * w) // exact ratio
+    assert.ok(Math.max(size.width, size.height) <= 2048)
+    assert.ok(size.width * size.height <= 4_194_304)
+    assert.ok(size.width >= standard.width * 1.5)
+  }
+  assert.deepEqual(outputSize(0, 'HIGH'), highSizes[0])
+  const models = [
+    { id: 'a', name: 'A', provider: 'openrouter', model: 'x', default: true },
+    {
+      id: 'b',
+      name: 'B',
+      provider: 'openrouter',
+      model: 'y',
+      default: false,
+      quality_high: true,
+      size_high: true,
+    },
+  ]
+  assert.deepEqual(clarityOf(models, ''), { quality: false, size: false })
+  assert.deepEqual(clarityOf(models, 'b'), { quality: true, size: true })
+  const draft = ready()
+  draft.model = 'b'
+  draft.sizeTier = 'HIGH'
+  draft.qualityTier = 'HIGH'
+  const scene = buildGeneration('SCENE', 'p', draft)
+  const output = scene.output as { width: number; height: number }
+  assert.deepEqual([output.width, output.height], [1600, 1600])
+  assert.equal(scene.quality, 'HIGH')
+  // Without a model call there is no quality to ask for.
+  const kept = buildGeneration('SELLING_POINT', 'p', {
+    ...draft,
+    keepOriginal: true,
+    title: '标题',
+    points: '卖点',
+  })
+  assert.equal('quality' in kept, false)
+})
+
+test('ADR-20261009-Q: model parameters follow the same families as the server', () => {
+  assert.deepEqual(Object.keys(paramSpecs('openai/gpt-image-2', 'IMAGE')), [
+    'quality',
+  ])
+  assert.deepEqual(
+    paramSpecs(
+      'bytedance-seed/seedream-5-0-pro',
+      'IMAGE',
+    ).resolution!.values.map((item) => item.value),
+    ['1K', '2K'],
+  )
+  assert.deepEqual(paramSpecs('google/gemini-2.5-flash-image', 'IMAGE'), {})
+  assert.deepEqual(Object.keys(paramSpecs('vendor/text', 'TEXT')), [
+    'temperature',
+  ])
+  assert.equal(
+    paramSummary('openai/gpt-image-2', 'IMAGE', { quality: 'high' }),
+    '画质档：高',
+  )
 })

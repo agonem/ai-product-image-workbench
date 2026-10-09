@@ -464,9 +464,9 @@ def api_checks(core, admin, alice, bob, project):
 
     # A12: model catalog (ADR-20260929-C; third-party types again since ADR-20260930-E, A15).
     # several enabled models; a task binds the chosen model or the default; a disabled model is
-    # refused and the default cannot be disabled; a new key retires the old row but keeps the name,
-    # the default and every frozen task binding; the proxy is masked and only models marked "use
-    # proxy" receive it (the mock records the route it was given).
+    # refused and the default cannot be disabled; a new key is stored in place (ADR-20261009-Q),
+    # keeping the name, the default and task bindings; the proxy is masked and only models
+    # marked "use proxy" receive it (the mock records the route it was given).
     configs = "/api/v1/admin/provider-configs"
     common = {"api_key": "mock-key", "enabled": True, "use_proxy": False}
     for bad in (
@@ -532,7 +532,7 @@ def api_checks(core, admin, alice, bob, project):
         {"api_key": "mock-" + secrets.token_urlsafe(20)},
     )
     assert status == 201 and rotated["default"] and rotated["name"] == default["name"], rotated
-    assert default["id"] not in {item["id"] for item in run.http("GET", configs, admin)[1]["items"]}
+    assert rotated["id"] == default["id"] and rotated["api_key_mask"] != default["api_key_mask"]
     frozen = run.sql(
         f"SELECT provider_config_version FROM generation_tasks WHERE id='{fallback['id']}'"
     )
@@ -1167,6 +1167,72 @@ def api_checks(core, admin, alice, bob, project):
     image = dict(untagged, purpose="IMAGE")
     assert run.http("POST", "/api/v1/admin/provider-configs", admin, image)[0] == 400
     evidence["agents"] = {"guided": state["id"], "text_model": text_model["id"]}
+
+    # A27 (ADR-20261009-Q): model parameters, clarity, editing in place and deleting.
+    sharp = {
+        "name": "高清测试",
+        "provider": "openrouter",
+        "model": "bytedance-seed/seedream-5-0-pro",
+        "provider_tag": "mock",
+        "api_key": "mock-" + secrets.token_urlsafe(24),
+        "enabled": True,
+        "use_proxy": False,
+    }
+    for bad in ({"resolution": "4K"}, {"quality": "high"}, {"resolution": 2}):
+        assert run.http("POST", configs, admin, dict(sharp, parameters=bad))[0] == 400, bad
+    status, seed, _ = run.http("POST", configs, admin, dict(sharp, parameters={"resolution": "1K"}))
+    assert status == 201 and seed["parameters"] == {"resolution": "1K"}, (status, seed)
+    offered = {m["id"]: m for m in run.http("GET", "/api/v1/workbench/options", alice)[1]["models"]}
+    assert offered[seed["id"]]["quality_high"] and offered[seed["id"]]["size_high"]
+    default_id = next(m["id"] for m in offered.values() if m["default"])
+    assert not offered[default_id]["size_high"]  # the mock default has no 2K setting
+    large = {"aspect_ratio": "1:1", "width": 1600, "height": 1600, "format": "png", "count": 1}
+    sharp_scene = dict(scene, product_asset_id=fresh["id"], output=large, model_id=seed["id"])
+    state = core.generate(alice, dict(sharp_scene, quality="HIGH"), "v4-clarity")
+    assert state["status"] == "SUCCEEDED", state
+    _, gens = core.generations(state["id"])
+    assert gens[0]["provenance"]["parameters"]["resolution"] == "2K", gens[0]["provenance"]
+    assert state["artifacts"][0]["width"] == 1600, state["artifacts"][0]
+    for body, code in (
+        (dict(sharp_scene, model_id=default_id), "MODEL_SIZE_UNSUPPORTED"),
+        (dict(scene, product_asset_id=fresh["id"], quality="HIGH"), "MODEL_QUALITY_UNSUPPORTED"),
+    ):
+        status, problem = core.post(alice, "/api/v4/generation-tasks", body)
+        assert status == 422 and problem["code"] == code, (status, problem)
+    # An edit applies to tasks already submitted: queued at 1K, run after the switch to 2K.
+    standard = dict(scene, product_asset_id=fresh["id"], model_id=seed["id"])
+    status, queued = core.post(alice, "/api/v4/generation-tasks", standard, "v4-edit-queued")
+    assert status == 202, (status, queued)
+    edit = {"name": "高清测试 2K", "parameters": {"resolution": "2K"}}
+    assert run.http("POST", f"{configs}/{seed['id']}/settings", admin, edit)[0] == 204
+    assert run.http("POST", f"{configs}/{seed['id']}/settings", admin, {"model": "a"})[0] == 400
+    core.worker()
+    _, gens = core.generations(queued["id"])
+    assert gens[0]["provenance"]["parameters"]["resolution"] == "2K", gens[0]["provenance"]
+    listed = {m["id"]: m for m in run.http("GET", configs, admin)[1]["items"]}
+    assert listed[seed["id"]]["name"] == "高清测试 2K"
+    # Deleting: never the default; unfinished tasks move to the default, finished ones unlink.
+    status, body, _ = run.http("DELETE", f"{configs}/{default_id}", admin)
+    assert status == 409 and body["code"] == "DEFAULT_MODEL", (status, body)
+    assert run.http("DELETE", f"{configs}/{seed['id']}", alice)[0] == 403
+    status, waiting = core.post(alice, "/api/v4/generation-tasks", standard, "v4-delete-queued")
+    assert status == 202, (status, waiting)
+    assert run.http("DELETE", f"{configs}/{seed['id']}", admin)[0] == 204
+    assert seed["id"] not in {m["id"] for m in run.http("GET", configs, admin)[1]["items"]}
+    moved = run.sql(
+        f"SELECT provider_config_version FROM generation_tasks WHERE id='{waiting['id']}'"
+    )
+    assert moved == default_id, moved
+    unlinked = run.sql(
+        f"SELECT provider_config_version IS NULL FROM generation_tasks WHERE id='{queued['id']}'"
+    )
+    assert unlinked == "t"
+    core.worker()
+    state = core.get(alice, waiting["id"])[1]
+    assert state["status"] == "SUCCEEDED", state
+    assert core.generations(waiting["id"])[1][0]["provenance"]["model"] == "test/mock-model"
+    assert run.http("DELETE", f"{configs}/{seed['id']}", admin)[0] == 404
+    evidence["models_edit"] = {"clarity": state["id"], "deleted": seed["id"]}
     return evidence
 
 
@@ -1289,12 +1355,13 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A26: three entries, references, text, retypeset, isolation, "
+            "PASS V4-A1..A27: three entries, references, text, retypeset, isolation, "
             "withdrawn routes, model catalog and proxy, owner deletion, real-world uploads, "
             "reuse, original background, third-party endpoint, account deletion, "
             "template management, personal templates, image management, dashboard, "
             "operation log, per-point selling, keep-original selling, gift card, "
-            "product position, conversational generation, agents and magic wand, look-first chat",
+            "product position, conversational generation, agents and magic wand, look-first "
+            "chat, model editing and clarity",
             flush=True,
         )
         if browser_checks(core, stack):

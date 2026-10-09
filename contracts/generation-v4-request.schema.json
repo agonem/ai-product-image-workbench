@@ -461,6 +461,10 @@
         "format",
         "count"
       ]
+    },
+    "quality": {
+      "const": "HIGH",
+      "description": "画质：高清 (ADR-20261009-Q); absent = standard. The 高清 size is the larger output size itself."
     }
   },
   "required": [

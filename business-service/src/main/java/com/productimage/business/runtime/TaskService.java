@@ -137,6 +137,18 @@ public final class TaskService {
                           || worker.path("gift_reshoot").asBoolean())
                   ? configs.binding(request.get("model_id"))
                   : null;
+          // Clarity (ADR-20261009-Q): high quality and the high-definition size need a model that
+          // can be asked for them; without any model call neither matters.
+          if (configVersion != null) {
+            var output = worker.path("output");
+            boolean large =
+                Math.max(output.path("width").asInt(), output.path("height").asInt())
+                    > ModelParameters.standardMaxSide();
+            boolean[] supports = configs.clarity(configVersion);
+            if (worker.has("quality") && !supports[0])
+              throw new Problem(422, "MODEL_QUALITY_UNSUPPORTED");
+            if (large && !supports[1]) throw new Problem(422, "MODEL_SIZE_UNSUPPORTED");
+          }
           // An agent rewrite freezes the text model too (ADR-20261008-L). Chat messages look at
           // the images first whenever a text model is configured (ADR-20261009-P).
           String textVersion = null;

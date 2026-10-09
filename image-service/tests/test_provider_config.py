@@ -101,7 +101,9 @@ def worker_stubs(monkeypatch):
                 },
             )
 
-    def fake_generation(api, request, lease, adapter, *, cancelled=None, text_config=None):
+    def fake_generation(
+        api, request, lease, adapter, *, cancelled=None, text_config=None, image_config=None
+    ):
         captured["adapter"] = adapter
         return {"schema_version": 4, "event_type": "image.task.completed.v4", "artifacts": []}
 

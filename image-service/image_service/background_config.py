@@ -24,6 +24,9 @@ class ModelConfig:
     # None: environment configuration (MODEL_PROXY_URL applies); "": leased model, direct;
     # otherwise the leased model's proxy URL (may contain credentials, never logged).
     proxy: str | None = field(default=None, repr=False)
+    # Stored model parameters as sorted (name, value) pairs, e.g. (("quality", "high"),) or
+    # (("temperature", "0.7"),) (ADR-20261009-Q).
+    parameters: tuple = ()
 
 
 # Older name kept for existing imports; environment configuration is always OpenRouter.
@@ -82,6 +85,18 @@ def config_from_mapping(mapping):
         tag = mapping.get("provider_tag")
         base = mapping.get("base_url")
         proxy = mapping.get("proxy_url", "")
+        parameters = mapping.get("parameters") or {}
+        if (
+            not isinstance(parameters, dict)
+            or len(parameters) > 10
+            or any(
+                not re.fullmatch(r"[a-z_]{1,40}", str(name))
+                or not isinstance(value, str)
+                or not re.fullmatch(r"[\w.-]{1,20}", value)
+                for name, value in parameters.items()
+            )
+        ):
+            raise ValueError()
         if (
             provider not in PROVIDERS
             or not re.fullmatch(r"[\x21-\x7e]{1,4096}", key)
@@ -100,7 +115,7 @@ def config_from_mapping(mapping):
             raise ValueError()
     except (KeyError, TypeError, ValueError, AttributeError):
         raise BackgroundError("CONFIGURATION") from None
-    return ModelConfig(key, model, tag, provider, base, proxy)
+    return ModelConfig(key, model, tag, provider, base, proxy, tuple(sorted(parameters.items())))
 
 
 def private_environment():
