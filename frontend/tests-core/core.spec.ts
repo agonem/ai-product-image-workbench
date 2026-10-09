@@ -956,10 +956,35 @@ test('V4-B19: agents and the magic wand on the conversation page', async ({
   await expect(turn).toHaveAttribute('data-status', 'SUCCEEDED', {
     timeout: 60000,
   })
+  // ADR-20261009-P: with a text model the wand looks at the images first.
+  await expect(turn.getByTestId('rewritten')).toContainText('Gloria 看图改写')
   await expect(turn.getByTestId('rewritten')).toContainText(
-    '[Gloria改写] 做一张浴巾主图',
+    '[Gloria看图改写：商品图] 做一张浴巾主图',
   )
   await page.screenshot({ path: join(artifacts, 'chat-agents.png') })
+  // Without the wand the message is still analysed from its images before drawing.
+  await expect(page.getByTestId('guard')).toContainText('先看图分析再出图')
+  await page.getByTestId('wand').click()
+  await expect(page.getByTestId('wand')).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+  await page.getByRole('button', { name: '不修改，重新生成' }).click()
+  await page.getByLabel('描述').fill('放在浅色木桌上')
+  const plain = await submitAndTrack(page, () =>
+    page.getByTestId('chat-send').click(),
+  )
+  expect(plain.body).not.toHaveProperty('rewrite')
+  const looked = page.getByTestId('chat-turn').last()
+  await expect(looked).toHaveAttribute('data-status', 'SUCCEEDED', {
+    timeout: 60000,
+  })
+  await expect(looked.getByTestId('analysis')).toContainText('看图分析')
+  await expect(looked.getByTestId('analysis')).toContainText(
+    '[看图分析：商品图] 放在浅色木桌上',
+  )
+  await expect(looked.getByTestId('rewritten')).toHaveCount(0)
+  await page.screenshot({ path: join(artifacts, 'chat-analysis.png') })
   expect(errors).toEqual([])
 })
 

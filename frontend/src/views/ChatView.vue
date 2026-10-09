@@ -548,18 +548,32 @@ onUnmounted(() => {
                   <LineIcon name="wand" :size="13" />{{
                     task.agent.name ?? '默认设计师'
                   }}
-                  改写
+                  {{ task.analysis ? '看图改写' : '改写' }}
                 </summary>
                 <p>{{ task.agent.rewritten }}</p>
               </details>
+              <!-- Look first, then draw (ADR-20261009-P): what the text model saw. -->
+              <details
+                v-else-if="task.analysis?.text"
+                class="rewritten"
+                open
+                data-testid="analysis"
+              >
+                <summary><LineIcon name="spark" :size="13" />看图分析</summary>
+                <p>{{ task.analysis.text }}</p>
+              </details>
               <p
                 v-else-if="
-                  task.agent?.rewrite &&
+                  (task.agent?.rewrite || task.analysis) &&
                   (task.status === 'QUEUED' || task.status === 'RUNNING')
                 "
                 class="hint"
               >
-                正在按{{ task.agent.name ?? '默认设计师' }}的设定改写需求…
+                {{
+                  task.agent?.rewrite
+                    ? `正在按${task.agent.name ?? '默认设计师'}的设定${task.analysis ? '看图并' : ''}改写需求…`
+                    : '正在看图分析，写清每张图的细节后再出图…'
+                }}
               </p>
               <div
                 v-if="task.status === 'QUEUED' || task.status === 'RUNNING'"
@@ -806,8 +820,10 @@ onUnmounted(() => {
             :options="countOptions"
           />
           <span class="spacer"></span>
-          <small class="hint guard"
-            >自动要求：商品外形、颜色、Logo、包装文字和数量不变；不在图里生成文字</small
+          <small class="hint guard" data-testid="guard"
+            >自动要求：商品外形、颜色、Logo、包装文字和数量不变；不在图里生成文字；{{
+              textModel ? '先看图分析再出图' : '未配置文本模型，不做看图分析'
+            }}</small
           >
           <button
             type="submit"

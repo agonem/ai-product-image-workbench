@@ -259,8 +259,10 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
                 "PROVIDER_NETWORK",
             }
             safe_codes.update(f"PROVIDER_HTTP_{status}" for status in range(400, 600))
-            # The magic-wand rewrite reports the same codes with a TEXT_ prefix (ADR-20261008-L).
-            safe_codes.update({"TEXT_" + code for code in list(safe_codes)})
+            # The magic-wand rewrite reports the same codes with a TEXT_ prefix (ADR-20261008-L),
+            # the look-first analysis with VISION_ (ADR-20261009-P).
+            base = list(safe_codes)
+            safe_codes.update({prefix + code for code in base for prefix in ("TEXT_", "VISION_")})
             if error.code in safe_codes:
                 receipt["error"]["safe_message"] = error.code
             if error.code in {"INVALID_OUTPUT", "INVALID_RESPONSE", "RESPONSE_BUDGET"}:

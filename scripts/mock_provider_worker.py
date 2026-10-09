@@ -88,13 +88,19 @@ class MockModel:
         )
 
 
-def mock_rewrite(config, system, user):
-    """Deterministic stand-in for the agent text model: no paid call (ADR-20261008-L)."""
+def mock_rewrite(config, system, user, *, images=(), max_tokens=800):
+    """Deterministic stand-in for the text model: no paid call (ADR-20261008-L). With images it
+    plays the look-first analysis (ADR-20261009-P) and names what it was shown."""
     need = user.splitlines()[0].removeprefix("需求：")
-    if "模拟改写失败" in need:
+    if "模拟改写失败" in need or "模拟分析失败" in need:
         # A text model that the provider does not serve (the 2026-10-08 404).
         raise BackgroundError("PROVIDER_HTTP_404")
     persona = system.split("。")[0].removeprefix("你是")
+    if images:
+        names = "、".join(name for name, _ in images)
+        if "看图" in persona or "分析师" in persona:
+            return f"[看图分析：{names}] {need}，底图内容原样保留", {}
+        return f"[{persona}看图改写：{names}] {need}，柔和自然光，奶油色调", {}
     return f"[{persona}改写] {need}，柔和自然光，奶油色调", {}
 
 

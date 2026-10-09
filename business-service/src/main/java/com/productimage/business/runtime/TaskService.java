@@ -137,11 +137,15 @@ public final class TaskService {
                           || worker.path("gift_reshoot").asBoolean())
                   ? configs.binding(request.get("model_id"))
                   : null;
-          // An agent rewrite freezes the text model too (ADR-20261008-L).
+          // An agent rewrite freezes the text model too (ADR-20261008-L). Chat messages look at
+          // the images first whenever a text model is configured (ADR-20261009-P).
           String textVersion = null;
-          if (worker.path("rewrite").asBoolean()) {
+          boolean chat = "CUSTOM".equals(worker.path("feature_type").asText());
+          if (worker.path("rewrite").asBoolean() || chat) {
             textVersion = configs.textBinding();
-            if (textVersion == null) throw new Problem(422, "TEXT_MODEL_UNAVAILABLE");
+            if (textVersion == null && worker.path("rewrite").asBoolean())
+              throw new Problem(422, "TEXT_MODEL_UNAVAILABLE");
+            if (textVersion != null && chat) worker.put("analyze", true);
           }
           String id = Json.id();
           int inserted =
@@ -310,6 +314,26 @@ public final class TaskService {
         }
       }
     }
+    // Look first, then draw (ADR-20261009-P): what the text model saw, once the task is done.
+    if (snapshot.path("analyze").asBoolean()) {
+      var analysis = result.putObject("analysis");
+      if ("SUCCEEDED".equals(row.get("status"))) {
+        var info =
+            jdbc.queryForList(
+                "SELECT provider_info::text AS info FROM task_attempts WHERE id=?",
+                row.get("current_attempt_id"));
+        if (!info.isEmpty() && info.getFirst().get("info") != null) {
+          var text =
+              Json.parse(info.getFirst().get("info").toString())
+                  .path("generations")
+                  .path(0)
+                  .path("provenance")
+                  .path("analysis")
+                  .path("text");
+          if (text.isTextual()) analysis.put("text", text.asText());
+        }
+      }
+    }
     // Model outputs without text, so the page can preview text edits before a re-typeset.
     var bases = result.putArray("bases");
     if ("SUCCEEDED".equals(row.get("status")))
@@ -431,8 +455,9 @@ public final class TaskService {
   static String safeMessage(String code, String diagnosis) {
     if (diagnosis == null || !diagnosis.matches("[A-Z][A-Z0-9_]{1,60}")) return safeMessage(code);
     boolean text = diagnosis.startsWith("TEXT_");
-    String cause = text ? diagnosis.substring(5) : diagnosis;
-    String which = text ? "魔法棒改写失败：文本模型" : "出图模型";
+    boolean vision = diagnosis.startsWith("VISION_");
+    String cause = text ? diagnosis.substring(5) : vision ? diagnosis.substring(7) : diagnosis;
+    String which = text ? "魔法棒改写失败：文本模型" : vision ? "看图分析失败：文本模型" : "出图模型";
     String detail =
         switch (cause) {
           case "PROVIDER_HTTP_404" -> "不存在或路由标签不匹配（HTTP 404），请检查模型标识和路由标签";

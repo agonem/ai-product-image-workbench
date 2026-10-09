@@ -254,6 +254,10 @@
     "rewrite": {
       "const": true
     },
+    "analyze": {
+      "const": true,
+      "description": "Chat: the bound text model looks at every input image and writes what it sees and the plan before the image call (ADR-20261009-P)."
+    },
     "styles": {
       "type": "array",
       "minItems": 1,

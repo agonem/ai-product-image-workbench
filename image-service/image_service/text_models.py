@@ -1,17 +1,22 @@
-"""Text models that rewrite a brief for an agent ("magic wand", ADR-20261008-L).
+"""Text models that look at the images and write the brief (ADR-20261008-L, ADR-20261009-P).
 
 Same boundaries as the image adapters: only the configured endpoint is contacted (through the
 model's own proxy setting), the call is never retried here, the response is size-bounded and
-errors carry fixed codes without provider bodies. The rewritten brief is only a prompt for the
-image model; the product guard is appended afterwards by the generation code.
+errors carry fixed codes without provider bodies. The brief is only a prompt for the image
+model; the product guard is appended afterwards by the generation code.
+
+Since ADR-20261009-P the chat images (downscaled copies, each introduced by its page name) are
+sent with the request so the model can describe them before planning; the magic-wand rewrite of
+older tasks sends text only.
 
 - OpenRouter: POST https://openrouter.ai/api/v1/chat/completions. The routing tag is only a
   preference (other providers of the model are used when that one does not serve it); without
-  a tag OpenRouter chooses. Only the brief travels here, never an image.
+  a tag OpenRouter chooses.
 - OpenAI format (official or third-party): POST {root}/chat/completions.
 - Gemini format (official or third-party): POST {root}/models/{model}:generateContent.
 """
 
+import base64
 import json
 import re
 
@@ -22,14 +27,35 @@ from image_service.egress import route
 from image_service.providers import endpoint_root
 
 MAX_RESPONSE = 1024 * 1024
-MAX_OUTPUT = 1000
-TIMEOUT = httpx.Timeout(90, connect=10)
+MAX_OUTPUT = 1600
+TIMEOUT = httpx.Timeout(120, connect=10)
 
 
-def _request(config, system, user):
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+def _mime(content):
+    return "image/png" if content[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
+
+
+def _request(config, system, user, images=(), max_tokens=800):
+    """``images`` are (name, bytes) pairs; each is introduced by its name before the picture."""
+    if images:
+        parts = [{"type": "text", "text": user}]
+        for name, content in images:
+            parts.append({"type": "text", "text": f"「{name}」："})
+            data = base64.b64encode(content).decode("ascii")
+            parts.append(
+                {"type": "image_url", "image_url": {"url": f"data:{_mime(content)};base64,{data}"}}
+            )
+        content = parts
+    else:
+        content = user
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": content}]
     if config.provider == "openrouter":
-        body = {"model": config.model, "messages": messages, "max_tokens": 800, "temperature": 0.7}
+        body = {
+            "model": config.model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.7,
+        }
         if config.provider_tag:
             body["provider"] = {"order": [config.provider_tag], "allow_fallbacks": True}
         return (
@@ -41,16 +67,32 @@ def _request(config, system, user):
         return (
             endpoint_root(config) + "/chat/completions",
             {"Authorization": "Bearer " + config.api_key},
-            {"model": config.model, "messages": messages, "max_tokens": 800, "temperature": 0.7},
+            {
+                "model": config.model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.7,
+            },
         )
     if config.provider in ("gemini", "gemini-compatible"):
+        parts = [{"text": user}]
+        for name, data in images:
+            parts.append({"text": f"「{name}」："})
+            parts.append(
+                {
+                    "inline_data": {
+                        "mime_type": _mime(data),
+                        "data": base64.b64encode(data).decode("ascii"),
+                    }
+                }
+            )
         return (
             endpoint_root(config) + f"/models/{config.model}:generateContent",
             {"x-goog-api-key": config.api_key},
             {
                 "systemInstruction": {"parts": [{"text": system}]},
-                "contents": [{"role": "user", "parts": [{"text": user}]}],
-                "generationConfig": {"maxOutputTokens": 800, "temperature": 0.7},
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7},
             },
         )
     raise BackgroundError("CONFIGURATION")
@@ -75,9 +117,9 @@ def clean(text):
     return text[:MAX_OUTPUT].strip()
 
 
-def rewrite(config, system, user, *, transport=None):
-    """Returns (brief, usage) from one text-model call."""
-    url, headers, body = _request(config, system, user)
+def rewrite(config, system, user, *, images=(), max_tokens=800, transport=None):
+    """Returns (brief, usage) from one text-model call; ``images`` are (name, bytes) pairs."""
+    url, headers, body = _request(config, system, user, images, max_tokens)
     try:
         with (
             httpx.Client(

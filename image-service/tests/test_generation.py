@@ -959,8 +959,9 @@ def test_magic_wand_rewrites_once_then_every_image_uses_the_brief(font, monkeypa
 
     calls = []
 
-    def fake(config, system, user):
+    def fake(config, system, user, *, images=(), max_tokens=800):
         calls.append((config.model, system, user))
+        assert images == ()  # without "analyze" the rewrite sends text only
         return "温暖的卧室晨光，商品叠放在床尾，奶油色调", {"total_tokens": 120}
 
     monkeypatch.setattr(text_models, "rewrite", fake)
@@ -1096,7 +1097,7 @@ def test_a_failed_rewrite_is_reported_as_the_rewrite(font, monkeypatch):
     from image_service import text_models
     from image_service.background_config import ModelConfig
 
-    def missing(config, system, user):
+    def missing(config, system, user, **_):
         raise BackgroundError("PROVIDER_HTTP_404")
 
     monkeypatch.setattr(text_models, "rewrite", missing)
@@ -1108,3 +1109,140 @@ def test_a_failed_rewrite_is_reported_as_the_rewrite(font, monkeypatch):
         )
     assert error.value.code == "TEXT_PROVIDER_HTTP_404"
     assert adapter.requests == []  # no paid image call after a failed rewrite
+
+
+# ADR-20261009-P: look first, then draw - a text model describes every chat image and plans.
+
+
+def chat_with_references(local, **extra):
+    local.inputs["towel"] = png((120, 160, 220), size=(1600, 1200))
+    local.inputs["layout"] = png((240, 200, 40))
+    references = [
+        {
+            "asset_id": name,
+            "object_key": f"originals/p/{name}.image",
+            "sha256": hashlib.sha256(local.inputs[name]).hexdigest(),
+        }
+        for name in ("towel", "layout")
+    ]
+    words = "在参考图1的基础上加商品图作为赠品，赠品的展示方式可以参考参考图2"
+    return custom_request(local, references=references, prompt=words, analyze=True, **extra)
+
+
+SEEN = (
+    "【看图】参考图1：两个孩子披浴巾，左下角空白。参考图2：白色圆角卡片，顶部绿色圆标里有白色加号。"
+)
+
+
+def test_chat_looks_at_every_image_before_drawing(font, monkeypatch):
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    calls = []
+
+    def look(config, system, user, *, images=(), max_tokens=800):
+        calls.append((system, user, images, max_tokens))
+        return SEEN, {"total_tokens": 900}
+
+    monkeypatch.setattr(text_models, "rewrite", look)
+    local, adapter = api(), Adapter()
+    value = chat_with_references(local)
+    text = ModelConfig("k" * 20, "vendor/vision", "openai")
+    receipt = process_generation(local, value, "lease", adapter, text_config=text)
+    assert not validate_contract("generation-v4-completed", receipt)
+    ((system, user, images, max_tokens),) = calls
+    # Every image, by its page name and in the order the image model gets them.
+    assert [name for name, _ in images] == ["商品图", "参考图1", "参考图2"]
+    for _, content in images:
+        with Image.open(io.BytesIO(content)) as copy:
+            assert copy.format == "JPEG" and max(copy.size) <= 1024
+    assert "【看图】" in system and "【出图方案】" in system and "只忠实分析和规划" in system
+    assert "不要添加用户和参考图都没有的元素或装饰" in system
+    assert user.startswith("需求：在参考图1的基础上") and "下面依次是图片" in user
+    assert max_tokens == 1500 and local.posts[0] == "heartbeat"
+    prompt = adapter.requests[0].prompt
+    assert "Instruction from the user: 在参考图1的基础上" in prompt
+    assert "Image analysis and plan, written after looking at every input image" in prompt
+    assert SEEN in prompt and GUARD in prompt
+    assert receipt["generations"][0]["provenance"]["analysis"] == {
+        "text": SEEN,
+        "text_model": "vendor/vision",
+    }
+
+
+def test_chat_magic_wand_also_looks_first(font, monkeypatch):
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    calls = []
+
+    def look(config, system, user, *, images=(), max_tokens=800):
+        calls.append((system, images))
+        return "Gloria：" + SEEN, {}
+
+    monkeypatch.setattr(text_models, "rewrite", look)
+    local, adapter = api(), Adapter()
+    value = chat_with_references(local, agent=AGENT, rewrite=True)
+    text = ModelConfig("k" * 20, "vendor/vision", "openai")
+    receipt = process_generation(local, value, "lease", adapter, text_config=text)
+    assert not validate_contract("generation-v4-completed", receipt)
+    ((system, images),) = calls  # still one text call, now with the images
+    assert system.startswith("你是Gloria。") and "把画面写得更专业" in system
+    assert len(images) == 3
+    prompt = adapter.requests[0].prompt
+    assert "Brief written by Gloria after looking at every input image" in prompt
+    assert "Instruction from the user" not in prompt
+    provenance = receipt["generations"][0]["provenance"]
+    assert provenance["agent"]["rewritten"] == provenance["analysis"]["text"]
+
+
+def test_a_failed_analysis_says_so_and_draws_nothing(font, monkeypatch):
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    def missing(config, system, user, **_):
+        raise BackgroundError("PROVIDER_HTTP_404")
+
+    monkeypatch.setattr(text_models, "rewrite", missing)
+    local, adapter = api(), Adapter()
+    text = ModelConfig("k" * 20, "vendor/vision", "openai")
+    with pytest.raises(BackgroundError) as error:
+        process_generation(local, chat_with_references(local), "lease", adapter, text_config=text)
+    assert error.value.code == "VISION_PROVIDER_HTTP_404"
+    assert adapter.requests == []
+    with pytest.raises(BackgroundError, match="VISION_CONFIGURATION"):
+        process_generation(local, chat_with_references(local), "lease", adapter)
+
+
+@pytest.mark.parametrize("provider", ["openrouter", "gemini"])
+def test_text_models_receive_named_images(provider):
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    seen = []
+    payload = (
+        {"candidates": [{"content": {"parts": [{"text": "看到了"}]}}]}
+        if provider == "gemini"
+        else {"choices": [{"message": {"content": "看到了"}}]}
+    )
+    model = "vendor/vision" if provider == "openrouter" else "vision"
+    extra = {"provider_tag": "seed"} if provider == "openrouter" else {}
+    config = ModelConfig("k" * 20, model, provider=provider, proxy="", **extra)
+    picture = png((1, 2, 3))
+    text_models.rewrite(
+        config,
+        "系统",
+        "需求：x",
+        images=(("商品图", picture),),
+        transport=text_reply(provider, payload, seen),
+    )
+    body = json.loads(seen[0].content)
+    if provider == "gemini":
+        parts = body["contents"][0]["parts"]
+        assert parts[1] == {"text": "「商品图」："}
+        assert parts[2]["inline_data"]["mime_type"] == "image/png"
+    else:
+        parts = body["messages"][1]["content"]
+        assert parts[0] == {"type": "text", "text": "需求：x"}
+        assert parts[1] == {"type": "text", "text": "「商品图」："}
+        assert parts[2]["image_url"]["url"].startswith("data:image/png;base64,")

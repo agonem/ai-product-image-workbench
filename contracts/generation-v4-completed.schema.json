@@ -244,6 +244,25 @@
                 "required": [
                   "name"
                 ]
+              },
+              "analysis": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "What the text model saw in the chat images and its plan (ADR-20261009-P).",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "text_model": {
+                    "type": "string",
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "text"
+                ]
               }
             },
             "required": [

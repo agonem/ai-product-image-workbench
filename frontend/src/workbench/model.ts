@@ -54,6 +54,8 @@ export interface Generation extends Task {
   review_status?: string
   /** Agent used and, after a magic-wand rewrite, the brief the image model got. */
   agent?: { id?: string; name?: string; rewrite: boolean; rewritten?: string }
+  /** Chat: what the text model saw in the images before drawing (ADR-20261009-P). */
+  analysis?: { text?: string }
 }
 /** Agents of the conversation page (ADR-20261008-L). */
 export interface Agent {

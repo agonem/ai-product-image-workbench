@@ -253,6 +253,33 @@ REWRITE_RULES = (
 )
 DEFAULT_DESIGNER = "你是资深母婴电商视觉设计师，擅长干净、温馨、主体突出的商品图。"
 
+# Look first, then draw (ADR-20261009-P): before the image call a vision-capable text model looks
+# at every chat image and writes down what it sees and the plan, as Doubao does in its reply.
+# The image model then gets the user's words plus this explicit description.
+ANALYSIS_RULES = (
+    "任务：先逐张仔细看图，再给 AI 生图模型写一份中文出图说明，不超过 700 字。分两部分写。\n"
+    "【看图】逐张说明，用图片名称指代：\n"
+    "- 将作为底图的图片：列出所有人物、商品、文字、标志、角标、图标及其大致位置，"
+    "并指出画面里哪里是空白区域、约占多大；\n"
+    "- 只作为“展示方式”或风格参考的图片：写清要照学的展示形式细节——边框或卡片的形状、颜色、"
+    "是否透明、圆角，上面每个圆标、图标、符号（如圆圈里的“+”）的颜色、形状和位置，"
+    "以及它在画面中的大致大小和位置；与展示方式无关的内容不用写；\n"
+    "- 商品图：商品的外形、颜色、材质、Logo、包装文字和数量。\n"
+    "【出图方案】以哪张图为底，加入什么，放在哪个空白位置、约占画面多大，用什么展示形式，"
+    "哪些内容必须原样保留。\n"
+    "规则：提到图片时沿用用户的叫法（如“商品图”“参考图1”“参考图2”“要修改的图”），"
+    "不要改名或重新编号；按用户安排每张图的用途，不要擅自让商品当主角；"
+    "不要添加用户和参考图都没有的元素或装饰（如彩带、蝴蝶结、闪光）；"
+    "不要要求在图中写新的文字、字母或数字（参考图卡片上的文字说明不画，照搬的简单符号如“+”可以）；"
+    "不要改变商品的外形、颜色、Logo、包装文字和数量；"
+    "如果是在已有图片上修改，只写要改的地方，并说明其余保持不变。"
+    "只输出这份说明，不要客套，不要用 Markdown 标题。"
+)
+ANALYST = "你是严谨的电商图片分析师，也是资深母婴电商视觉设计师。"
+ANALYSIS_ONLY = "只忠实分析和规划，不加入用户没要求的创意。"
+ANALYSIS_WAND = "在出图方案里按你的设定把画面写得更专业、更有质感，但不违背用户原话和以上规则。"
+ANALYSIS_SIDE = 1024  # the text model sees smaller copies; the image model gets the usual ones
+
 
 def _image_names(request):
     """What the chat page calls each input image, in the order they are sent (ADR-20261009-M).
@@ -273,7 +300,31 @@ def _rewrite_messages(request):
     return persona + "\n\n" + REWRITE_RULES, user
 
 
-def _custom_prompt(request, brief=None):
+def _analysis_messages(request):
+    agent = request.get("agent")
+    if request.get("rewrite"):
+        persona = f"你是{agent['name']}。{agent['instructions']}" if agent else DEFAULT_DESIGNER
+        rules = ANALYSIS_RULES + ANALYSIS_WAND
+    else:
+        persona, rules = ANALYST, ANALYSIS_RULES + ANALYSIS_ONLY
+    situation = "这是在已生成的图片上修改" if "edit_image" in request else "这是生成新图"
+    names = "、".join(f"“{name}”" for name in _image_names(request))
+    user = f"需求：{request['prompt']}\n（{situation}；下面依次是图片：{names}。）"
+    return persona + "\n\n" + rules, user
+
+
+def _analysis_copy(reference):
+    """A smaller upright RGB JPEG of an input for the text model to look at."""
+    with Image.open(io.BytesIO(reference)) as image:
+        image.load()
+        rgba = image.convert("RGBA")
+    flat = Image.new("RGB", rgba.size, (255, 255, 255))
+    flat.paste(rgba, mask=rgba.getchannel("A"))
+    flat.thumbnail((ANALYSIS_SIDE, ANALYSIS_SIDE), Image.Resampling.LANCZOS)
+    return encode(flat, "jpeg")
+
+
+def _custom_prompt(request, brief=None, analysis=None):
     """Conversational generation (ADR-20261008-I): the user's words, plus the guard every entry
     keeps (business rule 1): the product stays exactly as photographed and no text is drawn.
     With an agent its settings guide the picture; after a rewrite the brief replaces the words.
@@ -333,9 +384,12 @@ def _custom_prompt(request, brief=None):
     agent = request.get("agent")
     if brief is not None:
         writer = agent["name"] if agent else "the designer"
-        parts.append(
-            f"Brief written by {writer} from the user's request (same image names): {brief}"
+        source = (
+            "after looking at every input image"
+            if request.get("analyze")
+            else "from the user's request"
         )
+        parts.append(f"Brief written by {writer} {source} (same image names): {brief}")
     else:
         if agent:
             parts.append(
@@ -343,6 +397,13 @@ def _custom_prompt(request, brief=None):
                 f"with the user's words, follow the user): {agent['instructions']}"
             )
         parts.append(f"Instruction from the user: {request['prompt']}")
+        if analysis is not None:
+            # ADR-20261009-P: what a vision model saw in the images, and its plan.
+            parts.append(
+                "Image analysis and plan, written after looking at every input image (same "
+                "image names; follow its details, and where it conflicts with the user's words "
+                f"follow the user): {analysis}"
+            )
     parts.append(
         "Wherever the product from 「商品图」 appears, keep it exactly as photographed: the same "
         "shape, proportions, colours, materials, logo, printed text, markings and number of "
@@ -358,10 +419,10 @@ def _custom_prompt(request, brief=None):
     return " ".join(parts)
 
 
-def build_prompt(request, ordinal, brief=None):
+def build_prompt(request, ordinal, brief=None, analysis=None):
     feature = request["feature_type"]
     if feature == "CUSTOM":
-        return _custom_prompt(request, brief)
+        return _custom_prompt(request, brief, analysis)
     background = request.get("background") if feature == "GIFT" else None
     if background is not None and background["mode"] == "ORIGINAL":
         # ADR-20261008-H: everything in the product image stays; only the gift is added.
@@ -509,24 +570,39 @@ def process_generation(api, request, lease, adapter, *, cancelled=None, text_con
             sticker, offset, card_info = giftcard.render(gift_raw, card, box, font, white)
         elif not retypeset and not original:
             references.append(_reference(_raw(api, request, lease, "gift_asset")))
-    brief, agent_info = None, None
+    brief, agent_info, analysis, analysis_info = None, None, None, None
     if request.get("agent") or request.get("rewrite"):
         agent = request.get("agent") or {}
         agent_info = {"name": agent.get("name", "默认设计师")}
         if agent.get("id"):
             agent_info["id"] = agent["id"]
-    if request.get("rewrite") and not retypeset and not original:
-        # One text-model call per attempt, before any paid image call (ADR-20261008-L).
+    look = bool(request.get("analyze")) and not retypeset and not original
+    if (request.get("rewrite") or look) and not retypeset and not original:
+        # One text-model call per attempt, before any paid image call (ADR-20261008-L). With
+        # "analyze" it looks at the images first (ADR-20261009-P); its failures say so.
+        prefix = "VISION_" if look else "TEXT_"
         if text_config is None:
-            raise BackgroundError("TEXT_CONFIGURATION")
+            raise BackgroundError(prefix + "CONFIGURATION")
         api.call("POST", f"/internal/v1/work/{request['attempt_id']}/heartbeat", lease=lease)
-        system, user = _rewrite_messages(request)
+        if look:
+            system, user = _analysis_messages(request)
+            images = tuple(zip(_image_names(request), map(_analysis_copy, references), strict=True))
+        else:
+            (system, user), images = _rewrite_messages(request), ()
         try:
-            brief, _usage = text_models.rewrite(text_config, system, user)
+            written, _usage = text_models.rewrite(
+                text_config, system, user, images=images, max_tokens=1500 if look else 800
+            )
         except BackgroundError as error:
-            # Tell the page it was the rewrite, not the picture, that failed.
-            raise BackgroundError("TEXT_" + error.code, retryable=error.retryable) from None
-        agent_info.update(rewritten=brief, text_model=text_config.model)
+            # Tell the page it was the text step, not the picture, that failed.
+            raise BackgroundError(prefix + error.code, retryable=error.retryable) from None
+        if request.get("rewrite"):
+            brief = written
+            agent_info.update(rewritten=written, text_model=text_config.model)
+        else:
+            analysis = written
+        if look:
+            analysis_info = {"text": written, "text_model": text_config.model}
     artifacts, generations, hashes = [], [], set()
     for ordinal in range(count):
         if retypeset:
@@ -548,7 +624,7 @@ def process_generation(api, request, lease, adapter, *, cancelled=None, text_con
             api.call("POST", f"/internal/v1/work/{attempt}/generation-calls/{ordinal}", lease=lease)
             generated = adapter.generate(
                 BackgroundRequest(
-                    prompt=build_prompt(request, ordinal, brief),
+                    prompt=build_prompt(request, ordinal, brief, analysis),
                     template_version="generation-v4-" + request["feature_type"].lower(),
                     correlation_id=f"{attempt}-{ordinal}",
                     aspect_ratio=output["aspect_ratio"],
@@ -591,6 +667,8 @@ def process_generation(api, request, lease, adapter, *, cancelled=None, text_con
             provenance["gift_card"] = card_info
         if agent_info is not None and not retypeset:
             provenance["agent"] = agent_info
+        if analysis_info is not None:
+            provenance["analysis"] = analysis_info
         provenance.update(
             sha256=digest,
             inputs=inputs,

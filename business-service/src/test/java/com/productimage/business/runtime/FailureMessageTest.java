@@ -11,6 +11,10 @@ class FailureMessageTest {
     assertEquals(
         "魔法棒改写失败：文本模型不存在或路由标签不匹配（HTTP 404），请检查模型标识和路由标签",
         TaskService.safeMessage("PROVIDER_UNAVAILABLE", "TEXT_PROVIDER_HTTP_404"));
+    // ADR-20261009-P: the look-first analysis says it was the analysis.
+    assertEquals(
+        "看图分析失败：文本模型不存在或路由标签不匹配（HTTP 404），请检查模型标识和路由标签",
+        TaskService.safeMessage("PROVIDER_UNAVAILABLE", "VISION_PROVIDER_HTTP_404"));
     assertEquals(
         "出图模型的 API Key 无效或无权限（401）",
         TaskService.safeMessage("PROVIDER_UNAVAILABLE", "PROVIDER_HTTP_401"));

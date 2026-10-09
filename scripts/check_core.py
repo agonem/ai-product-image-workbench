@@ -1125,16 +1125,40 @@ def api_checks(core, admin, alice, bob, project):
     assert state["status"] == "SUCCEEDED", state
     attempt, gens = core.generations(state["id"])
     agent = gens[0]["provenance"]["agent"]
-    assert agent["rewritten"].startswith("[Gloria改写] 把商品放在浅木色桌面上"), agent
+    # With a text model the wand also looks at the images first (ADR-20261009-P).
+    assert agent["rewritten"].startswith("[Gloria看图改写：商品图] 把商品放在浅木色桌面上"), agent
     assert agent["text_model"] == "test/mock-writer"
-    assert "Brief written by Gloria" in gens[0]["provenance"]["prompt"]
+    assert gens[0]["provenance"]["analysis"]["text"] == agent["rewritten"]
+    prompt = gens[0]["provenance"]["prompt"]
+    assert "Brief written by Gloria after looking at every input image" in prompt
     assert core.fences(attempt) == "1"
     detail = core.get(alice, state["id"])[1]
     assert detail["agent"]["rewrite"] is True and detail["agent"]["rewritten"] == agent["rewritten"]
-    # A failed rewrite says so, and why (ADR-20261008-L follow-up).
+    assert detail["analysis"] == {"text": agent["rewritten"]}
+    # A26: look first, then draw (ADR-20261009-P): without the wand every chat message is still
+    # analysed from its images, and the image model gets the user's words plus that analysis.
+    looked = dict(
+        first,
+        conversation_id=chat["id"],
+        reference_asset_ids=[fresh_gift["id"]],
+        prompt="在参考图1的基础上加商品图作为赠品",
+    )
+    state = core.generate(alice, looked, "v4-look-first")
+    assert state["status"] == "SUCCEEDED", state
+    attempt, gens = core.generations(state["id"])
+    analysis = gens[0]["provenance"]["analysis"]
+    assert analysis["text"].startswith("[看图分析：商品图、参考图1] 在参考图1的基础上"), analysis
+    assert analysis["text_model"] == "test/mock-writer" and "agent" not in gens[0]["provenance"]
+    prompt = gens[0]["provenance"]["prompt"]
+    assert "Instruction from the user: 在参考图1的基础上" in prompt
+    assert "Image analysis and plan, written after looking at every input image" in prompt
+    assert analysis["text"] in prompt and core.fences(attempt) == "1"
+    detail = core.get(alice, state["id"])[1]
+    assert detail["analysis"] == {"text": analysis["text"]} and "agent" not in detail, detail
+    # A failed text step says so, and why, before any paid image call.
     state = core.generate(alice, dict(wand, prompt="模拟改写失败"), "v4-agent-wand-404")
     assert state["status"] == "FAILED" and state["artifacts"] == [], state
-    assert state["error"]["message"].startswith("魔法棒改写失败：文本模型不存在或路由标签不匹配")
+    assert state["error"]["message"].startswith("看图分析失败：文本模型不存在或路由标签不匹配")
     attempt = run.sql(f"SELECT current_attempt_id FROM generation_tasks WHERE id='{state['id']}'")
     assert core.fences(attempt) == "0"
     # An OpenRouter text model may leave routing to OpenRouter; an image model may not.
@@ -1265,12 +1289,12 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A25: three entries, references, text, retypeset, isolation, "
+            "PASS V4-A1..A26: three entries, references, text, retypeset, isolation, "
             "withdrawn routes, model catalog and proxy, owner deletion, real-world uploads, "
             "reuse, original background, third-party endpoint, account deletion, "
             "template management, personal templates, image management, dashboard, "
             "operation log, per-point selling, keep-original selling, gift card, "
-            "product position, conversational generation, agents and magic wand",
+            "product position, conversational generation, agents and magic wand, look-first chat",
             flush=True,
         )
         if browser_checks(core, stack):
