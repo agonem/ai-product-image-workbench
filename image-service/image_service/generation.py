@@ -300,9 +300,21 @@ def _custom_prompt(request, brief=None):
         "The user decides what each image is for: a 参考图 may be the base picture to build on, "
         "an item to add, or only an example of style or layout, and the product may be the main "
         "subject or an added item such as a gift. Follow the user's words instead of assuming "
-        "that the product is always the main subject. When the words build on one picture (for "
-        "example 在参考图1的基础上), keep that picture's people, items, text, logos and layout as "
-        "they are and make only the requested change."
+        "that the product is always the main subject."
+    )
+    # Task c0b4d7de (2026-10-09): with the roles right, the model still cleared the base
+    # picture's logo, title and badges to make room for the gift card. Same wording as the gift
+    # entry's "keep original" prompt (ADR-20261008-H), plus where additions go (ADR-20261009-O).
+    parts.append(
+        "When the words build on one picture (for example 在参考图1的基础上), that picture is the "
+        "base: keep everything in it exactly as it is and where it is - every person, item, "
+        "text, logo, badge, icon and graphic, the layout, colours, lighting and background. Do "
+        "not remove, move, resize, cover, recentre, crop or redraw anything in it. Put anything "
+        "added only into empty background space of the base picture (pick the emptiest area, "
+        "such as an empty bottom corner) and make it small enough to fit there without covering "
+        "any person, product, text, logo or badge. When a picture is only an example of how "
+        "something should be shown (for example 展示方式可以参考参考图2), copy only that way of "
+        "showing it, not that picture's people, products, text or background."
     )
     if "edit_image" in request:
         parts.append(
@@ -328,8 +340,9 @@ def _custom_prompt(request, brief=None):
         "items. Items taken from a 参考图 keep their look as well."
     )
     parts.append(
-        "Do not add any new text, letters, numbers, watermarks, stickers, badges or logos; text "
-        "already in a picture that is kept stays unchanged."
+        "Do not write any new text, letters, numbers or watermarks; an added gift card or label "
+        "stays without a caption. This never means removing anything that is already in the "
+        "base picture: its text, logos, badges and icons stay exactly as they are."
     )
     return " ".join(parts)
 
