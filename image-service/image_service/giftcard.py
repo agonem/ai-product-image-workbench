@@ -23,7 +23,11 @@ SHARES = {"S": 0.22, "M": 0.28, "L": 0.34}
 BADGE = (62, 155, 95)
 LABEL = (43, 43, 43)
 EDGE = (232, 232, 232)
+WHITE = (255, 255, 255, 255)
 MIN_LABEL_PX = 9
+# Shapes (card corners, badge, plus sign, photo corners) are drawn this many times larger and
+# scaled down, because Pillow draws circles and rounded corners with hard, stair-stepped edges.
+SUPERSAMPLE = 4
 # A model backdrop at least this light in every channel counts as white and is levelled to 255.
 WHITE_BACKDROP = 225
 # After levelling, pixels this far below white (darker or coloured) belong to the item or its
@@ -79,16 +83,43 @@ def _gift(raw):
     return flat
 
 
+def _smooth(size, paint):
+    """A transparent layer whose shapes have anti-aliased edges: ``paint(draw, scale)`` draws
+    at SUPERSAMPLE times the size (coordinates multiplied by ``scale``), then the layer is
+    averaged down with premultiplied alpha so edges blend instead of darkening."""
+    big = Image.new("RGBA", (size[0] * SUPERSAMPLE, size[1] * SUPERSAMPLE), (0, 0, 0, 0))
+    paint(ImageDraw.Draw(big), SUPERSAMPLE)
+    return big.convert("RGBa").resize(size, Image.Resampling.BOX).convert("RGBA")
+
+
+def _rounded_mask(size, radius):
+    """An anti-aliased rounded-rectangle mask (L)."""
+    layer = _smooth(
+        size,
+        lambda draw, k: draw.rounded_rectangle(
+            (0, 0, size[0] * k - 1, size[1] * k - 1), radius * k, fill=(255, 255, 255, 255)
+        ),
+    )
+    return layer.getchannel("A")
+
+
+def _with_alpha(image, mask):
+    """``image`` as RGBA with ``mask`` as its own alpha (straight alpha, colours untouched)."""
+    rgba = image.convert("RGBA")
+    rgba.putalpha(mask)
+    return rgba
+
+
 def _photo_tile(photo, room_w, room_h, cw):
     """A picture fitted whole inside the image area with softly rounded corners."""
     photo = photo.copy()
     photo.thumbnail((room_w, room_h), Image.Resampling.LANCZOS)
-    mask = Image.new("L", photo.size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle(
-        (0, 0, photo.width - 1, photo.height - 1), max(1, round(cw * 0.04)), fill=255
-    )
+    mask = _rounded_mask(photo.size, max(1, round(cw * 0.04)))
     tile = Image.new("RGBA", (room_w, room_h), (255, 255, 255, 0))
-    tile.paste(photo, ((room_w - photo.width) // 2, (room_h - photo.height) // 2), mask)
+    # The tile is empty, so a plain paste keeps straight alpha (a masked paste would darken edges).
+    tile.paste(
+        _with_alpha(photo, mask), ((room_w - photo.width) // 2, (room_h - photo.height) // 2)
+    )
     return tile
 
 
@@ -146,7 +177,7 @@ def _white_tile(picture, room_w, room_h, cw):
     ImageDraw.Draw(mask).rectangle((fade, fade, size[0] - 1 - fade, size[1] - 1 - fade), fill=255)
     mask = mask.filter(ImageFilter.GaussianBlur(fade / 2))
     tile = Image.new("RGBA", (room_w, room_h), (255, 255, 255, 0))
-    tile.paste(piece, ((room_w - size[0]) // 2, (room_h - size[1]) // 2), mask)
+    tile.paste(_with_alpha(piece, mask), ((room_w - size[0]) // 2, (room_h - size[1]) // 2))
     return tile, True
 
 
@@ -188,13 +219,20 @@ def render(gift_raw, card, box, font_path, white=None):
         fill=(0, 0, 0, 46),
     )
     sticker.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(max(1, round(cw * 0.03)))))
-    draw = ImageDraw.Draw(sticker)
-    draw.rounded_rectangle(
-        (left, top, left + cw - 1, top + ch - 1),
-        box["corner"],
-        fill=(255, 255, 255, 255),
-        outline=EDGE + (255,),
+    # The white card with a thin grey edge, anti-aliased.
+    sticker.alpha_composite(
+        _smooth(
+            sticker.size,
+            lambda d, k: d.rounded_rectangle(
+                (left * k, top * k, (left + cw) * k - 1, (top + ch) * k - 1),
+                box["corner"] * k,
+                fill=(255, 255, 255, 255),
+                outline=EDGE + (255,),
+                width=k,
+            ),
+        )
     )
+    draw = ImageDraw.Draw(sticker)
     room_w, room_h = cw - 2 * box["pad"], box["image_height"]
     info = {"background": card.get("background", "ORIGINAL")}
     if white is not None:
@@ -219,19 +257,22 @@ def render(gift_raw, card, box, font_path, white=None):
             stroke_width=stroke,
             stroke_fill=LABEL + (255,),
         )
-    # Green "+" badge centred on the top edge, with a white ring.
+    # Green "+" badge centred on the top edge, with a white ring; anti-aliased (2026-10-09:
+    # drawn directly, its edges were visibly stair-stepped at about 44 px across).
     cx, cy = left + cw / 2, top
-    ring = max(1, round(radius * 0.18))
-    draw.ellipse((cx - radius, cy - radius, cx + radius, cy + radius), fill=(255, 255, 255, 255))
+    ring = max(1, radius * 0.18)
     inner = radius - ring
-    draw.ellipse((cx - inner, cy - inner, cx + inner, cy + inner), fill=BADGE + (255,))
-    arm, thick = inner * 0.55, max(1, round(inner * 0.28))
-    draw.rounded_rectangle(
-        (cx - arm, cy - thick / 2, cx + arm, cy + thick / 2), thick / 2, fill=(255, 255, 255, 255)
-    )
-    draw.rounded_rectangle(
-        (cx - thick / 2, cy - arm, cx + thick / 2, cy + arm), thick / 2, fill=(255, 255, 255, 255)
-    )
+    arm, thick = inner * 0.55, max(1.0, inner * 0.28)
+
+    def badge(d, k):
+        x, y = cx * k, cy * k
+        d.ellipse((x - radius * k, y - radius * k, x + radius * k, y + radius * k), fill=WHITE)
+        d.ellipse((x - inner * k, y - inner * k, x + inner * k, y + inner * k), fill=BADGE + (255,))
+        a, t = arm * k, thick * k / 2
+        d.rounded_rectangle((x - a, y - t, x + a, y + t), t, fill=WHITE)
+        d.rounded_rectangle((x - t, y - a, x + t, y + a), t, fill=WHITE)
+
+    sticker.alpha_composite(_smooth(sticker.size, badge))
     return sticker, (box["x"] - margin, box["y"] - radius - margin), info
 
 
@@ -239,5 +280,7 @@ def apply(image, sticker, offset):
     """Places the card on an exported image (RGB or RGBA); returns RGBA."""
     result = image.convert("RGBA")
     layer = Image.new("RGBA", result.size, (0, 0, 0, 0))
-    layer.paste(sticker, offset, sticker)
+    # Plain paste onto the empty layer keeps the sticker's straight alpha; pasting with itself
+    # as the mask would square the alpha of soft edges and leave a dark fringe.
+    layer.paste(sticker, offset)
     return Image.alpha_composite(result, layer)

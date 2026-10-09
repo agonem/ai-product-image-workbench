@@ -844,8 +844,10 @@ def test_white_card_reshoots_the_gift_once_and_enlarges_it(font):
         assert info["reshoot"]["usage"] == {"cost": 0.01}
         assert generation["provenance"]["output_source"] == "original"
     card = card_area(local.outputs[0], value["gift_card"])
-    # The beige backdrop and its printed words are gone and no grey outline is drawn.
-    assert near(card, (214, 197, 185), 8) == 0 and near(card, (190, 197, 207), 6) == 0
+    # The beige backdrop and its printed words are gone and no grey outline is drawn (inside
+    # the card: its anti-aliased corners blend with the picture behind them).
+    inner = card.crop((14, 14, card.width - 14, card.height - 14))
+    assert near(inner, (214, 197, 185), 8) == 0 and near(inner, (190, 197, 207), 6) == 0
     # The cream item (levelled from the 250/249/246 backdrop) is larger than in the photo.
     white = near(card, (243, 238, 228), 6)
     local.outputs.clear()
@@ -925,6 +927,34 @@ def test_worker_contacts_the_model_for_a_white_card_on_the_original(font, monkey
         local, card_on_original(local, "WHITE"), "lease", False, provider_config=config
     )
     assert "error" not in receipt and len(adapter.requests) == 1
+
+
+def test_card_and_badge_edges_are_smooth_without_dark_fringes():
+    """2026-10-09: the badge and card corners were drawn with hard, stair-stepped edges."""
+    from image_service import giftcard
+
+    card = {"size": "M"}
+    box = giftcard.geometry(card, 800, 800, "BOTTOM_RIGHT")
+    stream = io.BytesIO()
+    Image.new("RGB", (60, 60), (255, 255, 255)).save(stream, format="PNG")
+    sticker, offset, _ = giftcard.render(stream.getvalue(), card, box, None)
+    margin, radius = max(2, round(box["width"] * 0.06)), box["badge_radius"]
+    cx, cy = margin + box["width"] // 2, margin + radius
+    # Drawn with hard edges the badge holds only its green and white; anti-aliased, the rim of
+    # the disc and of the plus sign has many in-between colours.
+    badge = sticker.crop((cx - radius + 2, cy - radius + 2, cx + radius - 2, cy + radius - 2))
+    colours = {c for _, c in badge.getcolors(1 << 16) if c[3] == 255}
+    between = {c for c in colours if c[:3] not in {(62, 155, 95), (255, 255, 255)}}
+    assert len(between) > 10, len(between)
+    # Placing the sticker is plain alpha compositing: out = colour * a + picture * (1 - a). The
+    # old placement multiplied soft edges by their alpha twice, darkening them.
+    grey = 128
+    placed = giftcard.apply(Image.new("RGB", (800, 800), (grey,) * 3), sticker, offset)
+    for x, y in [(margin + i, margin + radius + i) for i in range(12)]:
+        r, g, b, a = sticker.getpixel((x, y))
+        expected = [round(c * a / 255 + grey * (1 - a / 255)) for c in (r, g, b)]
+        got = placed.getpixel((offset[0] + x, offset[1] + y))[:3]
+        assert max(abs(e - v) for e, v in zip(expected, got, strict=True)) <= 2, (x, y, got)
 
 
 def test_a_bold_font_is_drawn_without_the_extra_stroke(monkeypatch):
