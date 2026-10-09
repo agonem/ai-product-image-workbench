@@ -41,6 +41,10 @@ final class SnapshotBuilder {
         worker.set("gift_card", request.get("gift_card"));
         if ("ORIGINAL".equals(request.path("background").path("mode").asText()))
           worker.put("keep_original", true);
+        // A white card shows the gift re-shot alone on white by the model: one extra call per
+        // attempt, also on the original background (ADR-20261009-N).
+        if ("WHITE".equals(request.path("gift_card").path("background").asText()))
+          worker.put("gift_reshoot", true);
       }
     } else if (feature.equals("SCENE")) {
       ObjectNode scene;

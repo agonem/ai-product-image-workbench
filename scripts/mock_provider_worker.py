@@ -51,6 +51,10 @@ class MockModel:
             (round(size[0] * 0.45), round(size[1] * 0.35), 0.4),
             (round(size[0] * 0.75), round(size[1] * 0.72), 0.2),
         ]
+        if request.template_version == "generation-v4-gift-white":
+            # The gift re-shot on white (ADR-20261009-N): the gift photo, centred on white.
+            canvas = Image.new("RGB", size, (252, 252, 250))
+            slots = [(round(size[0] * 0.2), round(size[1] * 0.2), 0.6)]
         for reference, (x, y, fraction) in zip(request.references, slots, strict=False):
             with Image.open(io.BytesIO(reference)) as image:
                 side = round(size[0] * fraction)

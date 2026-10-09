@@ -171,17 +171,52 @@
                       "WHITE"
                     ]
                   },
-                  "separated": {
-                    "type": "boolean"
+                  "reshoot": {
+                    "type": "object",
+                    "description": "The gift re-shot on white by the model (ADR-20261009-N).",
+                    "properties": {
+                      "output_source": {
+                        "enum": [
+                          "openrouter-images-api",
+                          "openai-images-api",
+                          "gemini-generate-content",
+                          "mock-acceptance-only"
+                        ]
+                      },
+                      "correlation_id": {
+                        "type": "string",
+                        "pattern": "-gift$",
+                        "maxLength": 200
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      },
+                      "model": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 12000
+                      },
+                      "prompt": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 12000
+                      }
+                    },
+                    "required": [
+                      "output_source",
+                      "correlation_id",
+                      "sha256",
+                      "model",
+                      "prompt"
+                    ]
                   },
-                  "light": {
+                  "white_backdrop": {
                     "type": "boolean"
                   }
                 },
                 "required": [
-                  "background",
-                  "separated",
-                  "light"
+                  "background"
                 ]
               },
               "agent": {

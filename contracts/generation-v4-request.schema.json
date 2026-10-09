@@ -171,7 +171,7 @@
             "ORIGINAL",
             "WHITE"
           ],
-          "description": "Inside the card: the gift photo as it is, or the gift separated onto white (ADR-20261008-J)."
+          "description": "Inside the card: the gift photo as it is, or the gift re-shot on white by the model (ADR-20261009-N)."
         }
       },
       "required": [
@@ -313,6 +313,10 @@
     "keep_original": {
       "const": true,
       "description": "No model call: every base is the product image cropped to size."
+    },
+    "gift_reshoot": {
+      "const": true,
+      "description": "White gift card (ADR-20261009-N): one model call per attempt re-shoots the gift alone on white; its paid-call permit is ordinal output.count."
     },
     "product_position": {
       "enum": [

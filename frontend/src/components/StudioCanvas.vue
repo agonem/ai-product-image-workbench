@@ -594,7 +594,7 @@ function nudge(event: KeyboardEvent) {
               missing="原图已删除"
             />
             <small v-if="giftCard?.white" class="gc-note"
-              >纯白·生成时去底</small
+              >纯白·生成时 AI 重拍</small
             >
           </div>
           <span v-if="giftCard?.label" class="gc-label" :style="card.label">{{

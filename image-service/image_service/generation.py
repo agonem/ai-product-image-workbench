@@ -7,7 +7,8 @@ A re-typeset request reuses a stored model output and never calls the model.
 
 Selling points (ADR-20261008-G): one image per point; image i carries the shared title and point i.
 With ``keep_original`` the product image itself, cropped to size, is the base of every image and
-no model is called.
+no model is called for the picture. A white gift card (``gift_reshoot``, ADR-20261009-N) adds one
+call per attempt for the gift alone on white.
 """
 
 import hashlib
@@ -243,6 +244,8 @@ def _gift_parts(request):
 REWRITE_RULES = (
     "任务：把用户对母婴电商图片的需求改写成一段给 AI 生图模型的中文画面描述，不超过 300 字。"
     "写清场景、构图与商品位置、光线、色调和氛围；只描述画面本身。"
+    "提到图片时沿用用户的叫法（如“商品图”“参考图1”“参考图2”“要修改的图”），不要改名或重新编号；"
+    "按用户安排每张图的用途（例如以某张参考图为底图、把商品作为赠品加入），不要擅自让商品当主角。"
     "不要要求图中出现任何文字、字母、数字、Logo、水印、价格或标签；"
     "不要改变商品的外形、颜色、Logo、包装文字和数量。"
     "如果用户是在已有图片上修改，只描述要改的地方，并说明其余保持不变。"
@@ -251,50 +254,82 @@ REWRITE_RULES = (
 DEFAULT_DESIGNER = "你是资深母婴电商视觉设计师，擅长干净、温馨、主体突出的商品图。"
 
 
+def _image_names(request):
+    """What the chat page calls each input image, in the order they are sent (ADR-20261009-M).
+    The user writes these names; numbering the inputs differently made "参考图1" read as the
+    first input, i.e. the product (tasks c47dffee, 9a21795f, bc71d56b)."""
+    names = ["要修改的图"] if "edit_image" in request else []
+    names.append("商品图")
+    names += [f"参考图{index + 1}" for index in range(len(request.get("references", [])))]
+    return names
+
+
 def _rewrite_messages(request):
     agent = request.get("agent")
     persona = f"你是{agent['name']}。{agent['instructions']}" if agent else DEFAULT_DESIGNER
     situation = "这是在已生成的图片上修改" if "edit_image" in request else "这是生成新图"
-    extra = len(request.get("references", []))
-    references = "，另有 " + str(extra) + " 张参考图" if extra else ""
-    user = f"需求：{request['prompt']}\n（{situation}；会提供商品图{references}。）"
+    names = "、".join(f"“{name}”" for name in _image_names(request))
+    user = f"需求：{request['prompt']}\n（{situation}；提供的图片：{names}。）"
     return persona + "\n\n" + REWRITE_RULES, user
 
 
 def _custom_prompt(request, brief=None):
     """Conversational generation (ADR-20261008-I): the user's words, plus the guard every entry
     keeps (business rule 1): the product stays exactly as photographed and no text is drawn.
-    With an agent its settings guide the picture; after a rewrite the brief replaces the words."""
-    editing = "edit_image" in request
-    product = 2 if editing else 1
-    parts = []
-    if editing:
-        parts.append(
-            "Reference image 1 is the current picture to modify. Change only what the "
-            "instruction asks for and keep everything else in it as it is."
+    With an agent its settings guide the picture; after a rewrite the brief replaces the words.
+    The inputs are introduced by the names the page shows, so the user's words map onto them;
+    what each image is for (base picture, added item, style example) is the user's choice."""
+    names = _image_names(request)
+    order = []
+    for number, name in enumerate(names, 1):
+        role = {
+            "要修改的图": " (the current picture to modify; the user may call it 这张图 or 当前图)",
+            "商品图": " (the product)",
+        }.get(name, "")
+        order.append(f"input image {number} = 「{name}」{role}")
+    parts = [
+        "The input images, in order: " + "; ".join(order) + ". The user's words (Chinese) "
+        "refer to the images by exactly these names"
+        + (
+            f", so 「参考图1」 means input image {names.index('参考图1') + 1}, not input image 1."
+            if "参考图1" in names
+            else "."
         )
-    parts.append(f"Reference image {product} is the product.")
-    for index, _ in enumerate(request.get("references", [])):
-        parts.append(f"Reference image {product + 1 + index} is an extra reference from the user.")
+    ]
+    parts.append(
+        "The user decides what each image is for: a 参考图 may be the base picture to build on, "
+        "an item to add, or only an example of style or layout, and the product may be the main "
+        "subject or an added item such as a gift. Follow the user's words instead of assuming "
+        "that the product is always the main subject. When the words build on one picture (for "
+        "example 在参考图1的基础上), keep that picture's people, items, text, logos and layout as "
+        "they are and make only the requested change."
+    )
+    if "edit_image" in request:
+        parts.append(
+            "Change only what the user asks for in 「要修改的图」 and keep everything else in it "
+            "as it is."
+        )
     agent = request.get("agent")
     if brief is not None:
         writer = agent["name"] if agent else "the designer"
-        parts.append(f"Brief written by {writer} from the user's request: {brief}")
+        parts.append(
+            f"Brief written by {writer} from the user's request (same image names): {brief}"
+        )
     else:
         if agent:
             parts.append(
-                f"Design direction from the chosen designer {agent['name']}: "
-                f"{agent['instructions']}"
+                f"Design direction from the chosen designer {agent['name']} (where it conflicts "
+                f"with the user's words, follow the user): {agent['instructions']}"
             )
         parts.append(f"Instruction from the user: {request['prompt']}")
     parts.append(
-        f"Whatever changes, keep the product from reference image {product} exactly as it is: "
-        "the same shape, proportions, colours, materials, logo, printed text, markings and "
-        "number of items."
+        "Wherever the product from 「商品图」 appears, keep it exactly as photographed: the same "
+        "shape, proportions, colours, materials, logo, printed text, markings and number of "
+        "items. Items taken from a 参考图 keep their look as well."
     )
     parts.append(
-        "Do not add any new text, letters, numbers, watermarks, stickers, badges or logos"
-        + ("; keep existing text in reference image 1 unchanged." if editing else ".")
+        "Do not add any new text, letters, numbers, watermarks, stickers, badges or logos; text "
+        "already in a picture that is kept stays unchanged."
     )
     return " ".join(parts)
 
@@ -341,6 +376,62 @@ def build_prompt(request, ordinal, brief=None):
     return " ".join(parts)
 
 
+# ADR-20261009-N: the white gift card shows the gift re-photographed alone on white by the model
+# instead of a program cut-out (dark outlines, leftover backdrop strips on non-white photos).
+GIFT_WHITE = (
+    "Reference image 1 shows a free gift item, possibly on a coloured or busy background and "
+    "possibly with words or other objects around it. Show exactly this item alone as a clean "
+    "e-commerce product photo on a pure white (#FFFFFF) seamless background. Keep the item "
+    "exactly as it is: the same shape, proportions, colours, materials, logo, printed text, "
+    "markings and number of pieces; do not redesign, relabel, crop or duplicate it. Remove "
+    "everything that is not part of the item: the original background, words printed on the "
+    "background, props, hands and other products. Centre it in the same view as the reference, "
+    "filling about 80% of the frame. Soft even studio light with a light, natural shadow under "
+    "the item, so that a white or cream item still stands out from the white background. Do not "
+    "add any text, letters, numbers, watermarks, stickers, badges, frames or borders."
+)
+# Fields of the gift call's provenance kept in the receipt (no secrets are ever in it).
+RESHOOT_FIELDS = (
+    "provider",
+    "provider_tag",
+    "model",
+    "endpoint",
+    "prompt",
+    "template_version",
+    "parameters",
+    "correlation_id",
+    "output_source",
+    "sha256",
+    "duration_ms",
+    "usage",
+)
+
+
+def _reshoot_gift(api, request, lease, adapter, gift_raw):
+    """One paid call per attempt: the gift alone on white. Its permit is ordinal ``count``, after
+    the images' own ordinals 0..count-1. Returns (picture, provenance)."""
+    attempt, count = request["attempt_id"], request["output"]["count"]
+    api.call("POST", f"/internal/v1/work/{attempt}/heartbeat", lease=lease)
+    api.call("POST", f"/internal/v1/work/{attempt}/generation-calls/{count}", lease=lease)
+    generated = adapter.generate(
+        BackgroundRequest(
+            prompt=GIFT_WHITE,
+            template_version="generation-v4-gift-white",
+            correlation_id=f"{attempt}-gift",
+            aspect_ratio="1:1",
+            resolution=None,
+            output_format=None,
+            references=(_reference(gift_raw),),
+        )
+    )
+    with Image.open(io.BytesIO(generated.content)) as image:
+        budget(image.size)
+        picture = image.convert("RGB")
+    provenance = {k: v for k, v in generated.provenance.items() if k in RESHOOT_FIELDS}
+    provenance["sha256"] = hashlib.sha256(generated.content).hexdigest()
+    return picture, provenance
+
+
 def _palette(request, ordinal):
     text = request["text"]
     if request.get("styles"):
@@ -381,11 +472,17 @@ def process_generation(api, request, lease, adapter, *, cancelled=None, text_con
     if "gift_asset" in request:
         inputs["gift_sha256"] = request["gift_asset"]["sha256"]
         if card:
-            # The card shows the gift photo itself; the model never draws it (ADR-20261008-H).
+            # The program draws the card (ADR-20261008-H). Inside it is the gift photo, or on
+            # the white background the model's re-shot of the gift alone (ADR-20261009-N).
             box = giftcard.geometry(card, width, height, request["gift_position"])
-            sticker, offset, card_info = giftcard.render(
-                _raw(api, request, lease, "gift_asset"), card, box, font
-            )
+            gift_raw = _raw(api, request, lease, "gift_asset")
+            giftcard.check_label(card, box, font)
+            white = None
+            if request.get("gift_reshoot") and not retypeset:
+                if cancelled is not None and cancelled():
+                    raise ValueError("generation lease or time budget exhausted")
+                white = _reshoot_gift(api, request, lease, adapter, gift_raw)
+            sticker, offset, card_info = giftcard.render(gift_raw, card, box, font, white)
         elif not retypeset and not original:
             references.append(_reference(_raw(api, request, lease, "gift_asset")))
     brief, agent_info = None, None

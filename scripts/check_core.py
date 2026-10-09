@@ -937,29 +937,51 @@ def api_checks(core, admin, alice, bob, project):
         [[[560, 752, 750, 764], [255] * 3, 6], [[630, 645, 680, 720], list(GIFT_RGB), 12]],
     )
     assert checked["regions"] == [True, True], checked
-    # White card background (ADR-20261008-J): the gift leaves its photo backdrop and grows.
+    # White card background (ADR-20261009-N): the model re-shoots the gift alone on white,
+    # one paid call (permit ordinal = count) even though the picture itself is kept.
     white_task = None
     if core.font:
         white = dict(card, gift_card={"size": "M", "label": "洗头刷", "background": "WHITE"})
         state = core.generate(alice, white, "v4-gift-card-white")
         assert state["status"] == "SUCCEEDED", state
         white_task = state["id"]
+        assert (
+            run.sql(
+                "SELECT provider_config_version IS NOT NULL FROM generation_tasks "
+                f"WHERE id='{white_task}'"
+            )
+            == "t"
+        )
         attempt, gens = core.generations(white_task)
-        assert core.fences(attempt) == "0"
-        assert gens[0]["provenance"]["gift_card"] == {
-            "background": "WHITE",
-            "separated": True,
-            "light": False,
-        }
+        assert core.fences(attempt) == "1"
+        assert (
+            run.sql(f"SELECT ordinal FROM generation_call_fences WHERE attempt_id='{attempt}'")
+            == "1"
+        )
+        provenance = gens[0]["provenance"]
+        assert provenance["output_source"] == "original"
+        info = provenance["gift_card"]
+        assert info["background"] == "WHITE" and info["white_backdrop"] is True, info
+        assert info["reshoot"]["correlation_id"] == f"{attempt}-gift"
+        assert info["reshoot"]["output_source"] == "mock-acceptance-only"
+        assert info["reshoot"]["template_version"] == "generation-v4-gift-white"
         checked = core.inspect(
             core.image(alice, state["artifacts"][0]["id"]),
-            # Blue reaches x 616 / y 582 only when cut out and enlarged (as a photo: 622 / 594).
             [
-                [[612, 600, 619, 660], list(GIFT_RGB), 12],
-                [[630, 578, 680, 586], list(GIFT_RGB), 12],
+                # Trimmed and enlarged: blue reaches y 585 (as a photo it starts at y 594).
+                [[630, 588, 680, 592], list(GIFT_RGB), 12],
+                # The image area's edge is plain white: no outline, no seam.
+                [[564, 600, 570, 660], [255] * 3, 3],
             ],
         )
         assert checked["regions"] == [True, True], checked
+        # Gift-card images have no text to re-render.
+        status, _ = core.post(
+            alice,
+            f"/api/v4/generation-tasks/{white_task}/retypeset",
+            {"ordinal": 0, "text": text},
+        )
+        assert status == 409, status
     evidence["gift_card"] = {"original": task, "solid": solid_task, "white": white_task}
 
     # A23: the selling product goes where the user asked (ADR-20261008-H).
@@ -1006,7 +1028,8 @@ def api_checks(core, admin, alice, bob, project):
     provenance = gens[0]["provenance"]
     assert core.fences(attempt) == "1" and provenance["parameters"]["input_references"] == 1
     assert "Instruction from the user: 把商品放在浅木色桌面上" in provenance["prompt"]
-    assert "keep the product from reference image 1 exactly" in provenance["prompt"]
+    assert "input image 1 = 「商品图」 (the product)." in provenance["prompt"]
+    assert "Wherever the product from 「商品图」 appears" in provenance["prompt"]
     picture = state["artifacts"][0]["id"]
     for body, expected in (
         (dict(first, reference_asset_ids=[fresh["id"]]), 422),  # the product twice
@@ -1027,7 +1050,10 @@ def api_checks(core, admin, alice, bob, project):
     _, gens = core.generations(state["id"])
     provenance = gens[0]["provenance"]
     assert provenance["parameters"]["input_references"] == 3
-    assert "Reference image 1 is the current picture to modify" in provenance["prompt"]
+    # The images are named as on the page (ADR-20261009-M).
+    assert "input image 1 = 「要修改的图」" in provenance["prompt"]
+    assert "input image 3 = 「参考图1」" in provenance["prompt"]
+    assert "「参考图1」 means input image 3, not input image 1" in provenance["prompt"]
     edited = run.sql(f"SELECT sha256 FROM artifacts WHERE id='{picture}'")
     assert provenance["inputs"]["edit_sha256"] == edited
     status, detail, _ = run.http("GET", f"/api/v1/conversations/{chat['id']}", alice)

@@ -4,6 +4,8 @@ import {
   adoptText,
   buildGeneration,
   callsNoModel,
+  keepsPicture,
+  reshootsGift,
   giftCardBox,
   sellingProductZone,
   zoneOverlap,
@@ -207,12 +209,14 @@ test('ADR-20261008-H: gift card request, no model on the original background', (
   assert.equal(callsNoModel('GIFT', draft), true)
   draft.giftLabel = ''
   assert.deepEqual(buildGeneration('GIFT', 'p', draft).gift_card, { size: 'M' })
-  // ADR-20261008-J: the gift separated onto white inside the card.
+  // ADR-20261009-N: on white the model re-shoots the gift, so a model is chosen.
   draft.giftCardBackground = 'WHITE'
-  assert.deepEqual(buildGeneration('GIFT', 'p', draft).gift_card, {
-    size: 'M',
-    background: 'WHITE',
-  })
+  gift = buildGeneration('GIFT', 'p', draft)
+  assert.deepEqual(gift.gift_card, { size: 'M', background: 'WHITE' })
+  assert.equal(gift.model_id, 'model-2')
+  assert.equal(callsNoModel('GIFT', draft), false)
+  assert.equal(keepsPicture('GIFT', draft), true)
+  assert.equal(reshootsGift('GIFT', draft), true)
   draft.giftCardBackground = 'ORIGINAL'
   draft.giftCard = false
   assert.equal('gift_card' in buildGeneration('GIFT', 'p', draft), false)

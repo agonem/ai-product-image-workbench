@@ -60,8 +60,10 @@ public final class TaskService {
     var source = Json.parse(row.get("worker_snapshot_json").toString());
     int ordinal = body.path("ordinal").asInt();
     int count = source.path("output").path("count").asInt();
+    // Gift-card images carry no text since ADR-20261008-G, so there is nothing to re-render.
     if (source.path("schema_version").asInt() != 4
         || !"SUCCEEDED".equals(row.get("status"))
+        || source.has("gift_card")
         || ordinal >= count) throw new Problem(409, "TASK_CONFLICT");
     var bases =
         jdbc.queryForList(
@@ -126,11 +128,13 @@ public final class TaskService {
           if (!existing.isEmpty()) return existing(actor, existing.getFirst(), hash);
           ObjectNode worker = build.get();
           // Model tasks freeze the chosen (or default) model; retries reuse the frozen column.
-          // Text-only re-renders and keep-original selling images call no model.
+          // Text-only re-renders and keep-original pictures call no model, unless a white gift
+          // card needs its gift re-shot (ADR-20261009-N).
           String configVersion =
               worker.path("schema_version").asInt() >= 2
                       && !worker.has("base_image")
-                      && !worker.path("keep_original").asBoolean()
+                      && (!worker.path("keep_original").asBoolean()
+                          || worker.path("gift_reshoot").asBoolean())
                   ? configs.binding(request.get("model_id"))
                   : null;
           // An agent rewrite freezes the text model too (ADR-20261008-L).

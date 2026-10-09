@@ -68,6 +68,16 @@ final class GenerationOutputs {
               .path("parameters")
               .path("aspect_ratio")
               .equals(output.path("aspect_ratio"))) invalid();
+      if (request.path("gift_reshoot").asBoolean() && !retypeset) {
+        // The gift re-shot on white: a model output bound to this attempt (ADR-20261009-N).
+        var reshoot = provenance.path("gift_card").path("reshoot");
+        if (!MODEL_SOURCES.contains(reshoot.path("output_source").asText())
+            || !reshoot
+                .path("correlation_id")
+                .asText()
+                .equals(request.path("attempt_id").asText() + "-gift")
+            || !reshoot.path("sha256").asText().matches("[0-9a-f]{64}")) invalid();
+      }
       var transform = provenance.path("transform");
       int sw = base.path("width").asInt(), sh = base.path("height").asInt();
       double scale = Math.max((double) width / sw, (double) height / sh);

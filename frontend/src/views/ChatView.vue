@@ -56,6 +56,29 @@ const composer = reactive({
 // The picture the next message changes; after each result the newest one is chosen unless the
 // user picked or cleared it.
 const edit = ref<{ id: string; label: string } | null>(null)
+// The names the Worker gives the model for each image, so the user's words map onto them
+// (ADR-20261009-M).
+const imageNames = computed(() =>
+  [
+    edit.value ? '要修改的图' : '',
+    '商品图',
+    composer.ref1 ? '参考图1' : '',
+    composer.ref1 && composer.ref2 ? '参考图2' : '',
+  ]
+    .filter(Boolean)
+    .map((name) => `“${name}”`)
+    .join('、'),
+)
+// Clearing 参考图1 moves 参考图2 up, so the names always match the order sent.
+watch(
+  () => composer.ref1,
+  (value) => {
+    if (!value && composer.ref2) {
+      composer.ref1 = composer.ref2
+      composer.ref2 = ''
+    }
+  },
+)
 let manualEdit = false
 // An unknown outcome is resent with exactly the same body and key (no duplicate task).
 const pending = ref<{ key: string; body: Record<string, unknown> } | null>(null)
@@ -488,15 +511,19 @@ onUnmounted(() => {
                     alt="商品图"
                     :api="w.api"
                     missing="已删除"
-                  /><small>商品</small>
+                  /><small>商品图</small>
                 </span>
-                <span v-for="id in references(task)" :key="id" class="ref">
+                <span
+                  v-for="(id, index) in references(task)"
+                  :key="id"
+                  class="ref"
+                >
                   <PrivateImage
                     :path="`/assets/${id}/content`"
-                    alt="参考图"
+                    :alt="`参考图${index + 1}`"
                     :api="w.api"
                     missing="已删除"
-                  /><small>参考</small>
+                  /><small>参考图{{ index + 1 }}</small>
                 </span>
               </div>
             </div>
@@ -628,7 +655,7 @@ onUnmounted(() => {
         </p>
         <div class="composer-assets">
           <AssetSlot v-model="composer.product" label="商品图" kind="PRODUCT" />
-          <AssetSlot v-model="composer.ref1" label="参考图" kind="GIFT" />
+          <AssetSlot v-model="composer.ref1" label="参考图1" kind="GIFT" />
           <AssetSlot
             v-if="composer.ref1"
             v-model="composer.ref2"
@@ -655,6 +682,15 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
+        <p
+          v-if="composer.ref1 || edit"
+          class="hint names"
+          data-testid="image-names"
+        >
+          描述里用图片下方的名称指代图片（{{
+            imageNames
+          }}），例如“在参考图1的基础上，把商品图作为赠品加进去”。
+        </p>
         <textarea
           v-model="composer.prompt"
           aria-label="描述"

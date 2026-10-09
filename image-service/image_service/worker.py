@@ -101,9 +101,12 @@ def process(
         from image_service.background_config import config_from_mapping, load_config
 
         try:
-            if "base_image" in request or request.get("keep_original"):
+            if "base_image" in request or (
+                request.get("keep_original") and not request.get("gift_reshoot")
+            ):
                 # Text-only re-render of a stored model output, or text on the product image
-                # itself (ADR-20261008-G): no provider is contacted.
+                # itself (ADR-20261008-G): no provider is contacted. A white gift card on the
+                # original picture still has its gift re-shot by the model (ADR-20261009-N).
                 return generation.process_generation(api, request, lease, None)
             config = (
                 config_from_mapping(provider_config)

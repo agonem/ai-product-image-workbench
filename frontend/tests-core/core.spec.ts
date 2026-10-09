@@ -779,7 +779,7 @@ test('V4-B16: selling text on a finished work with "keep original" (no model)', 
   expect(errors).toEqual([])
 })
 
-test('V4-B17: the gift in a card on the original background, without a model', async ({
+test('V4-B17: the gift in a card on the original background, re-shot on white', async ({
   page,
 }) => {
   test.skip(!withText, 'needs a deployment font for the card label')
@@ -806,21 +806,25 @@ test('V4-B17: the gift in a card on the original background, without a model', a
     .getByRole('button', { name: '大' })
     .click()
   await page.getByLabel('方框文字').fill('洗头刷')
-  // ADR-20261008-J: the gift on white inside the card.
+  // The photo as it is: no model at all.
+  await expect(
+    page.locator('button.acc-head').filter({ hasText: /^输出设置/ }),
+  ).toContainText('不调用模型')
+  // ADR-20261009-N: on white the model re-shoots the gift alone, one call.
   await page
     .getByRole('group', { name: '方框底色' })
     .getByRole('button', { name: '纯白' })
     .click()
-  await expect(page.getByText('自动去掉赠品图的纯色底色')).toBeVisible()
-  // The plan shows the original under the card preview, and no model is used.
+  await expect(page.getByText('把赠品单独重拍成白底图')).toBeVisible()
+  // The plan shows the original under the card preview; the model is chosen for the gift.
   const card = page.getByTestId('gift-card')
   await expect(card).toContainText('洗头刷')
-  await expect(card).toContainText('纯白·生成时去底')
+  await expect(card).toContainText('纯白·生成时 AI 重拍')
   await expect(card.locator('img')).toBeVisible()
   await expect(page.locator('.artboard img.base')).toBeVisible()
   await expect(
     page.locator('button.acc-head').filter({ hasText: /^输出设置/ }),
-  ).toContainText('不调用模型')
+  ).not.toContainText('不调用模型')
   await section(page, '背景')
   await expect(page.getByText('原图完全不变')).toBeVisible()
   await page.screenshot({ path: join(artifacts, 'gift-card-plan.png') })
@@ -833,7 +837,7 @@ test('V4-B17: the gift in a card on the original background, without a model', a
     background: 'WHITE',
   })
   expect(body.background).toEqual({ mode: 'ORIGINAL' })
-  expect(body.model_id).toBeUndefined()
+  expect(typeof body.model_id).toBe('string')
   await expect(done(page, id)).toHaveCount(1, { timeout: 60000 })
   await page.screenshot({ path: join(artifacts, 'gift-card-result.png') })
   expect(errors).toEqual([])

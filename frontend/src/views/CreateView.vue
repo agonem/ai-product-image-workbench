@@ -24,6 +24,8 @@ import {
   backgrounds,
   buildGeneration,
   callsNoModel,
+  keepsPicture,
+  reshootsGift,
   canvasSizes,
   giftCardSizes,
   productPositions,
@@ -122,10 +124,11 @@ const perPoint = computed(() => {
   const request = shown.value?.request
   return !request || (!request.styles && !request.source_task_id)
 })
-// Without a model the product image itself is the picture, so the plan shows it.
+// When the product image itself is the picture, the plan shows it.
 const noModel = computed(() => callsNoModel(feature.value, draft.value))
+const reshoot = computed(() => reshootsGift(feature.value, draft.value))
 const backdrop = computed(() =>
-  noModel.value && draft.value.product
+  keepsPicture(feature.value, draft.value) && draft.value.product
     ? `/assets/${draft.value.product}/content`
     : null,
 )
@@ -569,7 +572,8 @@ onMounted(() => {
               v-if="draft.backgroundMode === 'ORIGINAL' && draft.giftCard"
               class="hint"
             >
-              原图完全不变：不调用 AI，直接贴上赠品方框（零费用）。
+              原图完全不变：直接贴上赠品方框。方框底色为“原图背景”时不调用
+              AI（零费用）；选“纯白”时只调用 1 次 AI 重拍赠品。
             </p>
             <p v-else-if="draft.backgroundMode === 'ORIGINAL'" class="hint">
               由 AI
@@ -659,7 +663,10 @@ onMounted(() => {
                 </div>
               </div>
               <p v-if="draft.giftCardBackground === 'WHITE'" class="hint">
-                自动去掉赠品图的纯色底色并放大赠品；米白等浅色赠品会自动加浅灰描边和投影，避免和白底混在一起。赠品图背景复杂时保留原图背景。效果以生成结果为准（保持原图背景时不花钱、几秒出图）。
+                由 AI
+                把赠品单独重拍成白底图（去掉原背景和背景上的文字，保留自然的浅阴影，浅色赠品也看得清），再放大放进方框，不加描边。每个任务多调用
+                1 次 AI（约 20–40
+                秒，按一次出图计费），重拍的赠品可能有细微差别，请在结果里核对。赠品图本身已是白底时选“原图背景”即可，不额外花钱。
               </p>
               <label class="form-row"
                 ><span>方框文字（可选，显示在赠品下方）</span
@@ -876,6 +883,9 @@ onMounted(() => {
               placeholder="未配置模型"
               :disabled="locked || !modelOptions.length"
             />
+            <small v-if="reshoot && backdrop" class="hint">
+              保持原图；只用所选模型把赠品重拍成白底（1 次）
+            </small>
           </div>
           <div class="pair">
             <div class="form-row">

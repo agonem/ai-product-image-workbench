@@ -20,6 +20,7 @@ from image_service.generation import (
 from image_service.worker import process
 
 PRODUCT, GIFT = (190, 70, 80), (60, 110, 200)
+GUARD = "Wherever the product from 「商品图」 appears, keep it exactly as photographed"
 
 
 def png(color, size=(96, 80)):
@@ -652,7 +653,8 @@ def test_custom_prompt_keeps_the_guard_and_sends_the_product(font):
     sent = adapter.requests[0]
     assert sent.references == (local.inputs["product"],)
     assert "Instruction from the user: 把商品放在浅色木桌上" in sent.prompt
-    assert "keep the product from reference image 1 exactly as it is" in sent.prompt
+    assert "input image 1 = 「商品图」 (the product)." in sent.prompt
+    assert GUARD in sent.prompt
     assert "Do not add any new text" in sent.prompt
     assert sent.template_version == "generation-v4-custom"
 
@@ -680,115 +682,240 @@ def test_custom_edit_sends_the_picture_first_then_product_and_references(font):
         local.inputs["product"],
         local.inputs["extra"],
     )
-    assert "Reference image 1 is the current picture to modify" in sent.prompt
-    assert "keep the product from reference image 2" in sent.prompt
-    assert "Reference image 3 is an extra reference" in sent.prompt
+    assert "input image 1 = 「要修改的图」 (the current picture to modify" in sent.prompt
+    assert "input image 2 = 「商品图」 (the product); input image 3 = 「参考图1」." in sent.prompt
+    assert "「参考图1」 means input image 3, not input image 1." in sent.prompt
+    assert "Change only what the user asks for in 「要修改的图」" in sent.prompt
     inputs = receipt["generations"][0]["provenance"]["inputs"]
     assert inputs["edit_sha256"] == edit["sha256"]
     assert inputs["reference_sha256"] == [extra["sha256"]]
 
 
-# ADR-20261008-J: white card background - the gift is separated from a plain backdrop.
+def test_custom_prompt_uses_the_page_names_of_the_images(font):
+    """Tasks c47dffee / 9a21795f / bc71d56b (2026-10-09): "在参考图1的基础上加商品图作为赠品" was
+    read with 参考图1 = the first input, i.e. the product, so the roles came out swapped."""
+    local, adapter = api(), Adapter()
+    local.inputs["towel"] = png((120, 160, 220))
+    local.inputs["layout"] = png((240, 200, 40))
+    references = [
+        {
+            "asset_id": name,
+            "object_key": f"originals/p/{name}.image",
+            "sha256": hashlib.sha256(local.inputs[name]).hexdigest(),
+        }
+        for name in ("towel", "layout")
+    ]
+    words = "在参考图1的基础上加商品图作为赠品，赠品的展示方式可以参考参考图2"
+    value = custom_request(local, references=references, prompt=words)
+    process_generation(local, value, "lease", adapter)
+    sent = adapter.requests[0]
+    assert sent.references == (
+        local.inputs["product"],
+        local.inputs["towel"],
+        local.inputs["layout"],
+    )
+    assert (
+        "input image 1 = 「商品图」 (the product); input image 2 = 「参考图1」; "
+        "input image 3 = 「参考图2」." in sent.prompt
+    )
+    assert "「参考图1」 means input image 2, not input image 1." in sent.prompt
+    assert "instead of assuming that the product is always the main subject" in sent.prompt
+    assert "keep that picture's people, items, text, logos and layout" in sent.prompt
+    assert "Reference image" not in sent.prompt
+    assert f"Instruction from the user: {words}" in sent.prompt
 
 
-def backdrop_photo(gift=(244, 242, 236), text=True, horizon=True):
-    """Beige wall/table backdrop with light falloff, a light rounded gift and printed words."""
-    image = Image.new("RGB", (300, 240))
+# ADR-20261009-N: white card background - the model re-shoots the gift alone on white (this
+# replaced the program cut-out of ADR-20261008-J).
+
+
+def backdrop_photo(gift=(244, 242, 236)):
+    """A light gift on a beige wall/table backdrop with printed words: the 2026-10-09 case."""
+    image = Image.new("RGB", (300, 240), (214, 197, 185))
     draw = ImageDraw.Draw(image)
-    for y in range(240):
-        base = (214, 197, 185) if y < 170 else (234, 216, 206)
-        for x in range(300):
-            fall = x // 30
-            draw.point((x, y), tuple(c - fall for c in base))
-    if horizon:
-        draw.line((0, 170, 300, 170), fill=(196, 180, 166), width=2)
+    draw.rectangle((0, 170, 300, 240), fill=(234, 216, 206))
     draw.rounded_rectangle((70, 70, 230, 190), 40, fill=gift)
-    if text:
-        for i in range(6):
-            draw.rectangle((200 + i * 14, 12, 208 + i * 14, 24), fill=(60, 50, 45))
+    for i in range(6):
+        draw.rectangle((200 + i * 14, 12, 208 + i * 14, 24), fill=(60, 50, 45))
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    return stream.getvalue()
+
+
+CREAM = (238, 232, 220)
+
+
+def white_shot(backdrop=(250, 249, 246), size=(1024, 1024)):
+    """What the model returns for the gift: a cream item with a soft shadow on near-white."""
+    image = Image.new("RGB", size, backdrop)
+    draw = ImageDraw.Draw(image)
+    w, h = size
+    draw.ellipse((w * 0.25, h * 0.68, w * 0.75, h * 0.76), fill=(225, 224, 221))
+    draw.rounded_rectangle((w * 0.3, h * 0.3, w * 0.7, h * 0.7), round(w * 0.05), fill=CREAM)
     return image
 
 
-def test_separate_finds_a_light_gift_on_a_two_tone_backdrop():
-    from image_service import giftcard
+class WhiteAdapter(Adapter):
+    """Fake model that answers the gift call with a white-background shot."""
 
-    photo = backdrop_photo()
-    mask = giftcard.separate(photo)
-    assert mask is not None
-    assert mask.getpixel((150, 130)) > 200  # the gift
-    assert mask.getpixel((20, 120)) < 40 and mask.getpixel((20, 220)) < 40  # wall and table
-    assert mask.getpixel((236, 18)) < 40  # printed words are not the gift
-    assert mask.getpixel((150, 172)) > 200  # the horizon behind the gift stays gift
-    assert mask.getpixel((260, 171)) < 40  # the horizon line elsewhere is backdrop
-    assert giftcard._is_light(photo, mask)
+    def generate(self, request):
+        if request.template_version != "generation-v4-gift-white":
+            return super().generate(request)
+        self.requests.append(request)
+        stream = io.BytesIO()
+        white_shot().save(stream, format="PNG")
+        content = stream.getvalue()
+        return BackgroundResult(
+            content,
+            1024,
+            1024,
+            {
+                "schema_version": 1,
+                "provider": "openrouter",
+                "model": "test/model",
+                "provider_tag": "test",
+                "prompt": request.prompt,
+                "template_version": request.template_version,
+                "parameters": {"aspect_ratio": request.aspect_ratio, "input_references": 1},
+                "correlation_id": request.correlation_id,
+                "output_source": "openrouter-images-api",
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "review_status": "PENDING",
+                "duration_ms": 1,
+                "usage": {"cost": 0.01},
+            },
+        )
 
 
-def test_separate_gives_up_on_a_busy_backdrop():
-    import random
-
-    from image_service import giftcard
-
-    rng = random.Random(7)
-    photo = Image.new("RGB", (200, 160))
-    for y in range(160):
-        for x in range(200):
-            photo.putpixel((x, y), tuple(rng.randrange(256) for _ in range(3)))
-    assert giftcard.separate(photo) is None
-
-
-def card_on_original(local, background, **card):
+def card_on_original(local, background, count=1, **card):
+    extra = {"gift_reshoot": True} if background == "WHITE" else {}
     return gift_request(
         local,
+        count=count,
         background={"mode": "ORIGINAL"},
         gift_card={"size": "M", "background": background, **card},
         keep_original=True,
+        **extra,
     )
 
 
-def test_white_card_shows_the_separated_gift_larger(font):
-    local = api()
-    local.inputs["gift"] = png(GIFT, size=(160, 160))
-    receipt = process_generation(local, card_on_original(local, "WHITE"), "lease", None)
-    assert not validate_contract("generation-v4-completed", receipt)
-    info = receipt["generations"][0]["provenance"]["gift_card"]
-    assert info == {"background": "WHITE", "separated": True, "light": False}
-    white = Image.open(io.BytesIO(local.outputs[0])).convert("RGB")
-    local.outputs.clear()
-    receipt = process_generation(local, card_on_original(local, "ORIGINAL"), "lease", None)
-    assert receipt["generations"][0]["provenance"]["gift_card"]["separated"] is False
-    original = Image.open(io.BytesIO(local.outputs[0])).convert("RGB")
-
-    def gift_pixels(image):
-        return sum(
-            n
-            for n, c in image.crop((272, 271, 384, 384)).getcolors(1 << 16)
-            if max(abs(a - b) for a, b in zip(c, GIFT, strict=True)) < 30
-        )
-
-    assert gift_pixels(white) > 1.3 * gift_pixels(original)
-
-
-def test_light_gift_on_white_gets_an_outline(font):
+def card_area(raw, card):
+    """The card's rectangle on a 400 x 400 test output."""
     from image_service import giftcard
 
-    stream = io.BytesIO()
-    backdrop_photo(text=False).save(stream, format="PNG")
+    box = giftcard.geometry(card, 400, 400, "BOTTOM_RIGHT")
+    image = Image.open(io.BytesIO(raw)).convert("RGB")
+    return image.crop((box["x"], box["y"], box["x"] + box["width"], box["y"] + box["height"]))
+
+
+def near(image, colour, tolerance):
+    return sum(
+        n
+        for n, c in image.getcolors(1 << 20)
+        if max(abs(a - b) for a, b in zip(c, colour, strict=True)) <= tolerance
+    )
+
+
+def test_white_card_reshoots_the_gift_once_and_enlarges_it(font):
+    local, adapter = api(), WhiteAdapter()
+    local.inputs["gift"] = backdrop_photo()
+    value = card_on_original(local, "WHITE", count=2, label="洗头刷")
+    receipt = process_generation(local, value, "lease", adapter)
+    assert not validate_contract("generation-v4-completed", receipt)
+    # One gift call for both images, with its own permit after the images' ordinals 0..1.
+    assert local.posts == ["heartbeat", "generation-calls/2"]
+    (sent,) = adapter.requests
+    assert sent.template_version == "generation-v4-gift-white" and sent.aspect_ratio == "1:1"
+    assert sent.references == (local.inputs["gift"],) and sent.correlation_id == "attempt-gift"
+    assert "pure white" in sent.prompt and "Keep the item exactly as it is" in sent.prompt
+    for generation in receipt["generations"]:
+        info = generation["provenance"]["gift_card"]
+        assert info["background"] == "WHITE" and info["white_backdrop"] is True
+        assert info["reshoot"]["correlation_id"] == "attempt-gift"
+        assert info["reshoot"]["usage"] == {"cost": 0.01}
+        assert generation["provenance"]["output_source"] == "original"
+    card = card_area(local.outputs[0], value["gift_card"])
+    # The beige backdrop and its printed words are gone and no grey outline is drawn.
+    assert near(card, (214, 197, 185), 8) == 0 and near(card, (190, 197, 207), 6) == 0
+    # The cream item (levelled from the 250/249/246 backdrop) is larger than in the photo.
+    white = near(card, (243, 238, 228), 6)
+    local.outputs.clear()
+    process_generation(local, card_on_original(local, "ORIGINAL", label="洗头刷"), "lease", None)
+    photo = near(card_area(local.outputs[0], value["gift_card"]), (244, 242, 236), 6)
+    assert white > 1.3 * photo > 0
+
+
+def test_white_card_levels_an_off_white_backdrop_without_a_seam():
+    from image_service import giftcard
+
     card = {"size": "L", "background": "WHITE"}
     box = giftcard.geometry(card, 800, 800, "BOTTOM_RIGHT")
-    sticker, _, info = giftcard.render(stream.getvalue(), card, box, None)
-    assert info == {"background": "WHITE", "separated": True, "light": True}
-    counts = sticker.convert("RGB").getcolors(1 << 18)
+    shot = white_shot(backdrop=(244, 243, 238))
+    sticker, _, info = giftcard.render(b"", card, box, None, (shot, {"model": "m"}))
+    assert info == {"background": "WHITE", "reshoot": {"model": "m"}, "white_backdrop": True}
+    rgb = sticker.convert("RGB")
+    margin, radius = max(2, round(box["width"] * 0.06)), box["badge_radius"]
+    left, top = margin + box["pad"], margin + radius + box["top"]
+    area = rgb.crop((left, top, left + box["width"] - 2 * box["pad"], top + box["image_height"]))
+    # Every edge of the image area is pure white: nothing marks where the picture ends.
+    w, h = area.size
+    edges = [area.getpixel((x, y)) for x in range(w) for y in (0, h - 1)]
+    edges += [area.getpixel((x, y)) for y in range(h) for x in (0, w - 1)]
+    assert all(min(p) >= 253 for p in edges)
+    # The item keeps its tone after levelling (cream scaled by about 255/244).
+    assert near(area, (248, 242, 235), 8) > 0.25 * w * h
 
-    def near(colour, tolerance):
-        return sum(
-            n
-            for n, c in counts
-            if max(abs(a - b) for a, b in zip(c, colour, strict=True)) <= tolerance
-        )
 
-    # The grey outline colour is drawn; the beige backdrop is gone (only blended edge pixels).
-    assert near(giftcard.OUTLINE, 12) > 50
-    assert near((214, 197, 185), 6) < 0.005 * sticker.width * sticker.height
+def test_white_card_shows_a_non_white_model_backdrop_whole():
+    from image_service import giftcard
+
+    card = {"size": "M", "background": "WHITE"}
+    box = giftcard.geometry(card, 800, 800, "BOTTOM_RIGHT")
+    shot = white_shot(backdrop=(200, 180, 170))
+    sticker, _, info = giftcard.render(b"", card, box, None, (shot, {}))
+    assert info["white_backdrop"] is False
+    assert near(sticker.convert("RGB"), (200, 180, 170), 4) > 1000  # the picture, untrimmed
+
+
+def test_white_card_label_that_cannot_fit_fails_before_the_gift_call(font):
+    local, adapter = api(), WhiteAdapter()
+    value = card_on_original(local, "WHITE", label="超长超长超长超长超长")
+    value["gift_card"]["size"] = "S"
+    value["output"].update(width=64, height=64)
+    with pytest.raises(typeset.TextOverflow):
+        process_generation(local, value, "lease", adapter)
+    assert adapter.requests == [] and local.posts == []
+
+
+def test_original_card_background_shows_the_photo_and_calls_no_model(font):
+    local = api()
+    local.inputs["gift"] = backdrop_photo()
+    receipt = process_generation(local, card_on_original(local, "ORIGINAL"), "lease", None)
+    assert receipt["generations"][0]["provenance"]["gift_card"] == {"background": "ORIGINAL"}
+    assert local.posts == []
+    card = card_area(local.outputs[0], {"size": "M"})
+    assert near(card, (214, 197, 185), 8) > 0  # the photo keeps its own background
+
+
+def test_worker_contacts_the_model_for_a_white_card_on_the_original(font, monkeypatch):
+    from image_service import providers
+
+    local, adapter = api(), WhiteAdapter()
+    local.inputs["gift"] = backdrop_photo()
+
+    class Context:
+        def __enter__(self):
+            return adapter
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr(providers, "model_adapter", lambda config: Context())
+    config = {"provider": "openrouter", "model": "a/b", "provider_tag": "t", "api_key": "k" * 20}
+    receipt = process(
+        local, card_on_original(local, "WHITE"), "lease", False, provider_config=config
+    )
+    assert "error" not in receipt and len(adapter.requests) == 1
 
 
 def test_a_bold_font_is_drawn_without_the_extra_stroke(monkeypatch):
@@ -810,9 +937,10 @@ def test_agent_settings_guide_the_prompt_without_a_rewrite(font):
     receipt = process_generation(local, custom_request(local, agent=AGENT), "lease", adapter)
     assert not validate_contract("generation-v4-completed", receipt)
     prompt = adapter.requests[0].prompt
-    assert "Design direction from the chosen designer Gloria: 画面干净，商品是主角" in prompt
+    assert "Design direction from the chosen designer Gloria (where it conflicts" in prompt
+    assert "follow the user): 画面干净，商品是主角" in prompt
     assert "Instruction from the user: 把商品放在浅色木桌上" in prompt
-    assert "keep the product from reference image 1 exactly" in prompt
+    assert GUARD in prompt
     assert receipt["generations"][0]["provenance"]["agent"] == {"name": "Gloria", "id": AGENT["id"]}
 
 
@@ -836,10 +964,15 @@ def test_magic_wand_rewrites_once_then_every_image_uses_the_brief(font, monkeypa
     assert calls[0][1].startswith("你是Gloria。画面干净，商品是主角")
     assert "不要要求图中出现任何文字" in calls[0][1]
     assert "需求：把商品放在浅色木桌上" in calls[0][2]
+    assert "提供的图片：“商品图”。" in calls[0][2]
+    assert "沿用用户的叫法" in calls[0][1]
     for sent in adapter.requests:
-        assert "Brief written by Gloria from the user's request: 温暖的卧室晨光" in sent.prompt
+        assert (
+            "Brief written by Gloria from the user's request (same image names): 温暖"
+            in sent.prompt
+        )
         assert "Instruction from the user" not in sent.prompt
-        assert "keep the product from reference image 1 exactly" in sent.prompt
+        assert GUARD in sent.prompt
     agent = receipt["generations"][1]["provenance"]["agent"]
     assert agent["rewritten"].startswith("温暖的卧室晨光") and agent["text_model"] == "vendor/text"
     assert local.posts[0] == "heartbeat"

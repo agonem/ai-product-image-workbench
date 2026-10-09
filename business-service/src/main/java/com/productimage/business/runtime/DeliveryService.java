@@ -135,11 +135,13 @@ public final class DeliveryService {
           requireLease(row, token);
           var request = Json.parse(row.get("payload").toString());
           int version = request.path("schema_version").asInt();
-          if (version != 4
-              || request.has("base_image")
-              || request.path("keep_original").asBoolean()
-              || ordinal < 0
-              || ordinal >= request.path("output").path("count").asInt())
+          int count = request.path("output").path("count").asInt();
+          // Images 0..count-1 call the model unless the picture is kept; a white gift card's
+          // own call (the gift re-shot on white, ADR-20261009-N) is ordinal count.
+          boolean image =
+              !request.path("keep_original").asBoolean() && ordinal >= 0 && ordinal < count;
+          boolean gift = request.path("gift_reshoot").asBoolean() && ordinal == count;
+          if (version != 4 || request.has("base_image") || !(image || gift))
             throw new Problem(400, "INVALID_CONTRACT");
           if (jdbc.update(
                   "INSERT INTO generation_call_fences(attempt_id,ordinal) VALUES (?,?) ON CONFLICT DO NOTHING",
