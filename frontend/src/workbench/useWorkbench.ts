@@ -407,12 +407,8 @@ export function useWorkbench() {
       assetNext.value = a.next_offset
       history.value = h.items
       historyNext.value = h.next_offset
-      const product = a.items.find((v) => v.kind === 'PRODUCT')?.id ?? ''
-      const gift = a.items.find((v) => v.kind === 'GIFT')?.id ?? ''
-      for (const key of ['GIFT', 'SCENE', 'SELLING_POINT'] as const) {
-        drafts[key].product = product
-        drafts[key].gift = gift
-      }
+      // No material is chosen in advance: each page starts empty until the user picks one
+      // (ADR-20261010-T).
     } catch (cause) {
       if (current === projectEpoch) report(cause)
     } finally {

@@ -60,6 +60,17 @@ async function confirm(page: Page, title: string | RegExp) {
   await dialog.getByTestId('confirm-action').click()
   await expect(dialog).toHaveCount(0)
 }
+/** Pick the first original of the slot's category: nothing is chosen in advance (ADR-20261010-T). */
+async function choose(page: Page, slot: '商品图' | '赠品图') {
+  await page.getByRole('button', { name: new RegExp(`^${slot}`) }).click()
+  await page.getByRole('menuitem', { name: '从素材库选择' }).click()
+  const picker = page.getByRole('dialog', { name: `选择${slot}` })
+  await picker
+    .getByRole('button', { name: new RegExp(`^选择${slot}`) })
+    .first()
+    .click()
+  await expect(picker).toHaveCount(0)
+}
 function watchErrors(page: Page) {
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
@@ -74,7 +85,8 @@ test('V4-B1: home shows three independent entries and navigation', async ({
   await expect(
     page.getByRole('heading', { name: '选择功能开始生成' }),
   ).toBeVisible()
-  for (const name of ['赠品主图', '场景主图', '卖点主图'])
+  // ADR-20261010-T: the chat entry sits beside the three image types, same card style.
+  for (const name of ['赠品主图', '场景主图', '卖点主图', '对话生图'])
     await expect(
       page.getByRole('button', { name: `${name} 立即生成` }),
     ).toBeVisible()
@@ -112,6 +124,10 @@ test('V4-B2: scene - upload, preset, model and size, compare, download', async (
   await page.getByRole('button', { name: '场景主图 立即生成' }).click()
   // Before generating the canvas shows the composition guide only.
   await expect(page.getByTestId('design-stage')).toContainText('商品')
+  await expect(
+    page.getByRole('button', { name: '商品图', exact: true }),
+  ).toBeVisible()
+  await expect(page.locator('#generate-reason')).toContainText('商品图')
   await page.screenshot({ path: join(artifacts, 'scene-empty.png') })
   await page
     .getByLabel('上传商品图')
@@ -219,6 +235,7 @@ test('V4-B4: selling points - one image per point in one style, verbatim text', 
   const errors = watchErrors(page)
   await login(page)
   await page.getByRole('link', { name: '卖点主图' }).click()
+  await choose(page, '商品图')
   await page.getByLabel('标题').fill('宝宝奶瓶')
   await page.getByLabel('卖点（每行一条').fill(' 安全材质 \n防胀气设计\n易清洗')
   await section(page, '风格')
@@ -269,6 +286,7 @@ test('V4-B5: a lost response is resent with the same key and body', async ({
 }) => {
   await login(page)
   await page.getByRole('link', { name: '场景主图' }).click()
+  await choose(page, '商品图')
   let firstKey = '',
     firstBody = ''
   await page.route(
@@ -300,6 +318,7 @@ test('V4-B8: the page shows only the task being worked on', async ({
   // ADR-20261009-R: earlier results stay in 我的作品, not under the canvas.
   await expect(page.getByTestId('result-card')).toHaveCount(0)
   await expect(page.getByText('最近结果')).toHaveCount(0)
+  await choose(page, '商品图')
   const { id } = await submitAndTrack(page, () =>
     page.getByTestId('generate').click(),
   )
@@ -317,6 +336,7 @@ test('V4-B9: text that cannot fit its box is flagged before generating', async (
 }) => {
   await login(page)
   await page.getByRole('link', { name: '卖点主图' }).click()
+  await choose(page, '商品图')
   await section(page, '卖点文字')
   await page.getByLabel('卖点（每行一条').fill('安全材质')
   await page.getByLabel('标题').fill('测'.repeat(60))
@@ -577,6 +597,7 @@ test('V4-B11: a finished work becomes the product image; the gift keeps the orig
     .click()
   await expect(picker).toHaveCount(0)
   await expect(toast(page)).toContainText('已把作品复制为商品图')
+  await choose(page, '赠品图')
   await section(page, '背景')
   await page.getByRole('button', { name: '保持原图' }).click()
   await expect(page.getByRole('button', { name: /^背景/ })).toContainText(
@@ -970,14 +991,21 @@ test('V4-B19: agents and the magic wand on the conversation page', async ({
   await expect(turn).toHaveAttribute('data-status', 'SUCCEEDED', {
     timeout: 60000,
   })
-  // ADR-20261009-P: with a text model the wand looks at the images first.
-  await expect(turn.getByTestId('rewritten')).toContainText('Gloria 看图改写')
-  await expect(turn.getByTestId('rewritten')).toContainText(
+  // ADR-20261009-P: with a text model the wand looks at the images first; the canvas row
+  // opens the message details (ADR-20261010-T).
+  await turn.getByRole('button', { name: /详情$/ }).click()
+  let details = page.getByRole('dialog', { name: /^第 \d+ 条$/ })
+  await expect(details.getByTestId('rewritten')).toContainText(
+    'Gloria 看图改写',
+  )
+  await expect(details.getByTestId('rewritten')).toContainText(
     '[Gloria看图改写：商品图] 做一张浴巾主图',
   )
+  await expect(details.getByAltText('商品图')).toBeVisible()
   await page.screenshot({ path: join(artifacts, 'chat-agents.png') })
+  await details.getByRole('button', { name: '关闭' }).click()
+  await expect(details).toHaveCount(0)
   // Without the wand the message is still analysed from its images before drawing.
-  await expect(page.getByTestId('guard')).toContainText('先看图分析再出图')
   await page.getByTestId('wand').click()
   await expect(page.getByTestId('wand')).toHaveAttribute(
     'aria-pressed',
@@ -989,16 +1017,21 @@ test('V4-B19: agents and the magic wand on the conversation page', async ({
     page.getByTestId('chat-send').click(),
   )
   expect(plain.body).not.toHaveProperty('rewrite')
-  const looked = page.getByTestId('chat-turn').last()
+  // The second message (the canvas frames it; the first row is then off screen).
+  await expect(page.getByTestId('chat-turn')).toHaveCount(2)
+  const looked = page.getByTestId('chat-turn').nth(1)
   await expect(looked).toHaveAttribute('data-status', 'SUCCEEDED', {
     timeout: 60000,
   })
-  await expect(looked.getByTestId('analysis')).toContainText('看图分析')
-  await expect(looked.getByTestId('analysis')).toContainText(
+  await looked.getByRole('button', { name: /详情$/ }).click()
+  details = page.getByRole('dialog', { name: /^第 \d+ 条$/ })
+  await expect(details.getByTestId('analysis')).toContainText('看图分析')
+  await expect(details.getByTestId('analysis')).toContainText(
     '[看图分析：商品图] 放在浅色木桌上',
   )
-  await expect(looked.getByTestId('rewritten')).toHaveCount(0)
+  await expect(details.getByTestId('rewritten')).toHaveCount(0)
   await page.screenshot({ path: join(artifacts, 'chat-analysis.png') })
+  await details.getByRole('button', { name: '关闭' }).click()
   expect(errors).toEqual([])
 })
 
@@ -1111,6 +1144,7 @@ test('V4-B21: the canvas - pan, wheel zoom, show all, double-click preview', asy
   const errors = watchErrors(page)
   await login(page)
   await page.getByRole('link', { name: '场景主图' }).click()
+  await choose(page, '商品图')
   const canvas = page.getByTestId('canvas').first()
   const zoom = page.getByTestId('canvas-zoom')
   const viewer = page.getByRole('dialog', { name: '图片查看' })
@@ -1170,9 +1204,27 @@ test('V4-B21: the canvas - pan, wheel zoom, show all, double-click preview', asy
   await page.keyboard.press('Escape')
   await expect(viewer).toHaveCount(0)
 
-  // The conversation canvas: one row per message, the newest framed.
+  // The conversation canvas (ADR-20261010-T): it takes the place of the message list, shows
+  // the welcome text before the first message, then one row per message, the newest framed.
   await page.getByRole('link', { name: '对话生图' }).click()
   await page.getByTestId('new-chat').click()
+  const chatCanvas = page.getByTestId('canvas').first()
+  await expect(
+    chatCanvas.getByRole('heading', { name: '想生成什么样的图？' }),
+  ).toBeVisible()
+  // The pictures sit inside the input box; the settings and "生成" share one row.
+  const box = page.locator('.composer-box')
+  await expect(box.getByRole('button', { name: /^商品图/ })).toBeVisible()
+  await expect(box.getByRole('button', { name: /^参考图1/ })).toBeVisible()
+  await expect(box.getByLabel('描述')).toBeVisible()
+  const send = (await page.getByTestId('chat-send').boundingBox())!
+  const count = (await page
+    .getByRole('button', { name: /^数量/ })
+    .boundingBox())!
+  expect(
+    Math.abs(send.y + send.height / 2 - (count.y + count.height / 2)),
+  ).toBeLessThan(4)
+  await expect(page.getByText('自动要求：')).toHaveCount(0)
   await page.getByRole('button', { name: /^商品图/ }).click()
   await page.getByRole('menuitem', { name: '从素材库选择' }).click()
   const picker = page.getByRole('dialog', { name: '选择商品图' })
@@ -1196,7 +1248,6 @@ test('V4-B21: the canvas - pan, wheel zoom, show all, double-click preview', asy
   await expect(images.nth(1)).toHaveAttribute('data-status', 'SUCCEEDED', {
     timeout: 60000,
   })
-  const chatCanvas = page.getByTestId('canvas').first()
   const second = images.nth(1)
   const chatArea = (await chatCanvas.boundingBox())!
   const shown = (await second.boundingBox())!

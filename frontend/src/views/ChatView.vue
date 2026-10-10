@@ -2,7 +2,6 @@
 import {
   computed,
   inject,
-  nextTick,
   onMounted,
   onUnmounted,
   reactive,
@@ -18,6 +17,7 @@ import EmptyState from '../components/EmptyState.vue'
 import AgentAvatar from '../components/AgentAvatar.vue'
 import AgentDialog from '../components/AgentDialog.vue'
 import ImageViewer from '../components/ImageViewer.vue'
+import ModalDialog from '../components/ModalDialog.vue'
 import InfiniteCanvas from '../components/InfiniteCanvas.vue'
 import LineIcon from '../components/LineIcon.vue'
 import { fitSide, turns, type Turn } from '../workbench/canvas'
@@ -89,7 +89,6 @@ watch(
 let manualEdit = false
 // An unknown outcome is resent with exactly the same body and key (no duplicate task).
 const pending = ref<{ key: string; body: Record<string, unknown> } | null>(null)
-const stream = ref<HTMLElement>()
 // Agents and the magic wand (ADR-20261008-L): off = the agent's settings go with the request;
 // on = a text model rewrites the request first, then the picture is generated.
 const agents = ref<Agent[]>([])
@@ -263,6 +262,13 @@ const newest = computed(() => {
 })
 // The picture clicked on the canvas shows its actions.
 const picked = ref('')
+// A message's details (inputs, model, what the text model wrote) open from its row.
+const detailId = ref('')
+const detail = computed(() => {
+  const tasks = current.value?.tasks ?? []
+  const turn = tasks.findIndex((task) => task.id === detailId.value)
+  return turn >= 0 ? { task: tasks[turn]!, turn } : null
+})
 function previewImage(key: string) {
   const index = images.value.findIndex((item) => item.artifact.id === key)
   if (index >= 0) viewing.value = index
@@ -326,10 +332,6 @@ async function refresh() {
   if (wasBusy && !busy.value) void w.refreshHistory()
   schedule()
 }
-async function scrollDown() {
-  await nextTick()
-  stream.value?.scrollTo({ top: stream.value.scrollHeight })
-}
 async function open(id: string) {
   await run(async () => {
     loading.value = true
@@ -344,7 +346,6 @@ async function open(id: string) {
       schedule()
       if (route.query.c !== id)
         void router.replace({ path: '/chat', query: { c: id } })
-      await scrollDown()
     } finally {
       loading.value = false
     }
@@ -440,7 +441,6 @@ async function send() {
       composer.prompt = ''
       manualEdit = false
       await refresh()
-      await scrollDown()
       void loadList()
     } catch (cause) {
       // A definite rejection frees the message; an unknown outcome keeps the same key.
@@ -570,194 +570,163 @@ onUnmounted(() => {
     </aside>
 
     <section class="card chat-main" aria-label="对话">
-      <div ref="stream" class="chat-stream" data-testid="chat-stream">
-        <template v-if="current?.tasks.length">
-          <article
-            v-for="(task, turn) in current.tasks"
-            :key="task.id"
-            class="turn"
-            data-testid="chat-turn"
-            :data-status="task.status"
-          >
-            <div class="bubble user">
-              <span v-if="task.agent" class="agent-tag"
-                ><AgentAvatar
-                  :agent="
-                    agents.find((item) => item.id === task.agent?.id) ?? {
-                      id: task.agent.id,
-                      name: task.agent.name ?? '默认设计师',
-                    }
-                  "
-                  :size="18" />{{ task.agent.name ?? '默认设计师'
-                }}<LineIcon
-                  v-if="task.agent.rewrite"
-                  name="wand"
-                  :size="12"
-                  aria-label="已开魔法棒"
-              /></span>
-              <p>{{ task.request?.prompt }}</p>
-              <div class="refs">
-                <span v-if="task.request?.edit_artifact_id" class="ref edit">
-                  <PrivateImage
-                    :path="`/artifacts/${task.request.edit_artifact_id}/content`"
-                    alt="修改对象"
-                    :api="w.api"
-                    missing="已删除"
-                  /><small>修改</small>
-                </span>
-                <span class="ref">
-                  <PrivateImage
-                    :path="`/assets/${task.request?.product_asset_id}/content`"
-                    alt="商品图"
-                    :api="w.api"
-                    missing="已删除"
-                  /><small>商品图</small>
-                </span>
-                <span
-                  v-for="(id, index) in references(task)"
-                  :key="id"
-                  class="ref"
-                >
-                  <PrivateImage
-                    :path="`/assets/${id}/content`"
-                    :alt="`参考图${index + 1}`"
-                    :api="w.api"
-                    missing="已删除"
-                  /><small>参考图{{ index + 1 }}</small>
-                </span>
-              </div>
-            </div>
-            <div class="bubble ai">
-              <div class="ai-head">
-                <LineIcon name="spark" :size="14" />
-                <span>{{ modelName(task) }}</span>
-                <span v-if="task.output" class="num"
-                  >{{ task.output.width }} × {{ task.output.height }}</span
-                >
-                <span class="status" :data-status="task.status">{{
-                  statusLabels[task.status]
-                }}</span>
-              </div>
-              <details
-                v-if="task.agent?.rewritten"
-                class="rewritten"
-                open
-                data-testid="rewritten"
-              >
-                <summary>
-                  <LineIcon name="wand" :size="13" />{{
-                    task.agent.name ?? '默认设计师'
-                  }}
-                  {{ task.analysis ? '看图改写' : '改写' }}
-                </summary>
-                <p>{{ task.agent.rewritten }}</p>
-              </details>
-              <!-- Look first, then draw (ADR-20261009-P): what the text model saw. -->
-              <details
-                v-else-if="task.analysis?.text"
-                class="rewritten"
-                open
-                data-testid="analysis"
-              >
-                <summary><LineIcon name="spark" :size="13" />看图分析</summary>
-                <p>{{ task.analysis.text }}</p>
-              </details>
-              <p
-                v-else-if="
-                  (task.agent?.rewrite || task.analysis) &&
-                  (task.status === 'QUEUED' || task.status === 'RUNNING')
-                "
-                class="hint"
-              >
-                {{
-                  task.agent?.rewrite
-                    ? `正在按${task.agent.name ?? '默认设计师'}的设定${task.analysis ? '看图并' : ''}改写需求…`
-                    : '正在看图分析，写清每张图的细节后再出图…'
-                }}
-              </p>
+      <div class="chat-canvas">
+        <InfiniteCanvas
+          :items="placed"
+          :focus="newest"
+          label="画布：本对话的所有图片"
+          @preview="previewImage"
+        >
+          <template #default="{ item, near }">
+            <template v-if="item.key.startsWith('label:')">
               <div
-                v-if="task.status === 'QUEUED' || task.status === 'RUNNING'"
-                class="ai-wait"
-                role="status"
+                v-for="row in labelAt(item.key)"
+                :key="row.task.id"
+                class="canvas-label"
+                data-testid="chat-turn"
+                :data-status="row.task.status"
               >
-                <span class="spinner"></span>正在生成，通常需要 20–40 秒…
-              </div>
-              <div v-else-if="task.status === 'FAILED'" class="ai-fail">
-                <LineIcon name="alert" :size="14" />
-                <span>{{ task.error?.message }}（{{ task.error?.code }}）</span>
-                <button type="button" class="btn sm" @click="retry(task)">
-                  <LineIcon name="redo" :size="14" />重试
+                <b>第 {{ row.turn + 1 }} 条</b>
+                <span
+                  class="canvas-prompt"
+                  :title="String(row.task.request?.prompt ?? '')"
+                  >{{ row.task.request?.prompt }}</span
+                >
+                <span
+                  v-if="row.task.status !== 'SUCCEEDED'"
+                  class="turn-status"
+                  :data-status="row.task.status"
+                  >{{ statusLabels[row.task.status] }}</span
+                >
+                <button
+                  type="button"
+                  class="link-btn"
+                  :aria-label="`第 ${row.turn + 1} 条详情`"
+                  @click="detailId = row.task.id"
+                >
+                  详情
                 </button>
               </div>
-              <div v-else class="ai-images">
-                <figure
-                  v-for="(artifact, index) in task.artifacts"
-                  :key="artifact.id"
-                  :class="{ chosen: edit?.id === artifact.id }"
-                  data-testid="chat-image"
+            </template>
+            <template v-else>
+              <figure
+                v-for="cell in cellsAt(item.key)"
+                :key="cell.key"
+                class="tile canvas-tile chat-cell"
+                :class="{
+                  running: !cell.artifact && cell.task.status !== 'FAILED',
+                  shimmer: ['QUEUED', 'RUNNING'].includes(cell.task.status),
+                  chosen: !!cell.artifact && edit?.id === cell.artifact.id,
+                }"
+                data-testid="canvas-image"
+                :data-status="cell.task.status"
+                :data-artifact="cell.artifact?.id"
+                :data-selected="!!cell.artifact && picked === cell.artifact.id"
+              >
+                <button
+                  type="button"
+                  class="open"
+                  :aria-label="`选中第 ${cell.turn + 1} 条图 ${cell.index + 1}`"
+                  :title="cell.artifact ? '单击选中，双击全屏查看' : undefined"
+                  @click="picked = cell.artifact?.id ?? ''"
                 >
+                  <PrivateImage
+                    v-if="cell.artifact && near"
+                    :path="`/artifacts/${cell.artifact.id}/content`"
+                    :alt="`第 ${cell.turn + 1} 条结果 ${cell.index + 1}`"
+                    :api="w.api"
+                  />
+                  <span
+                    v-else-if="cell.task.status === 'FAILED'"
+                    class="tile-note"
+                    ><LineIcon name="alert" :size="20" /><span
+                      >{{ cell.task.error?.message }}（{{
+                        cell.task.error?.code
+                      }}）</span
+                    ></span
+                  >
+                  <span v-else-if="!cell.artifact" class="tile-note"
+                    ><span class="spinner"></span
+                    ><span>{{
+                      cell.task.status === 'QUEUED' ? '排队中' : '生成中'
+                    }}</span></span
+                  >
+                </button>
+                <span
+                  v-if="cell.artifact && edit?.id === cell.artifact.id"
+                  class="flag edit-flag"
+                  >修改这张</span
+                >
+                <div v-if="cell.artifact" class="hover-actions">
                   <button
                     type="button"
-                    class="zoom"
-                    :aria-label="`放大第 ${turn + 1} 条图 ${index + 1}`"
+                    aria-label="继续修改"
+                    title="继续修改：下一条消息修改这张图"
                     @click="
-                      viewing = images.findIndex(
-                        (item) => item.artifact.id === artifact.id,
+                      chooseEdit(
+                        cell.artifact.id,
+                        `第 ${cell.turn + 1} 条 · 图 ${cell.index + 1}`,
                       )
                     "
                   >
-                    <PrivateImage
-                      :path="`/artifacts/${artifact.id}/content`"
-                      :alt="`第 ${turn + 1} 条结果 ${index + 1}`"
-                      :api="w.api"
-                    />
+                    <LineIcon name="edit" :size="13" />
                   </button>
-                  <figcaption>
-                    <button
-                      type="button"
-                      class="link-btn"
-                      @click="
-                        chooseEdit(
-                          artifact.id,
-                          `第 ${turn + 1} 条 · 图 ${index + 1}`,
-                        )
-                      "
-                    >
-                      <LineIcon name="edit" :size="13" />继续修改
-                    </button>
-                    <button
-                      type="button"
-                      class="link-btn"
-                      @click="w.download(artifact.id, `chat-${artifact.id}`)"
-                    >
-                      <LineIcon name="dl" :size="13" />下载
-                    </button>
-                  </figcaption>
-                </figure>
+                  <button
+                    type="button"
+                    aria-label="放大查看"
+                    title="放大查看"
+                    @click="previewImage(cell.artifact.id)"
+                  >
+                    <LineIcon name="zoomin" :size="13" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="下载"
+                    title="下载"
+                    @click="
+                      w.download(cell.artifact.id, `chat-${cell.artifact.id}`)
+                    "
+                  >
+                    <LineIcon name="dl" :size="13" />
+                  </button>
+                </div>
+                <div
+                  v-else-if="cell.task.status === 'FAILED'"
+                  class="hover-actions always"
+                >
+                  <button
+                    type="button"
+                    aria-label="重试"
+                    title="重试"
+                    @click="retry(cell.task)"
+                  >
+                    <LineIcon name="redo" :size="13" />
+                  </button>
+                </div>
+              </figure>
+            </template>
+          </template>
+          <template #empty>
+            <EmptyState v-if="loading">读取对话…</EmptyState>
+            <div v-else class="chat-empty">
+              <h2>想生成什么样的图？</h2>
+              <p>
+                选择商品图，用自己的话描述画面；生成后可以接着说要怎么改，比如“背景换成浅蓝色”“加一束花”。生成的图片按发送先后排在这块画布上：拖动平移，滚轮缩放，双击图片全屏查看。
+              </p>
+              <div class="suggest">
+                <button
+                  v-for="text in suggestions"
+                  :key="text"
+                  type="button"
+                  class="chip"
+                  @click="composer.prompt = text"
+                >
+                  {{ text }}
+                </button>
               </div>
             </div>
-          </article>
-        </template>
-        <div v-else class="chat-empty">
-          <EmptyState v-if="loading">读取对话…</EmptyState>
-          <template v-else>
-            <h2>想生成什么样的图？</h2>
-            <p>
-              选择商品图，用自己的话描述画面；生成后可以接着说要怎么改，比如“背景换成浅蓝色”“加一束花”。
-            </p>
-            <div class="suggest">
-              <button
-                v-for="text in suggestions"
-                :key="text"
-                type="button"
-                class="chip"
-                @click="composer.prompt = text"
-              >
-                {{ text }}
-              </button>
-            </div>
           </template>
-        </div>
+        </InfiniteCanvas>
       </div>
 
       <form class="composer" @submit.prevent="send">
@@ -767,34 +736,56 @@ onUnmounted(() => {
         <p v-if="pending" class="banner warn">
           上次发送结果不确定，再点“发送”会用原请求重发，不会重复生成。
         </p>
-        <div class="composer-assets">
-          <AssetSlot v-model="composer.product" label="商品图" kind="PRODUCT" />
-          <AssetSlot v-model="composer.ref1" label="参考图1" kind="REFERENCE" />
-          <AssetSlot
-            v-if="composer.ref1"
-            v-model="composer.ref2"
-            label="参考图2"
-            kind="REFERENCE"
-          />
-          <div v-if="edit" class="edit-chip" data-testid="edit-target">
-            <PrivateImage
-              :path="`/artifacts/${edit.id}/content`"
-              alt="修改对象"
-              :api="w.api"
+        <div class="composer-box">
+          <div class="composer-assets">
+            <AssetSlot
+              v-model="composer.product"
+              label="商品图"
+              kind="PRODUCT"
             />
-            <span
-              ><b>修改这张</b><small>{{ edit.label }}</small></span
-            >
-            <button
-              type="button"
-              class="icon-btn"
-              aria-label="不修改，重新生成"
-              title="不修改这张，按描述重新生成"
-              @click="clearEdit"
-            >
-              <LineIcon name="close" :size="14" />
-            </button>
+            <AssetSlot
+              v-model="composer.ref1"
+              label="参考图1"
+              kind="REFERENCE"
+            />
+            <AssetSlot
+              v-if="composer.ref1"
+              v-model="composer.ref2"
+              label="参考图2"
+              kind="REFERENCE"
+            />
+            <div v-if="edit" class="edit-chip" data-testid="edit-target">
+              <PrivateImage
+                :path="`/artifacts/${edit.id}/content`"
+                alt="修改对象"
+                :api="w.api"
+              />
+              <span
+                ><b>修改这张</b><small>{{ edit.label }}</small></span
+              >
+              <button
+                type="button"
+                class="icon-btn"
+                aria-label="不修改，重新生成"
+                title="不修改这张，按描述重新生成"
+                @click="clearEdit"
+              >
+                <LineIcon name="close" :size="14" />
+              </button>
+            </div>
           </div>
+          <textarea
+            v-model="composer.prompt"
+            aria-label="描述"
+            rows="3"
+            maxlength="1000"
+            :placeholder="
+              edit
+                ? '说说要怎么改，例如：背景换成浅蓝色，加一束小雏菊'
+                : '描述你想要的画面，例如：把商品放在浅木色桌面上，旁边有绿植，柔和的自然光'
+            "
+            @keydown="keydown"
+          ></textarea>
         </div>
         <p
           v-if="composer.ref1 || edit"
@@ -805,18 +796,6 @@ onUnmounted(() => {
             imageNames
           }}），例如“在参考图1的基础上，把商品图作为赠品加进去”。
         </p>
-        <textarea
-          v-model="composer.prompt"
-          aria-label="描述"
-          rows="3"
-          maxlength="1000"
-          :placeholder="
-            edit
-              ? '说说要怎么改，例如：背景换成浅蓝色，加一束小雏菊'
-              : '描述你想要的画面，例如：把商品放在浅木色桌面上，旁边有绿植，柔和的自然光'
-          "
-          @keydown="keydown"
-        ></textarea>
         <div class="composer-bar">
           <div ref="pickerRoot" class="dd agent-picker">
             <button
@@ -926,11 +905,6 @@ onUnmounted(() => {
             :options="countOptions"
           />
           <span class="spacer"></span>
-          <small class="hint guard" data-testid="guard"
-            >自动要求：商品外形、颜色、Logo、包装文字和数量不变；不在图里生成文字；{{
-              textModel ? '先看图分析再出图' : '未配置文本模型，不做看图分析'
-            }}</small
-          >
           <button
             type="submit"
             class="btn primary"
@@ -947,129 +921,93 @@ onUnmounted(() => {
       </form>
     </section>
 
-    <section class="card chat-canvas" aria-label="画布">
-      <InfiniteCanvas
-        :items="placed"
-        :focus="newest"
-        label="画布：本对话的所有图片"
-        @preview="previewImage"
-      >
-        <template #default="{ item, near }">
-          <template v-if="item.key.startsWith('label:')">
-            <div
-              v-for="row in labelAt(item.key)"
-              :key="row.task.id"
-              class="canvas-label"
-            >
-              <b>第 {{ row.turn + 1 }} 条</b>
-              <span class="canvas-prompt">{{ row.task.request?.prompt }}</span>
-            </div>
+    <ModalDialog
+      v-if="detail"
+      :title="`第 ${detail.turn + 1} 条`"
+      @close="detailId = ''"
+    >
+      <div class="turn-detail">
+        <p class="turn-prompt">{{ detail.task.request?.prompt }}</p>
+        <div class="refs">
+          <span v-if="detail.task.request?.edit_artifact_id" class="ref edit">
+            <PrivateImage
+              :path="`/artifacts/${detail.task.request.edit_artifact_id}/content`"
+              alt="要修改的图"
+              :api="w.api"
+              missing="已删除"
+            /><small>要修改的图</small>
+          </span>
+          <span class="ref">
+            <PrivateImage
+              :path="`/assets/${detail.task.request?.product_asset_id}/content`"
+              alt="商品图"
+              :api="w.api"
+              missing="已删除"
+            /><small>商品图</small>
+          </span>
+          <span
+            v-for="(id, index) in references(detail.task)"
+            :key="id"
+            class="ref"
+          >
+            <PrivateImage
+              :path="`/assets/${id}/content`"
+              :alt="`参考图${index + 1}`"
+              :api="w.api"
+              missing="已删除"
+            /><small>参考图{{ index + 1 }}</small>
+          </span>
+        </div>
+        <p class="hint">
+          {{ modelName(detail.task) }}
+          <template v-if="detail.task.output">
+            · {{ detail.task.output.width }} × {{ detail.task.output.height }}
           </template>
-          <template v-else>
-            <figure
-              v-for="cell in cellsAt(item.key)"
-              :key="cell.key"
-              class="tile canvas-tile chat-cell"
-              :class="{
-                running: !cell.artifact && cell.task.status !== 'FAILED',
-                shimmer: ['QUEUED', 'RUNNING'].includes(cell.task.status),
-                chosen: !!cell.artifact && edit?.id === cell.artifact.id,
-              }"
-              data-testid="canvas-image"
-              :data-status="cell.task.status"
-              :data-artifact="cell.artifact?.id"
-              :data-selected="!!cell.artifact && picked === cell.artifact.id"
-            >
-              <button
-                type="button"
-                class="open"
-                :aria-label="`选中第 ${cell.turn + 1} 条图 ${cell.index + 1}`"
-                :title="cell.artifact ? '单击选中，双击全屏查看' : undefined"
-                @click="picked = cell.artifact?.id ?? ''"
-              >
-                <PrivateImage
-                  v-if="cell.artifact && near"
-                  :path="`/artifacts/${cell.artifact.id}/content`"
-                  :alt="`第 ${cell.turn + 1} 条结果 ${cell.index + 1}`"
-                  :api="w.api"
-                />
-                <span
-                  v-else-if="cell.task.status === 'FAILED'"
-                  class="tile-note"
-                  ><LineIcon name="alert" :size="20" /><span
-                    >{{ cell.task.error?.message }}（{{
-                      cell.task.error?.code
-                    }}）</span
-                  ></span
-                >
-                <span v-else-if="!cell.artifact" class="tile-note"
-                  ><span class="spinner"></span
-                  ><span>{{
-                    cell.task.status === 'QUEUED' ? '排队中' : '生成中'
-                  }}</span></span
-                >
-              </button>
-              <span
-                v-if="cell.artifact && edit?.id === cell.artifact.id"
-                class="flag edit-flag"
-                >修改这张</span
-              >
-              <div v-if="cell.artifact" class="hover-actions">
-                <button
-                  type="button"
-                  aria-label="继续修改"
-                  title="继续修改：下一条消息修改这张图"
-                  @click="
-                    chooseEdit(
-                      cell.artifact.id,
-                      `第 ${cell.turn + 1} 条 · 图 ${cell.index + 1}`,
-                    )
-                  "
-                >
-                  <LineIcon name="edit" :size="13" />
-                </button>
-                <button
-                  type="button"
-                  aria-label="放大查看"
-                  title="放大查看"
-                  @click="previewImage(cell.artifact.id)"
-                >
-                  <LineIcon name="zoomin" :size="13" />
-                </button>
-                <button
-                  type="button"
-                  aria-label="下载"
-                  title="下载"
-                  @click="
-                    w.download(cell.artifact.id, `chat-${cell.artifact.id}`)
-                  "
-                >
-                  <LineIcon name="dl" :size="13" />
-                </button>
-              </div>
-              <div
-                v-else-if="cell.task.status === 'FAILED'"
-                class="hover-actions always"
-              >
-                <button
-                  type="button"
-                  aria-label="重试"
-                  title="重试"
-                  @click="retry(cell.task)"
-                >
-                  <LineIcon name="redo" :size="13" />
-                </button>
-              </div>
-            </figure>
+          · {{ statusLabels[detail.task.status] }}
+          <template v-if="detail.task.agent">
+            · 智能体 {{ detail.task.agent.name ?? '默认设计师' }}
           </template>
-        </template>
-        <template #empty>
-          <p>
-            生成的图片会按发送先后排在这里：拖动平移，滚轮缩放，双击图片全屏查看。
-          </p>
-        </template>
-      </InfiniteCanvas>
-    </section>
+        </p>
+        <details
+          v-if="detail.task.agent?.rewritten"
+          class="rewritten"
+          open
+          data-testid="rewritten"
+        >
+          <summary>
+            <LineIcon name="wand" :size="13" />{{
+              detail.task.agent.name ?? '默认设计师'
+            }}
+            {{ detail.task.analysis ? '看图改写' : '改写' }}
+          </summary>
+          <p>{{ detail.task.agent.rewritten }}</p>
+        </details>
+        <!-- Look first, then draw (ADR-20261009-P): what the text model saw. -->
+        <details
+          v-else-if="detail.task.analysis?.text"
+          class="rewritten"
+          open
+          data-testid="analysis"
+        >
+          <summary><LineIcon name="spark" :size="13" />看图分析</summary>
+          <p>{{ detail.task.analysis.text }}</p>
+        </details>
+        <p
+          v-else-if="
+            (detail.task.agent?.rewrite || detail.task.analysis) &&
+            ['QUEUED', 'RUNNING'].includes(detail.task.status)
+          "
+          class="hint"
+        >
+          正在看图分析，写清每张图的细节后再出图…
+        </p>
+        <p v-if="detail.task.status === 'FAILED'" class="ai-fail">
+          <LineIcon name="alert" :size="14" />{{
+            detail.task.error?.message
+          }}（{{ detail.task.error?.code }}）
+        </p>
+      </div>
+    </ModalDialog>
     <AgentDialog
       v-if="managing"
       :agents="agents"

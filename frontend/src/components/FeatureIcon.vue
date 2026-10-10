@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Decorative corner art for the home cards, in the accent palette.
-defineProps<{ tone: 'gift' | 'scene' | 'selling' }>()
+defineProps<{ tone: 'gift' | 'scene' | 'selling' | 'chat' }>()
 </script>
 
 <template>
@@ -18,6 +18,15 @@ defineProps<{ tone: 'gift' | 'scene' | 'selling' }>()
       <rect x="28" y="14" width="76" height="60" rx="7" fill="#E8F0FF" />
       <circle cx="48" cy="32" r="7" fill="#FFFFFF" />
       <path d="M28 66l22-20 14 12 12-10 28 20v6H28z" fill="#B7CDF7" />
+    </template>
+    <template v-else-if="tone === 'chat'">
+      <rect x="22" y="14" width="58" height="34" rx="9" fill="#E8F0FF" />
+      <path d="M34 48l-4 10 14-10z" fill="#E8F0FF" />
+      <rect x="32" y="24" width="30" height="5" rx="2.5" fill="#9DBAF3" />
+      <rect x="32" y="34" width="20" height="5" rx="2.5" fill="#D3E1FC" />
+      <rect x="52" y="44" width="50" height="34" rx="7" fill="#B7CDF7" />
+      <circle cx="66" cy="56" r="5" fill="#FFFFFF" />
+      <path d="M52 74l16-12 10 8 8-6 16 10v4H52z" fill="#E8F0FF" />
     </template>
     <template v-else>
       <rect x="30" y="12" width="70" height="64" rx="7" fill="#E8F0FF" />

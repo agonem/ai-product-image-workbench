@@ -11,6 +11,25 @@ import { workbenchKey } from '../workbench/useWorkbench'
 
 const w = inject(workbenchKey)!
 const router = useRouter()
+// Four entries side by side in one style (ADR-20261010-T): the three image types and the chat.
+const entries = [
+  ...features.map((item) => ({
+    key: item.id,
+    no: item.no,
+    name: item.name,
+    lines: item.lines,
+    tone: item.tone as 'gift' | 'scene' | 'selling' | 'chat',
+    to: `/create/${item.route}`,
+  })),
+  {
+    key: 'CUSTOM',
+    no: '04',
+    name: '对话生图',
+    lines: ['用自己的话描述画面', '生成后接着说怎么改，像聊天一样调整'],
+    tone: 'chat' as const,
+    to: '/chat',
+  },
+]
 const v4 = computed(() => w.history.filter((item) => item.generation_v4))
 const recent = computed(() =>
   v4.value
@@ -36,13 +55,15 @@ const viewerItems = computed(() =>
     <div class="page-head">
       <div class="intro">
         <h1>选择功能开始生成</h1>
-        <p>上传商品白底图，生成赠品主图、场景主图和卖点主图。</p>
+        <p>
+          上传商品白底图，生成赠品主图、场景主图和卖点主图，或用对话描述想要的画面。
+        </p>
       </div>
     </div>
     <section class="feature-cards" aria-label="生成功能">
       <article
-        v-for="item in features"
-        :key="item.id"
+        v-for="item in entries"
+        :key="item.key"
         class="card feature-card lift"
       >
         <span class="badge"><LineIcon :name="item.tone" :size="20" /></span>
@@ -56,27 +77,12 @@ const viewerItems = computed(() =>
           type="button"
           class="btn primary sm"
           :aria-label="`${item.name} 立即生成`"
-          @click="router.push(`/create/${item.route}`)"
+          @click="router.push(item.to)"
         >
           立即生成<LineIcon name="arrow" :size="14" />
         </button>
         <FeatureIcon :tone="item.tone" />
       </article>
-    </section>
-    <section class="card chat-banner" aria-label="对话生图">
-      <span class="badge"><LineIcon name="chat" :size="20" /></span>
-      <div>
-        <h2>对话生图</h2>
-        <p>用自己的话描述画面，生成后接着说要怎么改，像聊天一样调整图片。</p>
-      </div>
-      <button
-        type="button"
-        class="btn primary sm"
-        aria-label="对话生图 开始对话"
-        @click="router.push('/chat')"
-      >
-        开始对话<LineIcon name="arrow" :size="14" />
-      </button>
     </section>
     <section class="card">
       <div class="card-head">

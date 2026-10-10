@@ -853,7 +853,7 @@ input[type='checkbox'] {
 }
 .feature-cards {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 .feature-card {
@@ -897,10 +897,15 @@ input[type='checkbox'] {
   position: absolute;
   right: -6px;
   bottom: -8px;
-  width: 112px;
-  height: 84px;
-  opacity: 0.9;
+  width: 96px;
+  height: 72px;
+  opacity: 0.75;
   pointer-events: none;
+}
+/* Four cards in a row are narrow: the text stays above the corner art. */
+.feature-card > :not(.art) {
+  position: relative;
+  z-index: 1;
 }
 
 /* Image grids (assets, works, recent) */
@@ -1944,7 +1949,7 @@ dialog.modal::backdrop {
     grid-template-columns: 290px minmax(0, 1fr);
   }
   .feature-cards {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .welcome .stats {
     display: none;
@@ -2622,11 +2627,13 @@ dialog.viewer::backdrop {
   stroke-width: 3;
 }
 
-/* Conversational generation (ADR-20261008-I); the canvas column since ADR-20261010-S */
+/* Conversational generation (ADR-20261008-I): list | conversation; the conversation is the
+   canvas above the input since ADR-20261010-T. */
 .chat-board {
-  grid-template-columns: 240px minmax(360px, 440px) minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr);
 }
 .chat-canvas {
+  min-height: 0;
   overflow: hidden;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
@@ -2711,39 +2718,14 @@ dialog.viewer::backdrop {
   grid-template-rows: minmax(0, 1fr) auto;
   overflow: hidden;
 }
-.chat-stream {
-  overflow: auto;
-  padding: 18px 20px;
-  display: grid;
-  align-content: start;
-  gap: 18px;
-}
-.turn {
-  display: grid;
-  gap: 10px;
-}
-.bubble {
-  max-width: min(720px, 92%);
-  border-radius: 14px;
-  padding: 10px 12px;
-}
-.bubble.user {
-  justify-self: end;
-  background: var(--accent-soft);
-  color: var(--ink);
-}
-.bubble.user p {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.bubble .refs {
+.turn-detail .refs {
   display: flex;
   gap: 6px;
   margin-top: 8px;
   justify-content: flex-end;
   flex-wrap: wrap;
 }
-.bubble .ref {
+.turn-detail .ref {
   position: relative;
   width: 44px;
   height: 44px;
@@ -2752,15 +2734,15 @@ dialog.viewer::backdrop {
   background: #fff;
   border: 1px solid var(--line);
 }
-.bubble .ref.edit {
+.turn-detail .ref.edit {
   border-color: var(--accent);
 }
-.bubble .ref img {
+.turn-detail .ref img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.bubble .ref small {
+.turn-detail .ref small {
   position: absolute;
   left: 0;
   right: 0;
@@ -2770,27 +2752,6 @@ dialog.viewer::backdrop {
   color: #fff;
   background: rgba(0, 0, 0, 0.45);
 }
-.bubble.ai {
-  justify-self: start;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  width: min(720px, 92%);
-}
-.ai-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--ink-2);
-  font-size: 12px;
-  margin-bottom: 8px;
-}
-.ai-head .status {
-  margin-left: auto;
-}
-.ai-head .status[data-status='FAILED'] {
-  color: var(--danger, #d64541);
-}
-.ai-wait,
 .ai-fail {
   display: flex;
   align-items: center;
@@ -2800,46 +2761,6 @@ dialog.viewer::backdrop {
 }
 .ai-fail {
   color: var(--danger, #d64541);
-}
-.ai-fail .btn {
-  margin-left: auto;
-}
-.ai-images {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 10px;
-}
-.ai-images figure {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--panel-2);
-}
-.ai-images figure.chosen {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-soft);
-}
-.ai-images .zoom {
-  display: block;
-  width: 100%;
-  aspect-ratio: 1;
-}
-.ai-images .zoom img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #fff;
-}
-.ai-images figcaption {
-  display: flex;
-  justify-content: space-between;
-  padding: 4px 8px;
-}
-.ai-images figcaption .link-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
 }
 .chat-empty {
   align-self: center;
@@ -2879,18 +2800,51 @@ dialog.viewer::backdrop {
   display: grid;
   gap: 8px;
 }
-.composer-assets {
+.composer-box {
   display: flex;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r);
+  background: var(--panel);
+  transition: border-color 0.12s;
+}
+.composer-box:focus-within {
+  border-color: var(--accent);
+}
+.composer-assets {
+  flex: none;
+  display: flex;
+  gap: 6px;
   align-items: stretch;
   flex-wrap: wrap;
 }
 .composer-assets .slot {
-  width: 88px;
+  width: 64px;
 }
 .composer-assets .slot-button {
   aspect-ratio: 1;
-  font-size: 12px;
+  font-size: 11px;
+  gap: 2px;
+}
+.composer-assets .slot-button .icon {
+  width: 16px;
+  height: 16px;
+}
+.composer-assets .slot-button .slot-label {
+  left: 3px;
+  bottom: 3px;
+  font-size: 10px;
+  line-height: 15px;
+  padding: 0 4px;
+}
+/* The input sits at the bottom of the page: its slot menus open upwards. */
+.composer-assets .menu {
+  top: auto;
+  bottom: calc(100% + 4px);
+  right: auto;
+  width: 150px;
 }
 .edit-chip {
   display: flex;
@@ -2902,8 +2856,8 @@ dialog.viewer::backdrop {
   padding: 4px 6px;
 }
 .edit-chip img {
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
   border-radius: 6px;
   object-fit: cover;
 }
@@ -2914,9 +2868,20 @@ dialog.viewer::backdrop {
   color: var(--ink-3);
 }
 .composer textarea {
-  width: 100%;
-  resize: vertical;
+  flex: 1;
+  min-width: 0;
   min-height: 64px;
+  border: 0;
+  outline: none;
+  box-shadow: none;
+  padding: 2px 4px;
+  resize: none;
+  background: transparent;
+}
+.composer .hint.names {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .composer-bar {
   display: flex;
@@ -2927,82 +2892,15 @@ dialog.viewer::backdrop {
 .composer-bar .dd {
   min-width: 120px;
 }
-.composer-bar .guard {
-  max-width: 300px;
-}
-.chat-banner {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-}
-.chat-banner .badge {
-  flex: none;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.chat-banner h2 {
-  font-size: 15px;
-  font-weight: 600;
-}
-.chat-banner p {
-  color: var(--ink-2);
-}
-.chat-banner .btn {
-  margin-left: auto;
-}
-/* Narrower: the list sits above the conversation, the canvas takes the right column. */
-@media (max-width: 1280px) {
-  .chat-board {
-    grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-  .chat-list {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .chat-items {
-    max-height: 132px;
-  }
-  .chat-main {
-    grid-column: 1;
-    grid-row: 2;
-  }
-  .chat-canvas {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-  }
-}
 @media (max-width: 900px) {
   .chat-board {
     grid-template-columns: 1fr;
-    grid-template-rows: none;
-  }
-  .chat-list,
-  .chat-main,
-  .chat-canvas {
-    grid-column: 1;
-    grid-row: auto;
   }
   .chat-canvas {
     height: min(150vw, 640px);
   }
   .chat-items {
     max-height: 180px;
-  }
-  .chat-main {
-    min-height: 70vh;
-  }
-  .chat-stream {
-    padding: 12px;
-  }
-  .chat-banner {
-    flex-wrap: wrap;
   }
 }
 /* White card background (ADR-20261008-J): the plan preview only hints at the cut-out */
@@ -3108,14 +3006,6 @@ dialog.viewer::backdrop {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.agent-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--ink-2);
-  margin-bottom: 4px;
 }
 .rewritten {
   border: 1px dashed var(--line-2);
@@ -3380,4 +3270,56 @@ td small.params {
 }
 .chat-cell[data-status='FAILED'] .open {
   color: var(--danger);
+}
+/* Conversation canvas (ADR-20261010-T): the welcome text and suggestions sit on the canvas
+   before the first message; each row's label opens the message details. */
+.ic-empty .chat-empty {
+  pointer-events: auto;
+  cursor: default;
+}
+.canvas-label .turn-status {
+  font-size: 12px;
+  color: var(--accent);
+}
+.canvas-label .turn-status[data-status='FAILED'] {
+  color: var(--danger);
+}
+.canvas-label .link-btn {
+  font-size: 12px;
+}
+.turn-detail {
+  display: grid;
+  gap: 10px;
+}
+.turn-detail .turn-prompt {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.turn-detail .refs {
+  justify-content: flex-start;
+  margin-top: 0;
+}
+.turn-detail .ref {
+  width: 64px;
+  height: 64px;
+}
+.turn-detail .rewritten {
+  margin-bottom: 0;
+}
+@media (max-width: 600px) {
+  .composer-box {
+    flex-wrap: wrap;
+  }
+  .composer-assets,
+  .composer textarea {
+    flex: 1 1 100%;
+  }
+  .canvas-label .canvas-prompt {
+    max-width: 140px;
+  }
+}
+@media (max-width: 700px) {
+  .feature-cards {
+    grid-template-columns: 1fr;
+  }
 }
