@@ -1550,27 +1550,27 @@ dialog.modal::backdrop {
   height: 38px;
   font-size: 14px;
 }
+/* The right side is one canvas (ADR-20261010-S): the editor and this task's results on it. */
 .studio-right {
   display: grid;
-  grid-template-rows: minmax(0, 3fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
 }
-/* Without a current task there is no result strip: the canvas takes the whole height. */
-.studio-right:not(:has(> .results)) {
-  grid-template-rows: minmax(0, 1fr);
-}
 .stage {
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
 }
+/* The editor's toolbar floats at the top of the canvas and keeps its size when zooming. */
 .stage-bar {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 48px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--line);
+  height: 46px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: var(--shadow-1);
 }
 .stage-bar .tools {
   margin-left: auto;
@@ -1607,37 +1607,17 @@ dialog.modal::backdrop {
   width: 14px;
   height: 14px;
 }
-.zoom .menu {
-  left: auto;
-  right: 0;
-  width: 132px;
-}
 .size-label {
   font-size: 12px;
   color: var(--ink-3);
   padding-left: 4px;
   font-variant-numeric: tabular-nums;
 }
-.artwrap {
-  min-height: 0;
-  position: relative;
-  container-type: size;
-  display: flex;
-  overflow: auto;
-  padding: 16px 16px 54px;
-  background-color: var(--canvas);
-  background-image: radial-gradient(var(--dot) 1px, transparent 1.2px);
-  background-size: 16px 16px;
-}
 .artboard {
-  --ratio: 1;
-  --zoom: 1;
   container-type: inline-size;
   position: relative;
-  flex: none;
-  margin: auto;
-  width: calc(min(100cqw, 100cqh * var(--ratio)) * var(--zoom));
-  aspect-ratio: var(--ratio);
+  width: 100%;
+  height: 100%;
   box-shadow:
     0 1px 3px rgba(29, 33, 41, 0.12),
     0 8px 24px rgba(29, 33, 41, 0.06);
@@ -1825,17 +1805,9 @@ dialog.modal::backdrop {
   box-shadow: 0 1px 4px rgba(29, 33, 41, 0.3);
 }
 .corner {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 10px;
   display: flex;
   align-items: center;
   gap: 10px;
-  pointer-events: none;
-}
-.corner > * {
-  pointer-events: auto;
 }
 .corner .note {
   font-size: 12px;
@@ -1849,9 +1821,6 @@ dialog.modal::backdrop {
   overflow: hidden;
   text-overflow: ellipsis;
   box-shadow: var(--shadow-1);
-}
-.corner .spacer {
-  flex: 1;
 }
 .corner .btn {
   height: 30px;
@@ -1873,41 +1842,6 @@ dialog.modal::backdrop {
   width: 28px;
   height: 28px;
   color: var(--danger);
-}
-.results {
-  border-top: 1px solid var(--line);
-  min-height: 0;
-  display: grid;
-  grid-template-rows: 40px minmax(0, 1fr);
-}
-.results-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-}
-.results-head b {
-  font-weight: 600;
-}
-.results-head .count {
-  font-size: 12px;
-  color: var(--ink-3);
-}
-.results-head .spacer {
-  flex: 1;
-}
-.strip {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 0 12px 12px;
-  align-items: stretch;
-}
-.strip > .empty-state {
-  flex: 1;
-  border: 1px dashed var(--line);
-  border-radius: var(--r);
-  padding: 4px;
 }
 .tile {
   flex: none;
@@ -2062,20 +1996,11 @@ dialog.modal::backdrop {
     overflow: visible;
   }
   .studio-right {
-    grid-template-rows: auto auto;
-  }
-  .artwrap {
-    height: min(96vw, 520px);
-  }
-  .results {
-    grid-template-rows: 40px 150px;
+    height: min(150vw, 640px);
   }
   .tool .label,
   .size-label {
     display: none;
-  }
-  .corner .note {
-    max-width: 52%;
   }
   .welcome {
     flex-wrap: wrap;
@@ -2697,9 +2622,14 @@ dialog.viewer::backdrop {
   stroke-width: 3;
 }
 
-/* Conversational generation (ADR-20261008-I) */
+/* Conversational generation (ADR-20261008-I); the canvas column since ADR-20261010-S */
 .chat-board {
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 240px minmax(360px, 440px) minmax(0, 1fr);
+}
+.chat-canvas {
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
 }
 .chat-list {
   display: grid;
@@ -3026,9 +2956,41 @@ dialog.viewer::backdrop {
 .chat-banner .btn {
   margin-left: auto;
 }
+/* Narrower: the list sits above the conversation, the canvas takes the right column. */
+@media (max-width: 1280px) {
+  .chat-board {
+    grid-template-columns: minmax(340px, 400px) minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .chat-list {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .chat-items {
+    max-height: 132px;
+  }
+  .chat-main {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .chat-canvas {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
 @media (max-width: 900px) {
   .chat-board {
     grid-template-columns: 1fr;
+    grid-template-rows: none;
+  }
+  .chat-list,
+  .chat-main,
+  .chat-canvas {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .chat-canvas {
+    height: min(150vw, 640px);
   }
   .chat-items {
     max-height: 180px;
@@ -3238,4 +3200,184 @@ dialog.viewer::backdrop {
 }
 td small.params {
   color: var(--ink-3);
+}
+
+/* ---------- Result canvas (ADR-20261010-S) ---------- */
+.ic {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
+  outline: none;
+  background-color: var(--canvas);
+  background-image: radial-gradient(var(--dot) 1px, transparent 1.2px);
+  background-size: 16px 16px;
+}
+.ic:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.ic.panning {
+  cursor: grabbing;
+}
+.ic-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+.ic-world.hidden {
+  visibility: hidden;
+}
+.ic-item {
+  position: absolute;
+}
+.ic-overlay,
+.ic-footer {
+  position: absolute;
+  pointer-events: none;
+}
+.ic-overlay > *,
+.ic-footer > * {
+  pointer-events: auto;
+}
+.ic-overlay {
+  left: 10px;
+  right: 10px;
+  top: 10px;
+}
+.ic-footer {
+  left: 12px;
+  right: 270px;
+  bottom: 12px;
+}
+.ic-overlay:empty,
+.ic-footer:empty {
+  display: none;
+}
+.ic-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: var(--shadow-1);
+  cursor: default;
+}
+.ic-zoom .icon-btn {
+  width: 30px;
+  height: 30px;
+}
+.ic-zoom .btn.sm {
+  margin-left: 4px;
+}
+.ic-percent {
+  min-width: 50px;
+  height: 30px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.ic-percent:hover {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+.ic-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+/* Labels and controls on the canvas keep their screen size whatever the zoom (zoomed far out
+   they shrink again rather than outgrow their picture). */
+.canvas-label {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  transform: scale(min(2.5, calc(1 / var(--canvas-scale, 1))));
+  transform-origin: left bottom;
+}
+.canvas-label b {
+  font-weight: 600;
+}
+.canvas-label .count {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.canvas-tile {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  box-shadow: var(--shadow-1);
+}
+.canvas-tile .hover-actions {
+  transform: scale(min(2.5, calc(1 / var(--canvas-scale, 1))));
+  transform-origin: right bottom;
+}
+.canvas-tile .flag {
+  transform: scale(min(2.5, calc(1 / var(--canvas-scale, 1))));
+  transform-origin: left top;
+}
+.tile-note {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  transform: scale(min(2.5, calc(1 / var(--canvas-scale, 1))));
+}
+.studio-right .ic-footer .corner .note {
+  max-width: none;
+}
+@media (max-width: 900px) {
+  .ic-footer {
+    right: 12px;
+    bottom: 60px;
+  }
+  .ic-zoom .btn.sm {
+    padding: 0 8px;
+  }
+}
+/* Conversation canvas: the message under each row, the picture the next message changes. */
+.canvas-label .canvas-prompt {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.chat-cell[data-selected='true'] .hover-actions {
+  opacity: 1;
+}
+.chat-cell.chosen {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.chat-cell .edit-flag {
+  background: var(--accent);
+  color: #fff;
+}
+.chat-cell .tile-note {
+  max-width: 300px;
+  padding: 8px;
+  font-size: 12px;
+  text-align: center;
+}
+.chat-cell[data-status='FAILED'] .open {
+  color: var(--danger);
 }

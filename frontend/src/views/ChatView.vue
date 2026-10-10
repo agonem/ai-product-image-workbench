@@ -18,7 +18,9 @@ import EmptyState from '../components/EmptyState.vue'
 import AgentAvatar from '../components/AgentAvatar.vue'
 import AgentDialog from '../components/AgentDialog.vue'
 import ImageViewer from '../components/ImageViewer.vue'
+import InfiniteCanvas from '../components/InfiniteCanvas.vue'
 import LineIcon from '../components/LineIcon.vue'
+import { fitSide, turns, type Turn } from '../workbench/canvas'
 import { confirmAction } from '../workbench/confirm'
 import {
   canvasSizes,
@@ -189,6 +191,82 @@ const viewerItems = computed(() =>
     download: () => w.download(item.artifact.id, `chat-${item.artifact.id}`),
   })),
 )
+// The canvas (ADR-20261010-S): each message's pictures in a row, oldest at the top. A message
+// still generating shows one placeholder per picture; a failed one its reason and "重试".
+type Cell = {
+  key: string
+  task: Generation
+  turn: number
+  index: number
+  artifact: Generation['artifacts'][number] | null
+}
+const PICTURE_SIDE = 360
+const cells = computed(() => {
+  const all: Cell[] = []
+  ;(current.value?.tasks ?? []).forEach((task, turn) => {
+    if (task.status === 'SUCCEEDED')
+      task.artifacts.forEach((artifact, index) =>
+        all.push({ key: artifact.id, task, turn, index, artifact }),
+      )
+    else if (task.status === 'FAILED')
+      all.push({
+        key: `${task.id}:failed`,
+        task,
+        turn,
+        index: 0,
+        artifact: null,
+      })
+    else
+      for (let index = 0; index < (task.output?.count ?? 1); index++)
+        all.push({
+          key: `${task.id}:${index}`,
+          task,
+          turn,
+          index,
+          artifact: null,
+        })
+  })
+  return all
+})
+const cellByKey = computed(
+  () => new Map(cells.value.map((cell) => [cell.key, cell])),
+)
+const cellsAt = (key: string) => {
+  const cell = cellByKey.value.get(key)
+  return cell ? [cell] : []
+}
+const rows = computed<Turn[]>(() =>
+  (current.value?.tasks ?? []).map((task) => ({
+    key: task.id,
+    label: { key: `label:${task.id}`, height: 32 },
+    items: cells.value
+      .filter((cell) => cell.task.id === task.id)
+      .map((cell) => ({
+        key: cell.key,
+        size: fitSide(
+          cell.artifact ?? task.output ?? { width: 1, height: 1 },
+          cell.artifact || task.status !== 'FAILED' ? PICTURE_SIDE : 240,
+        ),
+      })),
+  })),
+)
+const labelAt = (key: string) => {
+  const tasks = current.value?.tasks ?? []
+  const turn = tasks.findIndex((task) => `label:${task.id}` === key)
+  return turn >= 0 ? [{ task: tasks[turn]!, turn }] : []
+}
+const placed = computed(() => turns(rows.value, 240, 20, 56))
+// Opening a conversation, sending and each finished message frame the newest row.
+const newest = computed(() => {
+  const last = rows.value.at(-1)
+  return last ? [last.label.key, ...last.items.map((item) => item.key)] : []
+})
+// The picture clicked on the canvas shows its actions.
+const picked = ref('')
+function previewImage(key: string) {
+  const index = images.value.findIndex((item) => item.artifact.id === key)
+  if (index >= 0) viewing.value = index
+}
 const modelName = (task: Generation) => {
   const id = task.request?.model_id
   return w.models.find((item) => item.id === id)?.name ?? '默认模型'
@@ -867,6 +945,130 @@ onUnmounted(() => {
           </button>
         </div>
       </form>
+    </section>
+
+    <section class="card chat-canvas" aria-label="画布">
+      <InfiniteCanvas
+        :items="placed"
+        :focus="newest"
+        label="画布：本对话的所有图片"
+        @preview="previewImage"
+      >
+        <template #default="{ item, near }">
+          <template v-if="item.key.startsWith('label:')">
+            <div
+              v-for="row in labelAt(item.key)"
+              :key="row.task.id"
+              class="canvas-label"
+            >
+              <b>第 {{ row.turn + 1 }} 条</b>
+              <span class="canvas-prompt">{{ row.task.request?.prompt }}</span>
+            </div>
+          </template>
+          <template v-else>
+            <figure
+              v-for="cell in cellsAt(item.key)"
+              :key="cell.key"
+              class="tile canvas-tile chat-cell"
+              :class="{
+                running: !cell.artifact && cell.task.status !== 'FAILED',
+                shimmer: ['QUEUED', 'RUNNING'].includes(cell.task.status),
+                chosen: !!cell.artifact && edit?.id === cell.artifact.id,
+              }"
+              data-testid="canvas-image"
+              :data-status="cell.task.status"
+              :data-artifact="cell.artifact?.id"
+              :data-selected="!!cell.artifact && picked === cell.artifact.id"
+            >
+              <button
+                type="button"
+                class="open"
+                :aria-label="`选中第 ${cell.turn + 1} 条图 ${cell.index + 1}`"
+                :title="cell.artifact ? '单击选中，双击全屏查看' : undefined"
+                @click="picked = cell.artifact?.id ?? ''"
+              >
+                <PrivateImage
+                  v-if="cell.artifact && near"
+                  :path="`/artifacts/${cell.artifact.id}/content`"
+                  :alt="`第 ${cell.turn + 1} 条结果 ${cell.index + 1}`"
+                  :api="w.api"
+                />
+                <span
+                  v-else-if="cell.task.status === 'FAILED'"
+                  class="tile-note"
+                  ><LineIcon name="alert" :size="20" /><span
+                    >{{ cell.task.error?.message }}（{{
+                      cell.task.error?.code
+                    }}）</span
+                  ></span
+                >
+                <span v-else-if="!cell.artifact" class="tile-note"
+                  ><span class="spinner"></span
+                  ><span>{{
+                    cell.task.status === 'QUEUED' ? '排队中' : '生成中'
+                  }}</span></span
+                >
+              </button>
+              <span
+                v-if="cell.artifact && edit?.id === cell.artifact.id"
+                class="flag edit-flag"
+                >修改这张</span
+              >
+              <div v-if="cell.artifact" class="hover-actions">
+                <button
+                  type="button"
+                  aria-label="继续修改"
+                  title="继续修改：下一条消息修改这张图"
+                  @click="
+                    chooseEdit(
+                      cell.artifact.id,
+                      `第 ${cell.turn + 1} 条 · 图 ${cell.index + 1}`,
+                    )
+                  "
+                >
+                  <LineIcon name="edit" :size="13" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="放大查看"
+                  title="放大查看"
+                  @click="previewImage(cell.artifact.id)"
+                >
+                  <LineIcon name="zoomin" :size="13" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="下载"
+                  title="下载"
+                  @click="
+                    w.download(cell.artifact.id, `chat-${cell.artifact.id}`)
+                  "
+                >
+                  <LineIcon name="dl" :size="13" />
+                </button>
+              </div>
+              <div
+                v-else-if="cell.task.status === 'FAILED'"
+                class="hover-actions always"
+              >
+                <button
+                  type="button"
+                  aria-label="重试"
+                  title="重试"
+                  @click="retry(cell.task)"
+                >
+                  <LineIcon name="redo" :size="13" />
+                </button>
+              </div>
+            </figure>
+          </template>
+        </template>
+        <template #empty>
+          <p>
+            生成的图片会按发送先后排在这里：拖动平移，滚轮缩放，双击图片全屏查看。
+          </p>
+        </template>
+      </InfiniteCanvas>
     </section>
     <AgentDialog
       v-if="managing"

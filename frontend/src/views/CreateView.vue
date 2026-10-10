@@ -12,12 +12,20 @@ import { useRoute } from 'vue-router'
 import AssetSlot from '../components/AssetSlot.vue'
 import DropSelect from '../components/DropSelect.vue'
 import ImageViewer from '../components/ImageViewer.vue'
+import InfiniteCanvas from '../components/InfiniteCanvas.vue'
 import LineIcon from '../components/LineIcon.vue'
 import ParamSection from '../components/ParamSection.vue'
 import SceneArt from '../components/SceneArt.vue'
 import TemplateMenu from '../components/TemplateMenu.vue'
 import StudioCanvas from '../components/StudioCanvas.vue'
 import PrivateImage from '../workbench/PrivateImage.vue'
+import {
+  bounds,
+  columnsFor,
+  fitSide,
+  grid,
+  type Placed,
+} from '../workbench/canvas'
 import {
   adoptText,
   backgrounds,
@@ -311,7 +319,8 @@ function chooseStyle(id: string) {
   draft.value.keepOriginal = false
 }
 
-// Only the task being worked on (ADR-20261009-R): earlier results stay in 我的作品.
+// Only the task being worked on (ADR-20261009-R): earlier results stay in 我的作品. A task
+// still running shows one placeholder per image it will make.
 type Tile = {
   key: string
   task: Task
@@ -319,20 +328,70 @@ type Tile = {
   artifact: Task['artifacts'][number] | null
 }
 const tiles = computed<Tile[]>(() => {
-  const current = w.selected
-  const tasks =
-    current && current.feature_type === feature.value ? [current as Task] : []
-  return tasks.flatMap((task): Tile[] =>
-    task.status === 'SUCCEEDED'
-      ? task.artifacts.map((artifact, ordinal) => ({
-          key: artifact.id,
-          task,
-          ordinal,
-          artifact,
-        }))
-      : [{ key: task.id, task, ordinal: 0, artifact: null }],
-  )
+  const task = w.selected
+  if (!task || task.feature_type !== feature.value) return []
+  if (task.status === 'SUCCEEDED')
+    return task.artifacts.map((artifact, ordinal) => ({
+      key: artifact.id,
+      task,
+      ordinal,
+      artifact,
+    }))
+  if (task.status === 'FAILED')
+    return [{ key: task.id, task, ordinal: 0, artifact: null }]
+  return Array.from({ length: task.output?.count ?? 1 }, (_, ordinal) => ({
+    key: `${task.id}:${ordinal}`,
+    task,
+    ordinal,
+    artifact: null,
+  }))
 })
+
+// The canvas (ADR-20261010-S): the editor on the left, this task's results to its right.
+const EDITOR_SIDE = 640,
+  RESULT_SIDE = 360
+const tileByKey = computed(
+  () => new Map(tiles.value.map((tile) => [tile.key, tile])),
+)
+// Narrow screens (phones) stack the results under the editor so both stay large enough.
+const narrowQuery = window.matchMedia('(max-width: 900px)')
+const narrow = ref(narrowQuery.matches)
+const onNarrow = (event: MediaQueryListEvent) => (narrow.value = event.matches)
+onMounted(() => narrowQuery.addEventListener('change', onNarrow))
+onUnmounted(() => narrowQuery.removeEventListener('change', onNarrow))
+const placed = computed<Placed[]>(() => {
+  const editor = fitSide(outputSize.value, EDITOR_SIDE)
+  const items: Placed[] = [{ key: 'editor', rect: { x: 0, y: 0, ...editor } }]
+  if (!tiles.value.length) return items
+  const frozen = w.selected?.output ?? outputSize.value
+  const left = narrow.value ? 0 : editor.width + 64
+  const top = narrow.value ? editor.height + 48 : 0
+  const cells = grid(
+    tiles.value.map((tile) => ({
+      key: tile.key,
+      size: fitSide(tile.artifact ?? frozen, RESULT_SIDE),
+    })),
+    columnsFor(tiles.value.length),
+    left,
+    top + 44,
+    24,
+  )
+  const width = bounds(cells.map((cell) => cell.rect))!.width
+  items.push({
+    key: 'results-label',
+    rect: { x: left, y: top, width, height: 32 },
+  })
+  return [...items, ...cells]
+})
+const tilesAt = (key: string) => {
+  const tile = tileByKey.value.get(key)
+  return tile ? [tile] : []
+}
+/** Double-click on a finished result: the full-screen viewer. */
+function previewResult(key: string) {
+  const index = finished.value.findIndex((tile) => tile.key === key)
+  if (index >= 0) viewing.value = index
+}
 
 // Finished results of this entry in the full-screen viewer (ADR-20260930-E).
 const viewing = ref<number | null>(null)
@@ -347,7 +406,8 @@ const viewerItems = computed(() =>
   })),
 )
 async function open(task: string, ordinal: number) {
-  await w.select(task)
+  // A double-click (preview) clicks twice; the task is already on screen the second time.
+  if (w.selected?.id !== task) await w.select(task)
   if (w.selected?.id !== task) return
   view.value = { task, ordinal }
   mode.value = 'result'
@@ -1021,157 +1081,172 @@ onMounted(() => {
     </section>
 
     <section class="card studio-right" aria-label="编辑设计与生成结果">
-      <StudioCanvas
-        v-model:mode="mode"
-        v-model:compare="compare"
-        v-model:box="draft.textBox"
-        :feature="feature"
-        :width="outputSize.width"
-        :height="outputSize.height"
-        :image="stageImage"
-        :backdrop="backdrop"
-        :gift-card="giftCard"
-        :product-position="productPosition"
-        :image-alt="`${meta.name}生成结果`"
-        :text="preview"
-        :text-align="draft.textAlign"
-        :palette="palette"
-        :product="originals.product"
-        :gift="originals.gift"
-        :gift-position="
-          String(shown?.request?.gift_position ?? draft.giftPosition)
-        "
-        :has-result="!!shown"
-        :generating="generating"
-        :failure="failure"
-        :can-apply="shown?.status === 'SUCCEEDED' && !!preview"
-        :disabled="locked"
-        :api="w.api"
-        @moved="draft.textPosition = ''"
-        @apply="applyText"
-        @overflow="textOverflow = $event"
-        :can-undo="canUndo"
-        :can-redo="canRedo"
-        @undo="undo"
-        @redo="redo"
-        @retry="shown && retry(shown.id)"
-      />
-      <div v-if="tiles.length" class="results">
-        <div class="results-head">
-          <b>本次结果</b><span class="count num">{{ tiles.length }}</span>
-          <span class="spacer"></span>
-          <router-link class="link-btn" to="/works">全部作品</router-link>
-        </div>
-        <div class="strip">
-          <article
-            v-for="tile in tiles"
-            :key="tile.key"
-            class="tile"
-            :class="{
-              running: !tile.artifact && tile.task.status !== 'FAILED',
-              shimmer: ['QUEUED', 'RUNNING'].includes(tile.task.status),
-            }"
-            data-testid="result-card"
-            :data-task="tile.task.id"
-            :data-status="tile.task.status"
-            :data-selected="
-              view?.task === tile.task.id && view.ordinal === tile.ordinal
+      <InfiniteCanvas
+        :items="placed"
+        label="画布：编辑区与本次结果"
+        @preview="previewResult"
+      >
+        <template #default="{ item, near }">
+          <StudioCanvas
+            v-if="item.key === 'editor'"
+            v-model:mode="mode"
+            v-model:compare="compare"
+            v-model:box="draft.textBox"
+            :feature="feature"
+            :width="outputSize.width"
+            :height="outputSize.height"
+            :image="stageImage"
+            :backdrop="backdrop"
+            :gift-card="giftCard"
+            :product-position="productPosition"
+            :image-alt="`${meta.name}生成结果`"
+            :text="preview"
+            :text-align="draft.textAlign"
+            :palette="palette"
+            :product="originals.product"
+            :gift="originals.gift"
+            :gift-position="
+              String(shown?.request?.gift_position ?? draft.giftPosition)
             "
-            :title="
-              tile.task.error
-                ? `${tile.task.error.message}（${tile.task.error.code}）`
-                : undefined
-            "
-          >
-            <button
-              type="button"
-              class="open"
-              :aria-label="`查看结果 ${tile.ordinal + 1}`"
-              :disabled="w.busy"
-              @click="open(tile.task.id, tile.ordinal)"
+            :has-result="!!shown"
+            :generating="generating"
+            :failure="failure"
+            :can-apply="shown?.status === 'SUCCEEDED' && !!preview"
+            :disabled="locked"
+            :api="w.api"
+            :can-undo="canUndo"
+            :can-redo="canRedo"
+            tools-to="#studio-tools"
+            notes-to="#studio-notes"
+            @moved="draft.textPosition = ''"
+            @apply="applyText"
+            @overflow="textOverflow = $event"
+            @undo="undo"
+            @redo="redo"
+            @retry="shown && retry(shown.id)"
+          />
+          <div v-else-if="item.key === 'results-label'" class="canvas-label">
+            <b>本次结果</b><span class="count num">{{ tiles.length }}</span>
+            <router-link class="link-btn" to="/works">全部作品</router-link>
+          </div>
+          <template v-else>
+            <article
+              v-for="tile in tilesAt(item.key)"
+              :key="tile.key"
+              class="tile canvas-tile"
+              :class="{
+                running: !tile.artifact && tile.task.status !== 'FAILED',
+                shimmer: ['QUEUED', 'RUNNING'].includes(tile.task.status),
+              }"
+              data-testid="result-card"
+              :data-task="tile.task.id"
+              :data-status="tile.task.status"
+              :data-selected="
+                view?.task === tile.task.id && view.ordinal === tile.ordinal
+              "
+              :title="
+                tile.task.error
+                  ? `${tile.task.error.message}（${tile.task.error.code}）`
+                  : tile.artifact
+                    ? '单击在编辑区打开，双击全屏查看'
+                    : undefined
+              "
             >
-              <PrivateImage
-                v-if="tile.artifact"
-                :path="`/artifacts/${tile.artifact.id}/content`"
-                :alt="`${meta.name}结果 ${tile.artifact.width}×${tile.artifact.height}`"
-                :api="w.api"
-              />
-              <template v-else-if="tile.task.status === 'FAILED'">
-                <LineIcon name="alert" :size="20" />
-                <span class="sr-only"
-                  >生成失败：{{ tile.task.error?.message }}（{{
-                    tile.task.error?.code
-                  }}）</span
+              <button
+                type="button"
+                class="open"
+                :aria-label="`查看结果 ${tile.ordinal + 1}`"
+                :disabled="w.busy"
+                @click="open(tile.task.id, tile.ordinal)"
+              >
+                <PrivateImage
+                  v-if="tile.artifact && near"
+                  :path="`/artifacts/${tile.artifact.id}/content`"
+                  :alt="`${meta.name}结果 ${tile.artifact.width}×${tile.artifact.height}`"
+                  :api="w.api"
+                />
+                <span
+                  v-else-if="tile.task.status === 'FAILED'"
+                  class="tile-note"
+                  ><LineIcon name="alert" :size="20" /><span class="sr-only"
+                    >生成失败：{{ tile.task.error?.message }}（{{
+                      tile.task.error?.code
+                    }}）</span
+                  ></span
                 >
-              </template>
-              <template v-else
-                ><span class="spinner"></span
-                ><span>{{
-                  tile.task.status === 'QUEUED' ? '排队中' : '生成中'
-                }}</span></template
-              >
-            </button>
-            <span v-if="tile.task.status === 'FAILED'" class="flag">失败</span>
-            <div v-if="tile.artifact" class="hover-actions">
-              <button
-                type="button"
-                aria-label="放大查看"
-                title="放大查看"
-                @click="viewing = finished.indexOf(tile)"
-              >
-                <LineIcon name="zoomin" :size="13" />
+                <span v-else-if="!tile.artifact" class="tile-note"
+                  ><span class="spinner"></span
+                  ><span>{{
+                    tile.task.status === 'QUEUED' ? '排队中' : '生成中'
+                  }}</span></span
+                >
               </button>
-              <button
-                type="button"
-                aria-label="对照原图"
-                title="对照原图"
-                :disabled="w.busy"
-                @click="compareWith(tile.task.id, tile.ordinal)"
+              <span v-if="tile.task.status === 'FAILED'" class="flag"
+                >失败</span
               >
-                <LineIcon name="cmp" :size="13" />
-              </button>
-              <button
-                type="button"
-                aria-label="下载"
-                title="下载"
-                :disabled="w.busy"
-                @click="
-                  w.download(
-                    tile.artifact.id,
-                    `${meta.route}-${tile.artifact.id}`,
-                  )
-                "
+              <div v-if="tile.artifact" class="hover-actions">
+                <button
+                  type="button"
+                  aria-label="放大查看"
+                  title="放大查看"
+                  @click="viewing = finished.indexOf(tile)"
+                >
+                  <LineIcon name="zoomin" :size="13" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="对照原图"
+                  title="对照原图"
+                  :disabled="w.busy"
+                  @click="compareWith(tile.task.id, tile.ordinal)"
+                >
+                  <LineIcon name="cmp" :size="13" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="下载"
+                  title="下载"
+                  :disabled="w.busy"
+                  @click="
+                    w.download(
+                      tile.artifact.id,
+                      `${meta.route}-${tile.artifact.id}`,
+                    )
+                  "
+                >
+                  <LineIcon name="dl" :size="13" />
+                </button>
+                <button
+                  type="button"
+                  class="danger"
+                  aria-label="删除"
+                  title="删除"
+                  :disabled="w.busy"
+                  @click="remove(tile.artifact.id)"
+                >
+                  <LineIcon name="del" :size="13" />
+                </button>
+              </div>
+              <div
+                v-else-if="tile.task.status === 'FAILED'"
+                class="hover-actions always"
               >
-                <LineIcon name="dl" :size="13" />
-              </button>
-              <button
-                type="button"
-                class="danger"
-                aria-label="删除"
-                title="删除"
-                :disabled="w.busy"
-                @click="remove(tile.artifact.id)"
-              >
-                <LineIcon name="del" :size="13" />
-              </button>
-            </div>
-            <div
-              v-else-if="tile.task.status === 'FAILED'"
-              class="hover-actions always"
-            >
-              <button
-                type="button"
-                aria-label="重试"
-                title="重试"
-                :disabled="w.busy"
-                @click="retry(tile.task.id)"
-              >
-                <LineIcon name="redo" :size="13" />
-              </button>
-            </div>
-          </article>
-        </div>
-      </div>
+                <button
+                  type="button"
+                  aria-label="重试"
+                  title="重试"
+                  :disabled="w.busy"
+                  @click="retry(tile.task.id)"
+                >
+                  <LineIcon name="redo" :size="13" />
+                </button>
+              </div>
+            </article>
+          </template>
+        </template>
+        <template #overlay><div id="studio-tools"></div></template>
+        <template #footer><div id="studio-notes"></div></template>
+      </InfiniteCanvas>
     </section>
     <ImageViewer
       v-if="viewing !== null && viewerItems.length"

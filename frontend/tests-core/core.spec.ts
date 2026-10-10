@@ -710,12 +710,17 @@ test('V4-B14: personal templates and undo/redo (gift), layers (selling)', async 
   await page.getByLabel('锁定文字位置').check()
   await expect(page.locator('.guides')).toBeVisible()
   const layer = page.getByTestId('text-layer')
+  const stage = page.getByTestId('design-stage')
+  // Where the text sits on the picture (the drag pans the canvas, ADR-20261010-S).
+  const offset = async () =>
+    (await layer.boundingBox())!.x - (await stage.boundingBox())!.x
+  const before = await offset()
   const box = (await layer.boundingBox())!
   await page.mouse.move(box.x + 20, box.y + 20)
   await page.mouse.down()
   await page.mouse.move(box.x - 60, box.y + 60, { steps: 5 })
   await page.mouse.up()
-  expect((await layer.boundingBox())!.x).toBeCloseTo(box.x, 0)
+  expect(await offset()).toBeCloseTo(before, 0)
   await page.screenshot({ path: join(artifacts, 'selling-tools.png') })
 })
 
@@ -1097,5 +1102,129 @@ test('V4-B20: material categories and picking across them', async ({
       .getByRole('button', { name: '参考图' }),
   ).toHaveAttribute('aria-pressed', 'true')
   await refs.getByRole('button', { name: '关闭' }).click()
+  expect(errors).toEqual([])
+})
+
+test('V4-B21: the canvas - pan, wheel zoom, show all, double-click preview', async ({
+  page,
+}) => {
+  const errors = watchErrors(page)
+  await login(page)
+  await page.getByRole('link', { name: '场景主图' }).click()
+  const canvas = page.getByTestId('canvas').first()
+  const zoom = page.getByTestId('canvas-zoom')
+  const viewer = page.getByRole('dialog', { name: '图片查看' })
+  /** Whether the element lies wholly inside the canvas on screen. */
+  const inside = async (locator: ReturnType<Page['locator']>) => {
+    const box = (await locator.boundingBox())!
+    const area = (await canvas.boundingBox())!
+    return (
+      box.x >= area.x - 1 &&
+      box.y >= area.y - 1 &&
+      box.x + box.width <= area.x + area.width + 1 &&
+      box.y + box.height <= area.y + area.height + 1
+    )
+  }
+  // ADR-20261010-S: the editor is on the canvas, its tools float on top.
+  await expect(page.getByTestId('design-stage')).toBeVisible()
+  await expect(page.getByRole('group', { name: '画布内容' })).toBeVisible()
+  const { id } = await submitAndTrack(page, () =>
+    page.getByTestId('generate').click(),
+  )
+  const result = done(page, id).first()
+  await expect(result).toBeVisible({ timeout: 60000 })
+  // Still only this task (ADR-20261009-R); the editor and the result are both framed.
+  const tasks = await page
+    .getByTestId('result-card')
+    .evaluateAll((items) => items.map((item) => item.getAttribute('data-task')))
+  expect(new Set(tasks)).toEqual(new Set([id]))
+  await expect(page.getByText('本次结果')).toBeVisible()
+  expect(await inside(page.getByTestId('design-stage'))).toBe(true)
+  expect(await inside(result)).toBe(true)
+  const framed = (await zoom.textContent())!
+  // The wheel zooms in around the pointer.
+  const area = (await canvas.boundingBox())!
+  const cx = area.x + area.width / 2,
+    cy = area.y + area.height / 2
+  await page.mouse.move(cx, cy)
+  await page.mouse.wheel(0, -400)
+  await expect(zoom).not.toHaveText(framed)
+  // Dragging pans everything by the same distance, even when it starts on a picture.
+  const start = (await result.boundingBox())!
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await page.mouse.move(cx - 120, cy - 60, { steps: 6 })
+  await page.mouse.up()
+  const moved = (await result.boundingBox())!
+  expect(moved.x).toBeCloseTo(start.x - 120, 0)
+  expect(moved.y).toBeCloseTo(start.y - 60, 0)
+  await expect(viewer).toHaveCount(0)
+  // "显示全部" frames everything again.
+  await page.getByRole('button', { name: '显示全部' }).click()
+  await expect(zoom).toHaveText(framed)
+  expect(await inside(result)).toBe(true)
+  await page.screenshot({ path: join(artifacts, 'scene-canvas.png') })
+  // Double-click a result: full screen.
+  await result.dblclick()
+  await expect(viewer.locator('img')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(viewer).toHaveCount(0)
+
+  // The conversation canvas: one row per message, the newest framed.
+  await page.getByRole('link', { name: '对话生图' }).click()
+  await page.getByTestId('new-chat').click()
+  await page.getByRole('button', { name: /^商品图/ }).click()
+  await page.getByRole('menuitem', { name: '从素材库选择' }).click()
+  const picker = page.getByRole('dialog', { name: '选择商品图' })
+  await picker
+    .getByRole('button', { name: /^选择商品图/ })
+    .first()
+    .click()
+  await expect(picker).toHaveCount(0)
+  await page.getByRole('button', { name: /^把商品放在浅木色桌面上/ }).click()
+  await page.getByTestId('chat-send').click()
+  const images = page.getByTestId('canvas-image')
+  await expect(images.first()).toHaveAttribute('data-status', 'SUCCEEDED', {
+    timeout: 60000,
+  })
+  await expect(images).toHaveCount(1)
+  // The newest picture is what the next message changes, marked on the canvas.
+  await expect(images.first()).toContainText('修改这张')
+  await page.getByLabel('描述').fill('背景换成浅蓝色')
+  await page.getByTestId('chat-send').click()
+  await expect(images).toHaveCount(2)
+  await expect(images.nth(1)).toHaveAttribute('data-status', 'SUCCEEDED', {
+    timeout: 60000,
+  })
+  const chatCanvas = page.getByTestId('canvas').first()
+  const second = images.nth(1)
+  const chatArea = (await chatCanvas.boundingBox())!
+  const shown = (await second.boundingBox())!
+  expect(shown.y).toBeGreaterThanOrEqual(chatArea.y - 1)
+  expect(shown.y + shown.height).toBeLessThanOrEqual(
+    chatArea.y + chatArea.height + 1,
+  )
+  // Show everything, pick the first picture and continue from it.
+  await page.getByRole('button', { name: '显示全部' }).click()
+  const first = images.first()
+  expect((await first.boundingBox())!.y).toBeLessThan(
+    (await second.boundingBox())!.y,
+  )
+  await first.getByRole('button', { name: '选中第 1 条图 1' }).click()
+  await expect(first).toHaveAttribute('data-selected', 'true')
+  await first.getByRole('button', { name: '继续修改' }).click()
+  await expect(page.getByTestId('edit-target')).toContainText('第 1 条 · 图 1')
+  await expect(first).toContainText('修改这张')
+  await expect(second).not.toContainText('修改这张')
+  await page.screenshot({ path: join(artifacts, 'chat-canvas.png') })
+  await second.dblclick()
+  await expect(viewer).toContainText('2 /')
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await noHorizontalScroll(page)
+  await page.screenshot({
+    path: join(artifacts, 'chat-canvas-mobile.png'),
+    fullPage: true,
+  })
   expect(errors).toEqual([])
 })

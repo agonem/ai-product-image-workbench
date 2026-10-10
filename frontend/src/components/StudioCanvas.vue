@@ -4,7 +4,6 @@ import { giftCardBox, sellingProductZone } from '../workbench/generation'
 import type { GiftCardSize, ProductPosition } from '../workbench/generation'
 import type { Box, Feature, TextSpec } from '../workbench/model'
 import PrivateImage from '../workbench/PrivateImage.vue'
-import DropSelect from './DropSelect.vue'
 import LineIcon from './LineIcon.vue'
 
 type Zone = { left: number; top: number; width: number; height: number }
@@ -41,6 +40,9 @@ const props = defineProps<{
   /** Undo/redo live in the page (they cover every setting); the canvas offers the buttons. */
   canUndo?: boolean
   canRedo?: boolean
+  /** The canvas places the toolbar and the notes so they do not shrink with its zoom. */
+  toolsTo: string
+  notesTo: string
 }>()
 const mode = defineModel<'plan' | 'result'>('mode', { required: true })
 const compare = defineModel<boolean>('compare', { required: true })
@@ -56,7 +58,6 @@ const emit = defineEmits<{
 
 const hasText = computed(() => props.feature === 'SELLING_POINT')
 const textOn = ref(true),
-  zoom = ref(1),
   split = ref(50)
 // Layers (ADR-20260930-F): the text can be hidden or locked; guides and layout zones toggle.
 const layers = ref({ locked: false, zones: true, guides: false })
@@ -105,11 +106,6 @@ function snapEdge(
 }
 const board = ref<HTMLElement>()
 const showResult = computed(() => mode.value === 'result' && props.hasResult)
-const zooms = [
-  { value: 1, label: '适应画布' },
-  { value: 1.25, label: '125%' },
-  { value: 1.5, label: '150%' },
-]
 const pct = (zone: Zone) => ({
   left: `${zone.left}%`,
   top: `${zone.top}%`,
@@ -223,7 +219,7 @@ function measure() {
   if (Math.abs(value - fit.value) > 0.004) fit.value = value
 }
 const remeasure = () => void nextTick(measure)
-watch(() => [props.text, box.value, props.width, zoom.value], remeasure)
+watch(() => [props.text, box.value, props.width, props.height], remeasure)
 watch(overflow, (value) => emit('overflow', value))
 let observer: ResizeObserver | undefined
 onMounted(() => {
@@ -326,303 +322,297 @@ function nudge(event: KeyboardEvent) {
     class="stage"
     :class="{ edit: hasText && textOn && !disabled && !layers.locked }"
   >
-    <div class="stage-bar">
-      <div class="seg" role="group" aria-label="画布内容">
-        <button
-          type="button"
-          :aria-pressed="!showResult"
-          @click="((mode = 'plan'), (compare = false))"
-        >
-          构图预览
-        </button>
-        <button
-          type="button"
-          :aria-pressed="showResult"
-          :disabled="!hasResult"
-          @click="mode = 'result'"
-        >
-          生成结果
-        </button>
-      </div>
-      <div class="tools">
-        <button
-          type="button"
-          class="tool icon-only"
-          aria-label="撤销"
-          title="撤销（Ctrl+Z）"
-          :disabled="!canUndo"
-          @click="emit('undo')"
-        >
-          <LineIcon name="undo" />
-        </button>
-        <button
-          type="button"
-          class="tool icon-only"
-          aria-label="重做"
-          title="重做（Ctrl+Y）"
-          :disabled="!canRedo"
-          @click="emit('redo')"
-        >
-          <LineIcon name="redo2" />
-        </button>
-        <button
-          v-if="hasText"
-          type="button"
-          class="tool"
-          :aria-pressed="textOn"
-          title="显示并编辑文字框"
-          @click="textOn = !textOn"
-        >
-          <LineIcon name="text" /><span class="label">文字框</span>
-        </button>
-        <div
-          ref="layerRoot"
-          class="dd layer-menu"
-          @keydown.esc="layerMenu = false"
-        >
+    <Teleport defer :to="toolsTo">
+      <div class="stage-bar">
+        <div class="seg" role="group" aria-label="画布内容">
           <button
             type="button"
-            class="tool"
-            aria-haspopup="true"
-            :aria-expanded="layerMenu"
-            title="图层与参考线"
-            @click="layerMenu = !layerMenu"
+            :aria-pressed="!showResult"
+            @click="((mode = 'plan'), (compare = false))"
           >
-            <LineIcon name="layers" /><span class="label">图层</span>
+            构图预览
           </button>
-          <div v-if="layerMenu" class="menu" role="group" aria-label="图层">
-            <label v-if="hasText" class="menu-item check"
-              ><input v-model="textOn" type="checkbox" />显示文字</label
-            >
-            <label v-if="hasText" class="menu-item check"
-              ><input
-                v-model="layers.locked"
-                type="checkbox"
-              />锁定文字位置</label
-            >
-            <label class="menu-item check"
-              ><input
-                v-model="layers.zones"
-                type="checkbox"
-              />显示构图区域</label
-            >
-            <label class="menu-item check"
-              ><input
-                v-model="layers.guides"
-                type="checkbox"
-              />显示参考线</label
-            >
-          </div>
-        </div>
-        <button
-          type="button"
-          class="tool"
-          :aria-pressed="compare && showResult"
-          :disabled="!showResult || !image"
-          title="拖动中间的滑块对照原图与生成结果"
-          @click="compare = !compare"
-        >
-          <LineIcon name="cmp" /><span class="label">对照原图</span>
-        </button>
-        <div class="zoom">
-          <DropSelect
-            v-model="zoom"
-            label="缩放"
-            :options="zooms"
-            variant="tool"
-          />
-        </div>
-        <span class="size-label">{{ width }} × {{ height }}</span>
-      </div>
-    </div>
-    <div class="artwrap">
-      <div
-        ref="board"
-        class="artboard"
-        data-testid="design-stage"
-        :style="{
-          '--ratio': `${Math.max(64, width)} / ${Math.max(64, height)}`,
-          '--zoom': zoom,
-        }"
-      >
-        <template v-if="showResult && image">
-          <PrivateImage
-            :key="image"
-            class="base"
-            :path="image"
-            :alt="imageAlt"
-            :api="api"
-          />
-        </template>
-        <template v-else-if="!showResult && backdrop">
-          <PrivateImage
-            :key="backdrop"
-            class="base"
-            :path="backdrop"
-            alt="商品图（保持原图）"
-            :api="api"
-            missing="原图已删除"
-          />
-        </template>
-        <template v-else-if="!showResult && layers.zones">
-          <div class="zone" :style="pct(productZone)">商品</div>
-          <div
-            v-if="feature === 'GIFT' && !card"
-            class="zone"
-            :style="pct(giftZone)"
+          <button
+            type="button"
+            :aria-pressed="showResult"
+            :disabled="!hasResult"
+            @click="mode = 'result'"
           >
-            赠品
-          </div>
-        </template>
-        <div
-          v-if="hasText && (text || (!showResult && textOn))"
-          v-show="textOn || showResult"
-          ref="layer"
-          class="textbox"
-          :class="{ overflow }"
-          data-testid="text-layer"
-          :data-overflow="overflow"
-          :style="layerStyle"
-          @pointerdown="down('move', $event)"
-          @pointermove="move"
-          @pointerup="up"
-          @pointercancel="up"
-        >
-          <div v-if="text" ref="content" class="tb-content">
-            <div
-              v-if="text.title"
-              class="ttl"
-              :style="{ color: text.color, fontSize: titleEm }"
+            生成结果
+          </button>
+        </div>
+        <div class="tools">
+          <button
+            type="button"
+            class="tool icon-only"
+            aria-label="撤销"
+            title="撤销（Ctrl+Z）"
+            :disabled="!canUndo"
+            @click="emit('undo')"
+          >
+            <LineIcon name="undo" />
+          </button>
+          <button
+            type="button"
+            class="tool icon-only"
+            aria-label="重做"
+            title="重做（Ctrl+Y）"
+            :disabled="!canRedo"
+            @click="emit('redo')"
+          >
+            <LineIcon name="redo2" />
+          </button>
+          <button
+            v-if="hasText"
+            type="button"
+            class="tool"
+            :aria-pressed="textOn"
+            title="显示并编辑文字框"
+            @click="textOn = !textOn"
+          >
+            <LineIcon name="text" /><span class="label">文字框</span>
+          </button>
+          <div
+            ref="layerRoot"
+            class="dd layer-menu"
+            @keydown.esc="layerMenu = false"
+          >
+            <button
+              type="button"
+              class="tool"
+              aria-haspopup="true"
+              :aria-expanded="layerMenu"
+              title="图层与参考线"
+              @click="layerMenu = !layerMenu"
             >
-              {{ text.title }}
-            </div>
-            <div
-              v-if="text.points?.length"
-              class="pills"
-              :style="{
-                fontSize: pointEm,
-                alignItems:
-                  textAlign === 'center'
-                    ? 'center'
-                    : textAlign === 'right'
-                      ? 'flex-end'
-                      : 'flex-start',
-              }"
-            >
-              <span
-                v-for="(point, index) in text.points"
-                :key="index"
-                class="pill"
-                :style="{ background: palette.badge, color: palette.badgeText }"
-                ><i :style="{ background: palette.accent }">✓</i
-                >{{ point }}</span
+              <LineIcon name="layers" /><span class="label">图层</span>
+            </button>
+            <div v-if="layerMenu" class="menu" role="group" aria-label="图层">
+              <label v-if="hasText" class="menu-item check"
+                ><input v-model="textOn" type="checkbox" />显示文字</label
+              >
+              <label v-if="hasText" class="menu-item check"
+                ><input
+                  v-model="layers.locked"
+                  type="checkbox"
+                />锁定文字位置</label
+              >
+              <label class="menu-item check"
+                ><input
+                  v-model="layers.zones"
+                  type="checkbox"
+                />显示构图区域</label
+              >
+              <label class="menu-item check"
+                ><input
+                  v-model="layers.guides"
+                  type="checkbox"
+                />显示参考线</label
               >
             </div>
           </div>
-          <span v-else class="zone" style="inset: 0">文字</span>
-          <span
-            class="grip"
-            aria-hidden="true"
-            @pointerdown="down('resize', $event)"
-            @pointermove="move"
-            @pointerup="up"
-            @pointercancel="up"
-          ></span>
-        </div>
-        <template v-if="showResult && compare && image">
-          <div
-            class="original"
-            data-testid="compare-original"
-            :style="{ clipPath: `inset(0 ${100 - split}% 0 0)` }"
+          <button
+            type="button"
+            class="tool"
+            :aria-pressed="compare && showResult"
+            :disabled="!showResult || !image"
+            title="拖动中间的滑块对照原图与生成结果"
+            @click="compare = !compare"
           >
-            <div class="piece" :style="pct(originals.product)">
-              <PrivateImage
-                :path="`/assets/${product}/content`"
-                alt="商品原图"
-                :api="api"
-                missing="原图已删除"
-              />
-            </div>
-            <div
-              v-if="originals.gift"
-              class="piece"
-              :style="pct(originals.gift)"
-            >
-              <PrivateImage
-                :path="`/assets/${gift}/content`"
-                alt="赠品原图"
-                :api="api"
-                missing="原图已删除"
-              />
-            </div>
-            <span class="tagline">原图</span>
+            <LineIcon name="cmp" /><span class="label">对照原图</span>
+          </button>
+          <span class="size-label">{{ width }} × {{ height }}</span>
+        </div>
+      </div>
+    </Teleport>
+    <Teleport defer :to="notesTo">
+      <div v-if="showResult && hasText && image" class="corner">
+        <span class="note"
+          >拖动虚线框调整文字位置，改完点右侧按钮，只重排文字、不重新生成。</span
+        >
+        <button
+          type="button"
+          class="btn primary"
+          :disabled="disabled || !canApply"
+          @click="emit('apply')"
+        >
+          <LineIcon name="check" :size="14" />应用文字修改
+        </button>
+      </div>
+    </Teleport>
+    <div ref="board" class="artboard" data-testid="design-stage">
+      <template v-if="showResult && image">
+        <PrivateImage
+          :key="image"
+          class="base"
+          :path="image"
+          :alt="imageAlt"
+          :api="api"
+        />
+      </template>
+      <template v-else-if="!showResult && backdrop">
+        <PrivateImage
+          :key="backdrop"
+          class="base"
+          :path="backdrop"
+          alt="商品图（保持原图）"
+          :api="api"
+          missing="原图已删除"
+        />
+      </template>
+      <template v-else-if="!showResult && layers.zones">
+        <div class="zone" :style="pct(productZone)">商品</div>
+        <div
+          v-if="feature === 'GIFT' && !card"
+          class="zone"
+          :style="pct(giftZone)"
+        >
+          赠品
+        </div>
+      </template>
+      <div
+        v-if="hasText && (text || (!showResult && textOn))"
+        v-show="textOn || showResult"
+        ref="layer"
+        class="textbox"
+        :class="{ overflow }"
+        data-testid="text-layer"
+        :data-overflow="overflow"
+        :style="layerStyle"
+        @pointerdown="down('move', $event)"
+        @pointermove="move"
+        @pointerup="up"
+        @pointercancel="up"
+      >
+        <div v-if="text" ref="content" class="tb-content">
+          <div
+            v-if="text.title"
+            class="ttl"
+            :style="{ color: text.color, fontSize: titleEm }"
+          >
+            {{ text.title }}
           </div>
           <div
-            class="split"
-            role="slider"
-            tabindex="0"
-            aria-label="对照分隔线"
-            aria-valuemin="4"
-            aria-valuemax="96"
-            :aria-valuenow="split"
-            :style="{ left: `${split}%` }"
-            @pointerdown="slide"
-            @pointermove="slide"
-            @keydown="nudge"
-          ></div>
-        </template>
-        <div
-          v-if="card && !showResult"
-          class="gift-card"
-          data-testid="gift-card"
-          :style="card.frame"
-        >
-          <span class="gc-badge" :style="card.badge" aria-hidden="true"
-            ><LineIcon name="plus" :size="12"
-          /></span>
-          <div
-            class="gc-picture"
-            :class="{ white: giftCard?.white }"
-            :style="card.picture"
+            v-if="text.points?.length"
+            class="pills"
+            :style="{
+              fontSize: pointEm,
+              alignItems:
+                textAlign === 'center'
+                  ? 'center'
+                  : textAlign === 'right'
+                    ? 'flex-end'
+                    : 'flex-start',
+            }"
           >
+            <span
+              v-for="(point, index) in text.points"
+              :key="index"
+              class="pill"
+              :style="{ background: palette.badge, color: palette.badgeText }"
+              ><i :style="{ background: palette.accent }">✓</i>{{ point }}</span
+            >
+          </div>
+        </div>
+        <span v-else class="zone" style="inset: 0">文字</span>
+        <span
+          class="grip"
+          aria-hidden="true"
+          @pointerdown="down('resize', $event)"
+          @pointermove="move"
+          @pointerup="up"
+          @pointercancel="up"
+        ></span>
+      </div>
+      <template v-if="showResult && compare && image">
+        <div
+          class="original"
+          data-testid="compare-original"
+          :style="{ clipPath: `inset(0 ${100 - split}% 0 0)` }"
+        >
+          <div class="piece" :style="pct(originals.product)">
             <PrivateImage
-              v-if="giftCard?.gift"
-              :path="`/assets/${giftCard.gift}/content`"
+              :path="`/assets/${product}/content`"
+              alt="商品原图"
+              :api="api"
+              missing="原图已删除"
+            />
+          </div>
+          <div v-if="originals.gift" class="piece" :style="pct(originals.gift)">
+            <PrivateImage
+              :path="`/assets/${gift}/content`"
               alt="赠品原图"
               :api="api"
               missing="原图已删除"
             />
-            <small v-if="giftCard?.white" class="gc-note"
-              >纯白·生成时 AI 重拍</small
-            >
           </div>
-          <span v-if="giftCard?.label" class="gc-label" :style="card.label">{{
-            giftCard.label
-          }}</span>
+          <span class="tagline">原图</span>
         </div>
-        <div v-if="layers.guides" class="guides" aria-hidden="true">
-          <i class="v" style="left: 33.333%"></i
-          ><i class="v" style="left: 50%"></i
-          ><i class="v" style="left: 66.667%"></i
-          ><i class="h" style="top: 33.333%"></i
-          ><i class="h" style="top: 50%"></i
-          ><i class="h" style="top: 66.667%"></i>
-          <span class="safe"></span>
+        <div
+          class="split"
+          data-no-pan
+          role="slider"
+          tabindex="0"
+          aria-label="对照分隔线"
+          aria-valuemin="4"
+          aria-valuemax="96"
+          :aria-valuenow="split"
+          :style="{ left: `${split}%` }"
+          @pointerdown="slide"
+          @pointermove="slide"
+          @keydown="nudge"
+        ></div>
+      </template>
+      <div
+        v-if="card && !showResult"
+        class="gift-card"
+        data-testid="gift-card"
+        :style="card.frame"
+      >
+        <span class="gc-badge" :style="card.badge" aria-hidden="true"
+          ><LineIcon name="plus" :size="12"
+        /></span>
+        <div
+          class="gc-picture"
+          :class="{ white: giftCard?.white }"
+          :style="card.picture"
+        >
+          <PrivateImage
+            v-if="giftCard?.gift"
+            :path="`/assets/${giftCard.gift}/content`"
+            alt="赠品原图"
+            :api="api"
+            missing="原图已删除"
+          />
+          <small v-if="giftCard?.white" class="gc-note"
+            >纯白·生成时 AI 重拍</small
+          >
         </div>
-        <i
-          v-if="snap.x !== null"
-          class="snap v"
-          data-testid="snap-line"
-          :style="{ left: `${snap.x * 100}%` }"
-        ></i>
-        <i
-          v-if="snap.y !== null"
-          class="snap h"
-          :style="{ top: `${snap.y * 100}%` }"
-        ></i>
-        <div v-if="generating && !showResult" class="generating" role="status">
-          <span class="spinner"></span>正在生成…
-        </div>
+        <span v-if="giftCard?.label" class="gc-label" :style="card.label">{{
+          giftCard.label
+        }}</span>
+      </div>
+      <div v-if="layers.guides" class="guides" aria-hidden="true">
+        <i class="v" style="left: 33.333%"></i
+        ><i class="v" style="left: 50%"></i
+        ><i class="v" style="left: 66.667%"></i
+        ><i class="h" style="top: 33.333%"></i><i class="h" style="top: 50%"></i
+        ><i class="h" style="top: 66.667%"></i>
+        <span class="safe"></span>
+      </div>
+      <i
+        v-if="snap.x !== null"
+        class="snap v"
+        data-testid="snap-line"
+        :style="{ left: `${snap.x * 100}%` }"
+      ></i>
+      <i
+        v-if="snap.y !== null"
+        class="snap h"
+        :style="{ top: `${snap.y * 100}%` }"
+      ></i>
+      <div v-if="generating && !showResult" class="generating" role="status">
+        <span class="spinner"></span>正在生成…
       </div>
       <div v-if="showResult && failure" class="failure">
         <LineIcon name="alert" />
@@ -635,20 +625,6 @@ function nudge(event: KeyboardEvent) {
           @click="emit('retry')"
         >
           <LineIcon name="redo" :size="14" />重试
-        </button>
-      </div>
-      <div v-if="showResult && hasText && image" class="corner">
-        <span class="note"
-          >拖动虚线框调整文字位置，改完点右侧按钮，只重排文字、不重新生成。</span
-        >
-        <span class="spacer"></span>
-        <button
-          type="button"
-          class="btn primary"
-          :disabled="disabled || !canApply"
-          @click="emit('apply')"
-        >
-          <LineIcon name="check" :size="14" />应用文字修改
         </button>
       </div>
     </div>
