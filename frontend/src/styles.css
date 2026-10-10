@@ -3410,3 +3410,104 @@ td small.params {
     max-width: 120px;
   }
 }
+/* Text, library pictures and boards on the conversation canvas (ADR-20261010-W). */
+.board-frame {
+  position: absolute;
+  inset: 0;
+  box-shadow:
+    0 0 0 1px rgba(29, 33, 41, 0.12),
+    0 8px 24px rgba(29, 33, 41, 0.08);
+}
+.board-caption .link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.canvas-text {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: start;
+  outline: 1px dashed transparent;
+}
+.ic-item.movable:hover .canvas-text,
+.ic-item.selected .canvas-text {
+  outline-color: var(--accent);
+}
+.canvas-text-block {
+  width: max-content;
+  white-space: pre;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.asset-cell {
+  background: transparent;
+  border-style: dashed;
+}
+.asset-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.ic-handle {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+  background: #fff;
+  cursor: nwse-resize;
+  transform: translate(-50%, -50%) scale(calc(1 / var(--canvas-scale, 1)));
+  z-index: 2;
+}
+.canvas-settings {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: var(--shadow-1);
+}
+.canvas-settings-text {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: 34px;
+  resize: vertical;
+}
+.canvas-settings .dd {
+  min-width: 96px;
+}
+.canvas-settings .hint {
+  flex-basis: 100%;
+}
+.canvas-add-image .slot-button {
+  width: auto;
+  height: 28px;
+  aspect-ratio: auto;
+  display: inline-flex;
+  flex-direction: row;
+  gap: 5px;
+  padding: 0 9px;
+  border-style: solid;
+  border-color: var(--line-2);
+  background: var(--panel);
+  font-size: 12px;
+}
+.canvas-add-image .slot-button .icon {
+  width: 14px;
+  height: 14px;
+}
+.canvas-add-image .menu {
+  top: auto;
+  bottom: calc(100% + 4px);
+  right: auto;
+  width: 150px;
+}
+@media (max-width: 900px) {
+  .canvas-add-image .slot-button span {
+    display: none;
+  }
+}

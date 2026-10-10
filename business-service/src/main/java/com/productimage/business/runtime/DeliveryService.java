@@ -164,6 +164,8 @@ public final class DeliveryService {
                 "product_asset", "product_alpha_asset", "gift_asset", "base_image", "edit_image"
               }) frozen.add(request.path(field));
           request.path("references").forEach(frozen::add);
+          // The pictures of a canvas export (ADR-20261010-W).
+          request.path("compose").path("layers").forEach(layer -> frozen.add(layer.path("image")));
           for (var asset : frozen) {
             if (asset.path("asset_id").asText().equals(assetId)) {
               byte[] bytes = store.read(asset.path("object_key").asText());

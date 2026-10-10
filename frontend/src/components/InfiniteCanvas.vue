@@ -53,6 +53,7 @@ const emit = defineEmits<{
   command: [name: CanvasCommand]
   'update:selected': [keys: string[]]
   'update:tool': [tool: 'select' | 'hand']
+  resize: [key: string, width: number, height: number]
 }>()
 
 const root = ref<HTMLElement>()
@@ -124,9 +125,11 @@ const hand = computed(
   () => !props.editable || props.tool === 'hand' || spaceHeld.value,
 )
 
-// Controls inside the canvas keep their own pointer and wheel behaviour.
+// Controls inside the canvas keep their own pointer and wheel behaviour. Buttons in a caption
+// (a board's "导出图片", a message's "详情") act without selecting: a settings bar opening on
+// selection could otherwise cover the button before the click ends.
 const OWN =
-  '[data-no-pan], input, textarea, select, a, [role="slider"], .menu, .ic-overlay, .ic-footer, .ic-zoom, .hover-actions'
+  '[data-no-pan], input, textarea, select, a, [role="slider"], .menu, .ic-overlay, .ic-footer, .ic-zoom, .hover-actions, .cell-caption button'
 function wheel(event: WheelEvent) {
   if ((event.target as Element).closest('.menu, .ic-overlay, .ic-footer'))
     return
@@ -155,7 +158,7 @@ let start: Point = { x: 0, y: 0 },
   pinch: { distance: number; middle: Point } | null = null,
   dragged = false,
   // What the current press does once it moves: pan, move the selection or draw a box.
-  mode: 'pan' | 'drag' | 'box' | null = null,
+  mode: 'pan' | 'drag' | 'box' | 'resize' | null = null,
   active = false,
   boxBase: string[] = []
 // While dragging pictures: which ones and by how much (world units), shown before the drop.
@@ -163,6 +166,25 @@ const dragging = ref<Set<string>>(new Set())
 const offset = reactive({ x: 0, y: 0 })
 // The selection box on screen, relative to the canvas.
 const box = ref<Rect | null>(null)
+// While resizing one item with its corner handle: the new size (world units) before the drop.
+const sizing = ref<{ key: string; width: number; height: number } | null>(null)
+let sizingStart: Rect & { ratio: boolean } = {
+  x: 0,
+  y: 0,
+  width: 1,
+  height: 1,
+  ratio: true,
+}
+// The one selected item that can be resized shows the handle.
+const handled = computed(() => {
+  if (!props.editable || props.selected.length !== 1) return null
+  const item = props.items.find((entry) => entry.key === props.selected[0])
+  return item?.resize ? item : null
+})
+const sizeOf = (item: Placed) =>
+  sizing.value?.key === item.key
+    ? { width: sizing.value.width, height: sizing.value.height }
+    : { width: item.rect.width, height: item.rect.height }
 const twoFingers = () => {
   const [a, b] = [...pointers.values()] as [Point, Point]
   return {
@@ -175,6 +197,7 @@ function local(point: Point): Point {
   return { x: point.x - area.left, y: point.y - area.top }
 }
 function reset() {
+  sizing.value = null
   mode = null
   active = false
   panning.value = false
@@ -200,6 +223,19 @@ function down(event: PointerEvent) {
   }
   if (pointers.size > 2) return
   start = last = { x: event.clientX, y: event.clientY }
+  if (target.closest('.ic-handle') && handled.value) {
+    mode = 'resize'
+    sizingStart = {
+      ...handled.value.rect,
+      ratio: handled.value.resize === 'ratio',
+    }
+    sizing.value = {
+      key: handled.value.key,
+      width: sizingStart.width,
+      height: sizingStart.height,
+    }
+    return
+  }
   const key = (target.closest('.ic-item') as HTMLElement | null)?.dataset.key
   const onPicture = !!key && movable.value.has(key)
   if (middleButton || hand.value) mode = 'pan'
@@ -266,7 +302,19 @@ function move(event: PointerEvent) {
       x: view.value.x + point.x - last.x,
       y: view.value.y + point.y - last.y,
     })
-  else if (mode === 'drag') {
+  else if (mode === 'resize' && sizing.value) {
+    const width = Math.max(
+      24,
+      sizingStart.width + (point.x - start.x) / view.value.scale,
+    )
+    const height = sizingStart.ratio
+      ? (width * sizingStart.height) / sizingStart.width
+      : Math.max(
+          24,
+          sizingStart.height + (point.y - start.y) / view.value.scale,
+        )
+    sizing.value = { ...sizing.value, width, height }
+  } else if (mode === 'drag') {
     offset.x += (point.x - last.x) / view.value.scale
     offset.y += (point.y - last.y) / view.value.scale
   } else if (mode === 'box') {
@@ -290,7 +338,14 @@ function up(event: PointerEvent) {
     active = true
     return
   }
-  if (mode === 'drag' && active && (offset.x || offset.y))
+  if (mode === 'resize' && active && sizing.value)
+    emit(
+      'resize',
+      sizing.value.key,
+      Math.round(sizing.value.width),
+      Math.round(sizing.value.height),
+    )
+  else if (mode === 'drag' && active && (offset.x || offset.y))
     emit(
       'move',
       [...dragging.value],
@@ -396,13 +451,18 @@ onMounted(() => {
   root.value?.addEventListener('wheel', wheel, { passive: false })
   observer = new ResizeObserver(() => {
     if (!root.value) return
-    size.value = {
+    const next = {
       width: root.value.clientWidth,
       height: root.value.clientHeight,
     }
+    const resized =
+      next.width !== size.value.width || next.height !== size.value.height
+    size.value = next
     const bar = overlay.value?.offsetHeight ?? 0
     reserved.value = { top: bar ? bar + 10 : 0, bottom: 52 }
-    if (!ready.value || framed) frame(framed ?? props.focus)
+    // A settings bar appearing over an editable canvas must not move what is being edited.
+    if (!ready.value || (framed && (resized || !props.editable)))
+      frame(framed ?? props.focus)
   })
   if (root.value) observer.observe(root.value)
   if (overlay.value) observer.observe(overlay.value)
@@ -411,7 +471,14 @@ onUnmounted(() => {
   root.value?.removeEventListener('wheel', wheel)
   observer?.disconnect()
 })
-defineExpose({ frame })
+/** The world point at the middle of the visible canvas (where new things are put). */
+function worldCentre() {
+  return {
+    x: (size.value.width / 2 - view.value.x) / view.value.scale,
+    y: (size.value.height / 2 - view.value.y) / view.value.scale,
+  }
+}
+defineExpose({ frame, worldCentre })
 </script>
 
 <template>
@@ -463,8 +530,8 @@ defineExpose({ frame })
         :style="{
           left: `${item.rect.x}px`,
           top: `${item.rect.y}px`,
-          width: `${item.rect.width}px`,
-          height: `${item.rect.height}px`,
+          width: `${sizeOf(item).width}px`,
+          height: `${sizeOf(item).height}px`,
           transform: dragging.has(item.key)
             ? `translate(${offset.x}px, ${offset.y}px)`
             : undefined,
@@ -473,6 +540,16 @@ defineExpose({ frame })
       >
         <slot :item="item" :near="seen.has(item.key)" />
       </div>
+      <div
+        v-if="handled && !dragging.size"
+        class="ic-handle"
+        data-testid="canvas-resize"
+        aria-hidden="true"
+        :style="{
+          left: `${handled.rect.x + sizeOf(handled).width}px`,
+          top: `${handled.rect.y + sizeOf(handled).height}px`,
+        }"
+      ></div>
     </div>
     <div
       v-if="box"

@@ -4,7 +4,10 @@
   "title": "Where the owner placed a conversation's pictures on its canvas (ADR-20261010-V)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "layout"],
+  "required": [
+    "version",
+    "layout"
+  ],
   "properties": {
     "version": {
       "description": "The version the client read; 0 when the canvas was never saved.",
@@ -15,19 +18,26 @@
     "layout": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["items", "removed"],
+      "required": [
+        "items",
+        "removed"
+      ],
       "properties": {
         "items": {
           "type": "array",
           "maxItems": 500,
-          "items": { "$ref": "#/$defs/item" }
+          "items": {
+            "$ref": "#/$defs/item"
+          }
         },
         "removed": {
           "description": "Results or message placeholders taken off the canvas (not deleted).",
           "type": "array",
           "maxItems": 1000,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/reference" }
+          "items": {
+            "$ref": "#/$defs/reference"
+          }
         }
       }
     }
@@ -51,22 +61,140 @@
     "item": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "x", "y", "width", "height"],
+      "required": [
+        "id",
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
       "properties": {
         "id": {
           "type": "string",
           "pattern": "^[A-Za-z0-9:_-]{1,80}$"
         },
-        "artifact_id": { "$ref": "#/$defs/reference" },
-        "task_id": { "$ref": "#/$defs/reference" },
-        "x": { "$ref": "#/$defs/coordinate" },
-        "y": { "$ref": "#/$defs/coordinate" },
-        "width": { "$ref": "#/$defs/size" },
-        "height": { "$ref": "#/$defs/size" }
+        "artifact_id": {
+          "$ref": "#/$defs/reference"
+        },
+        "task_id": {
+          "$ref": "#/$defs/reference"
+        },
+        "asset_id": {
+          "$ref": "#/$defs/reference"
+        },
+        "text": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "content": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[^\\n]*(\\n[^\\n]*){0,9}$"
+            },
+            "size": {
+              "type": "number",
+              "minimum": 8,
+              "maximum": 400
+            },
+            "color": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            },
+            "align": {
+              "enum": [
+                "left",
+                "center",
+                "right"
+              ]
+            }
+          },
+          "required": [
+            "content",
+            "size",
+            "color",
+            "align"
+          ]
+        },
+        "frame": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 2048
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 2048
+            },
+            "background": {
+              "type": "string",
+              "pattern": "^#[0-9A-Fa-f]{6}$"
+            }
+          },
+          "required": [
+            "width",
+            "height",
+            "background"
+          ]
+        },
+        "x": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "y": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "width": {
+          "$ref": "#/$defs/size"
+        },
+        "height": {
+          "$ref": "#/$defs/size"
+        }
       },
       "oneOf": [
-        { "properties": { "artifact_id": {} }, "required": ["artifact_id"] },
-        { "properties": { "task_id": {} }, "required": ["task_id"] }
+        {
+          "properties": {
+            "artifact_id": {}
+          },
+          "required": [
+            "artifact_id"
+          ]
+        },
+        {
+          "properties": {
+            "task_id": {}
+          },
+          "required": [
+            "task_id"
+          ]
+        },
+        {
+          "properties": {
+            "asset_id": {}
+          },
+          "required": [
+            "asset_id"
+          ]
+        },
+        {
+          "properties": {
+            "text": {}
+          },
+          "required": [
+            "text"
+          ]
+        },
+        {
+          "properties": {
+            "frame": {}
+          },
+          "required": [
+            "frame"
+          ]
+        }
       ]
     }
   }

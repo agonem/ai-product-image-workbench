@@ -37,7 +37,8 @@
         "GIFT",
         "SCENE",
         "SELLING_POINT",
-        "CUSTOM"
+        "CUSTOM",
+        "COMPOSE"
       ]
     },
     "box": {

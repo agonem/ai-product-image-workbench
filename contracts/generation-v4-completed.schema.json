@@ -65,7 +65,8 @@
                   "gemini-generate-content",
                   "retypeset",
                   "original",
-                  "mock-acceptance-only"
+                  "mock-acceptance-only",
+                  "composition"
                 ]
               },
               "endpoint": {
@@ -143,10 +144,33 @@
                       "type": "string",
                       "pattern": "^[0-9a-f]{64}$"
                     }
+                  },
+                  "layer_sha256": {
+                    "type": "array",
+                    "maxItems": 40,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    }
                   }
                 },
-                "required": [
-                  "product_sha256"
+                "oneOf": [
+                  {
+                    "properties": {
+                      "product_sha256": {}
+                    },
+                    "required": [
+                      "product_sha256"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "layer_sha256": {}
+                    },
+                    "required": [
+                      "layer_sha256"
+                    ]
+                  }
                 ]
               },
               "transform": {
@@ -262,6 +286,26 @@
                 },
                 "required": [
                   "text"
+                ]
+              },
+              "composition": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "layers": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 40
+                  },
+                  "text_layers": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 40
+                  }
+                },
+                "required": [
+                  "layers",
+                  "text_layers"
                 ]
               }
             },

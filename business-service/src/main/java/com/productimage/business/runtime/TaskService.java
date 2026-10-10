@@ -64,6 +64,7 @@ public final class TaskService {
     if (source.path("schema_version").asInt() != 4
         || !"SUCCEEDED".equals(row.get("status"))
         || source.has("gift_card")
+        || source.has("compose")
         || ordinal >= count) throw new Problem(409, "TASK_CONFLICT");
     var bases =
         jdbc.queryForList(
@@ -133,6 +134,7 @@ public final class TaskService {
           String configVersion =
               worker.path("schema_version").asInt() >= 2
                       && !worker.has("base_image")
+                      && !worker.has("compose")
                       && (!worker.path("keep_original").asBoolean()
                           || worker.path("gift_reshoot").asBoolean())
                   ? configs.binding(request.get("model_id"))
@@ -159,7 +161,8 @@ public final class TaskService {
                   "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,template_snapshot_json,worker_snapshot_json,provider_config_version,conversation_id,text_config_version) VALUES (?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?,?) ON CONFLICT(created_by,feature_type,idempotency_key) DO NOTHING",
                   id,
                   request.path("project_id").asText(),
-                  request.path("product_asset_id").asText(),
+                  // A canvas export has no product image (ADR-20261010-W).
+                  request.has("product_asset_id") ? request.get("product_asset_id").asText() : null,
                   request.has("gift_asset_id") ? request.get("gift_asset_id").asText() : null,
                   request.path("feature_type").asText(),
                   actor,
@@ -374,13 +377,19 @@ public final class TaskService {
           // Scene v2/v3 were replaced by v4; a legacy task stays readable but is not re-run.
           int version = snapshot.path("schema_version").asInt(1);
           if (version == 2 || version == 3) throw new Problem(409, "TASK_CONFLICT");
-          // A deleted original (or stored model output) cannot be sent again.
-          for (String input :
-              new String[] {
-                String.valueOf(row.get("product_asset_id")),
-                String.valueOf(row.get("gift_asset_id")),
-                snapshot.path("base_image").path("asset_id").asText()
-              })
+          // A deleted original (or stored model output, or picture of a canvas export) cannot
+          // be sent again.
+          var inputs =
+              new java.util.ArrayList<>(
+                  java.util.List.of(
+                      String.valueOf(row.get("product_asset_id")),
+                      String.valueOf(row.get("gift_asset_id")),
+                      snapshot.path("base_image").path("asset_id").asText()));
+          snapshot
+              .path("compose")
+              .path("layers")
+              .forEach(layer -> inputs.add(layer.path("image").path("asset_id").asText()));
+          for (String input : inputs)
             if (jdbc.queryForObject(
                     "SELECT count(*) FROM deletions WHERE target_id=?", Long.class, input)
                 > 0) throw new Problem(409, "ASSET_DELETED");

@@ -29,6 +29,7 @@ final class SnapshotBuilder {
     String project = request.path("project_id").asText();
     String feature = request.path("feature_type").asText();
     var worker = Json.object().put("schema_version", 4).put("feature_type", feature);
+    if (feature.equals("COMPOSE")) return composition(request, project, worker, presets.version());
     // Any material category may fill any slot (ADR-20261009-R).
     worker.set("product_asset", original(request.path("product_asset_id").asText(), project));
     if (feature.equals("GIFT")) {
@@ -105,6 +106,40 @@ final class SnapshotBuilder {
     if (request.has("resolution")) worker.set("resolution", request.get("resolution"));
     if (request.has("text")) worker.set("text", request.get("text"));
     worker.put("presets_version", presets.version());
+    worker.set("output", request.get("output"));
+    freezeOutput(worker, request.get("output"));
+    return worker;
+  }
+
+  /**
+   * A board of the conversation canvas composed into one picture (ADR-20261010-W): each picture
+   * layer is frozen by hash like any reference, text layers as they are. No product image and no
+   * model; the board's id only places the result next to it on the canvas.
+   */
+  private ObjectNode composition(
+      JsonNode request, String project, ObjectNode worker, String presetsVersion) {
+    if (jdbc.queryForObject(
+            "SELECT count(*) FROM conversations WHERE id=? AND project_id=?",
+            Long.class,
+            request.path("conversation_id").asText(),
+            project)
+        == 0) throw new Problem(404, "NOT_FOUND");
+    var compose = worker.putObject("compose");
+    compose.set("background", request.path("compose").get("background"));
+    var layers = compose.putArray("layers");
+    for (var layer : request.path("compose").path("layers")) {
+      var frozen = (ObjectNode) layer.deepCopy();
+      if (layer.has("artifact_id")) {
+        frozen.remove("artifact_id");
+        frozen.set("image", result(layer.path("artifact_id").asText(), project));
+      } else if (layer.has("asset_id")) {
+        frozen.remove("asset_id");
+        frozen.set("image", original(layer.path("asset_id").asText(), project));
+      }
+      layers.add(frozen);
+    }
+    if (request.has("frame_id")) worker.set("frame_id", request.get("frame_id"));
+    worker.put("presets_version", presetsVersion);
     worker.set("output", request.get("output"));
     freezeOutput(worker, request.get("output"));
     return worker;

@@ -3862,5 +3862,549 @@
         "removed": []
       }
     }
+  },
+  {
+    "name": "v4-compose-valid",
+    "contract": "generation-v4-create",
+    "valid": true,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "COMPOSE",
+      "conversation_id": "conversation_fixture",
+      "frame_id": "f:board-1",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "compose": {
+        "background": "#FFF6EC",
+        "layers": [
+          {
+            "artifact_id": "artifact_fixture",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.6,
+            "height": 0.6
+          },
+          {
+            "asset_id": "gift_fixture",
+            "x": 0.6,
+            "y": 0.62,
+            "width": 0.3,
+            "height": 0.3
+          },
+          {
+            "text": "下单即送\n洗头刷",
+            "color": "#1D2129",
+            "size": 0.06,
+            "align": "left",
+            "x": 0.05,
+            "y": -0.05,
+            "width": 0.5,
+            "height": 0.2
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "v4-compose-no-layers-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "COMPOSE",
+      "conversation_id": "conversation_fixture",
+      "frame_id": "f:board-1",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "compose": {
+        "background": "#FFF6EC",
+        "layers": []
+      }
+    }
+  },
+  {
+    "name": "v4-compose-two-images-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "COMPOSE",
+      "conversation_id": "conversation_fixture",
+      "frame_id": "f:board-1",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 2
+      },
+      "compose": {
+        "background": "#FFF6EC",
+        "layers": [
+          {
+            "artifact_id": "artifact_fixture",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.6,
+            "height": 0.6
+          },
+          {
+            "asset_id": "gift_fixture",
+            "x": 0.6,
+            "y": 0.62,
+            "width": 0.3,
+            "height": 0.3
+          },
+          {
+            "text": "下单即送\n洗头刷",
+            "color": "#1D2129",
+            "size": 0.06,
+            "align": "left",
+            "x": 0.05,
+            "y": -0.05,
+            "width": 0.5,
+            "height": 0.2
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "v4-compose-jpeg-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "COMPOSE",
+      "conversation_id": "conversation_fixture",
+      "frame_id": "f:board-1",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "jpeg",
+        "count": 1
+      },
+      "compose": {
+        "background": "#FFF6EC",
+        "layers": [
+          {
+            "artifact_id": "artifact_fixture",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.6,
+            "height": 0.6
+          },
+          {
+            "asset_id": "gift_fixture",
+            "x": 0.6,
+            "y": 0.62,
+            "width": 0.3,
+            "height": 0.3
+          },
+          {
+            "text": "下单即送\n洗头刷",
+            "color": "#1D2129",
+            "size": 0.06,
+            "align": "left",
+            "x": 0.05,
+            "y": -0.05,
+            "width": 0.5,
+            "height": 0.2
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "v4-compose-product-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "COMPOSE",
+      "conversation_id": "conversation_fixture",
+      "frame_id": "f:board-1",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "compose": {
+        "background": "#FFF6EC",
+        "layers": [
+          {
+            "artifact_id": "artifact_fixture",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.6,
+            "height": 0.6
+          },
+          {
+            "asset_id": "gift_fixture",
+            "x": 0.6,
+            "y": 0.62,
+            "width": 0.3,
+            "height": 0.3
+          },
+          {
+            "text": "下单即送\n洗头刷",
+            "color": "#1D2129",
+            "size": 0.06,
+            "align": "left",
+            "x": 0.05,
+            "y": -0.05,
+            "width": 0.5,
+            "height": 0.2
+          }
+        ]
+      },
+      "product_asset_id": "p"
+    }
+  },
+  {
+    "name": "v4-compose-both-images-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "COMPOSE",
+      "conversation_id": "conversation_fixture",
+      "frame_id": "f:board-1",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "compose": {
+        "background": "#FFF6EC",
+        "layers": [
+          {
+            "artifact_id": "artifact_fixture",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.6,
+            "height": 0.6,
+            "asset_id": "x"
+          },
+          {
+            "asset_id": "gift_fixture",
+            "x": 0.6,
+            "y": 0.62,
+            "width": 0.3,
+            "height": 0.3
+          },
+          {
+            "text": "下单即送\n洗头刷",
+            "color": "#1D2129",
+            "size": 0.06,
+            "align": "left",
+            "x": 0.05,
+            "y": -0.05,
+            "width": 0.5,
+            "height": 0.2
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "v4-compose-text-eleven-lines-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "COMPOSE",
+      "conversation_id": "conversation_fixture",
+      "frame_id": "f:board-1",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "compose": {
+        "background": "#FFF6EC",
+        "layers": [
+          {
+            "artifact_id": "artifact_fixture",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.6,
+            "height": 0.6
+          },
+          {
+            "asset_id": "gift_fixture",
+            "x": 0.6,
+            "y": 0.62,
+            "width": 0.3,
+            "height": 0.3
+          },
+          {
+            "text": "行\n行\n行\n行\n行\n行\n行\n行\n行\n行\n行",
+            "color": "#1D2129",
+            "size": 0.06,
+            "align": "left",
+            "x": 0.05,
+            "y": -0.05,
+            "width": 0.5,
+            "height": 0.2
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "v4-compose-text-too-large-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "COMPOSE",
+      "conversation_id": "conversation_fixture",
+      "frame_id": "f:board-1",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "compose": {
+        "background": "#FFF6EC",
+        "layers": [
+          {
+            "artifact_id": "artifact_fixture",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.6,
+            "height": 0.6
+          },
+          {
+            "asset_id": "gift_fixture",
+            "x": 0.6,
+            "y": 0.62,
+            "width": 0.3,
+            "height": 0.3
+          },
+          {
+            "text": "下单即送\n洗头刷",
+            "color": "#1D2129",
+            "size": 0.9,
+            "align": "left",
+            "x": 0.05,
+            "y": -0.05,
+            "width": 0.5,
+            "height": 0.2
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "v4-compose-far-outside-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "COMPOSE",
+      "conversation_id": "conversation_fixture",
+      "frame_id": "f:board-1",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "compose": {
+        "background": "#FFF6EC",
+        "layers": [
+          {
+            "artifact_id": "artifact_fixture",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.6,
+            "height": 0.6
+          },
+          {
+            "asset_id": "gift_fixture",
+            "x": 9,
+            "y": 0.62,
+            "width": 0.3,
+            "height": 0.3
+          },
+          {
+            "text": "下单即送\n洗头刷",
+            "color": "#1D2129",
+            "size": 0.06,
+            "align": "left",
+            "x": 0.05,
+            "y": -0.05,
+            "width": 0.5,
+            "height": 0.2
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "v4-compose-no-conversation-invalid",
+    "contract": "generation-v4-create",
+    "valid": false,
+    "payload": {
+      "project_id": "project_fixture",
+      "feature_type": "COMPOSE",
+      "frame_id": "f:board-1",
+      "output": {
+        "aspect_ratio": "1:1",
+        "width": 800,
+        "height": 800,
+        "format": "png",
+        "count": 1
+      },
+      "compose": {
+        "background": "#FFF6EC",
+        "layers": [
+          {
+            "artifact_id": "artifact_fixture",
+            "x": 0.1,
+            "y": 0.1,
+            "width": 0.6,
+            "height": 0.6
+          },
+          {
+            "asset_id": "gift_fixture",
+            "x": 0.6,
+            "y": 0.62,
+            "width": 0.3,
+            "height": 0.3
+          },
+          {
+            "text": "下单即送\n洗头刷",
+            "color": "#1D2129",
+            "size": 0.06,
+            "align": "left",
+            "x": 0.05,
+            "y": -0.05,
+            "width": 0.5,
+            "height": 0.2
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-text-frame-asset-valid",
+    "contract": "canvas-layout",
+    "valid": true,
+    "payload": {
+      "version": 2,
+      "layout": {
+        "items": [
+          {
+            "id": "f:1",
+            "frame": {
+              "width": 800,
+              "height": 800,
+              "background": "#FFFFFF"
+            },
+            "x": 0,
+            "y": 0,
+            "width": 600,
+            "height": 600
+          },
+          {
+            "id": "s:1",
+            "asset_id": "gift_fixture",
+            "x": 20,
+            "y": 20,
+            "width": 200,
+            "height": 150
+          },
+          {
+            "id": "x:1",
+            "text": {
+              "content": "下单即送",
+              "size": 48,
+              "color": "#1D2129",
+              "align": "center"
+            },
+            "x": 40,
+            "y": 400,
+            "width": 360,
+            "height": 120
+          }
+        ],
+        "removed": []
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-text-and-asset-invalid",
+    "contract": "canvas-layout",
+    "valid": false,
+    "payload": {
+      "version": 0,
+      "layout": {
+        "items": [
+          {
+            "id": "x:1",
+            "asset_id": "a",
+            "text": {
+              "content": "x",
+              "size": 48,
+              "color": "#000000",
+              "align": "left"
+            },
+            "x": 0,
+            "y": 0,
+            "width": 100,
+            "height": 100
+          }
+        ],
+        "removed": []
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-frame-too-large-invalid",
+    "contract": "canvas-layout",
+    "valid": false,
+    "payload": {
+      "version": 0,
+      "layout": {
+        "items": [
+          {
+            "id": "f:1",
+            "frame": {
+              "width": 4096,
+              "height": 800,
+              "background": "#FFFFFF"
+            },
+            "x": 0,
+            "y": 0,
+            "width": 600,
+            "height": 120
+          }
+        ],
+        "removed": []
+      }
+    }
   }
 ]

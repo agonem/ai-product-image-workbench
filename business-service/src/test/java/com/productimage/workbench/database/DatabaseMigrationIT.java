@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(18, flyway.migrate().migrationsExecuted);
+    assertEquals(19, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -141,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(17, upgrade.migrate().migrationsExecuted);
+      assertEquals(18, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(16, current.migrate().migrationsExecuted);
+      assertEquals(17, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -495,7 +495,7 @@ class DatabaseMigrationIT {
           "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(11, upgrade.migrate().migrationsExecuted);
+      assertEquals(12, upgrade.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery("SELECT provider,active_version_id FROM provider_config_state")) {
         assertTrue(rows.next());
@@ -595,9 +595,18 @@ class DatabaseMigrationIT {
     rejects(
         "23503",
         "INSERT INTO conversation_canvases(conversation_id,layout,version) VALUES ('nobody','{}',1)");
-    // Deleting the conversation keeps the task (and its images); the layout goes with it.
+    // V19: a canvas export belongs to its conversation and has no product image; every other
+    // task keeps one.
+    String export =
+        "INSERT INTO generation_tasks(id,project_id,product_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,conversation_id) VALUES ('%s','p',%s,'%s','u','%s','"
+            + "f".repeat(64)
+            + "','{}','c1')";
+    sql(export.formatted("export", "NULL", "COMPOSE", "export-key"));
+    rejects("23514", export.formatted("export2", "'product'", "COMPOSE", "export-key-2"));
+    rejects("23514", export.formatted("scene2", "NULL", "CUSTOM", "custom-key-2"));
+    // Deleting the conversation keeps the tasks (and their images); the layout goes with it.
     sql("DELETE FROM conversations WHERE id='c1'");
-    assertEquals(2, count("generation_tasks"));
+    assertEquals(3, count("generation_tasks"));
     assertEquals(0, count("conversation_canvases"));
   }
 

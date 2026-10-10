@@ -29,8 +29,9 @@ export interface Asset {
   /** Set when the original is a copy of a generated result (ADR-20260930-E). */
   source_artifact_id?: string
 }
-/** Tasks also come from the conversation page (CUSTOM, ADR-20261008-I). */
-export type TaskFeature = Feature | 'CUSTOM'
+/** Tasks also come from the conversation page (CUSTOM, ADR-20261008-I) and its canvas exports
+ * (COMPOSE, ADR-20261010-W). */
+export type TaskFeature = Feature | 'CUSTOM' | 'COMPOSE'
 export interface Task {
   id: string
   feature_type: TaskFeature

@@ -1,19 +1,32 @@
-// The conversation canvas layout (ADR-20261010-V): where each finished picture (or a failed
-// message's card) sits, the copies and what was taken off the canvas. Saved per conversation
-// through PUT /conversations/{id}/canvas; these functions only compute the next layout.
+// The conversation canvas layout (ADR-20261010-V, W): where each finished picture (or a failed
+// message's card) sits, the copies and what was taken off the canvas, plus the user's own text
+// boxes, library pictures and boards. Saved per conversation through PUT
+// /conversations/{id}/canvas; these functions only compute the next layout.
 import {
   bounds,
   fitSide,
+  overlaps,
   stackRows,
   type Placed,
   type Rect,
   type Size,
 } from './canvas.ts'
 
+export type TextSpec = {
+  content: string
+  size: number
+  color: string
+  align: 'left' | 'center' | 'right'
+}
+/** A board: the exported picture's size in pixels and its background colour. */
+export type FrameSpec = { width: number; height: number; background: string }
 export type Placement = {
   id: string
   artifact_id?: string
   task_id?: string
+  asset_id?: string
+  text?: TextSpec
+  frame?: FrameSpec
   x: number
   y: number
   width: number
@@ -30,16 +43,22 @@ export type Piece = {
 }
 /** A message still generating: placeholders, never saved. */
 export type Pending = { taskId: string; count: number; size: Size }
+/** Where a message's pictures go instead of a new row (an export: next to its board). */
+export type Anchors = Map<string, { x: number; y: number }>
 
 export const PICTURE_SIDE = 360
 export const CARD_SIDE = 240
+export const BOARD_SIDE = 600
 export const GAP = 20
 export const ROW_GAP = 56
 export const CAPTION = 28
 export const COPY_SHIFT = 24
+export const MIN_SIDE = 24
 
 export const EMPTY: Layout = { items: [], removed: [] }
-export const refOf = (item: Placement) => (item.artifact_id ?? item.task_id)!
+/** The user's own things (text, library pictures, boards) rather than conversation results. */
+export const isOwn = (item: Placement) => !item.artifact_id && !item.task_id
+export const refOf = (item: Placement) => item.artifact_id ?? item.task_id
 export const rectOf = (item: Placement): Rect => ({
   x: item.x,
   y: item.y,
@@ -69,17 +88,31 @@ function below(items: Placement[]) {
   return box ? { x: box.x, y: box.y + box.height + ROW_GAP } : { x: 0, y: 0 }
 }
 
+/** A row of pictures from a given corner. */
+function inRow(origin: { x: number; y: number }, sizes: Size[]): Rect[] {
+  let left = origin.x
+  return sizes.map((size) => {
+    const rect = { x: left, y: origin.y, ...size }
+    left += size.width + GAP
+    return rect
+  })
+}
+
 /**
  * Adds what is not on the canvas yet (and was not taken off): new results go in rows below
  * everything, one row per message; a failed message that was retried hands its card's place
- * to its pictures. Things that no longer exist are dropped.
+ * to its pictures, an export goes to its anchor (next to its board). Results that no longer
+ * exist are dropped; the user's own things always stay.
  */
 export function complete(
   layout: Layout,
   pieces: Piece[],
+  anchors: Anchors = new Map(),
 ): { layout: Layout; changed: boolean; added: boolean } {
   const known = new Set(pieces.map((piece) => piece.ref))
-  const items = layout.items.filter((item) => known.has(refOf(item)))
+  const items = layout.items.filter(
+    (item) => isOwn(item) || known.has(refOf(item)!),
+  )
   const placed = new Set(items.map(refOf))
   const removed = new Set(layout.removed)
   const missing = pieces.filter(
@@ -98,13 +131,13 @@ export function complete(
     const card = layout.items.find(
       (item) => item.task_id === taskId && !known.has(taskId),
     )
-    if (card) {
-      let left = card.x
-      for (const piece of group) {
-        added.push(placement(piece, { x: left, y: card.y, ...piece.size }))
-        left += piece.size.width + GAP
-      }
-    } else
+    const origin = card ?? anchors.get(taskId)
+    if (origin)
+      inRow(
+        origin,
+        group.map((piece) => piece.size),
+      ).forEach((rect, i) => added.push(placement(group[i]!, rect)))
+    else
       rows.push({
         key: taskId,
         items: group.map((piece) => ({ key: piece.ref, size: piece.size })),
@@ -121,12 +154,13 @@ export function complete(
   }
 }
 
-/** Placeholders for messages still generating, below everything (or where their card was). */
+/** Placeholders for messages still generating: below everything, or at their card or anchor. */
 export function pendingCells(
   layout: Layout,
   pending: Pending[],
   // The saved layout: a failed message being retried left its card there.
   earlier: Layout = layout,
+  anchors: Anchors = new Map(),
 ): Placed[] {
   const cells: Placed[] = []
   const rows: { key: string; items: { key: string; size: Size }[] }[] = []
@@ -135,14 +169,15 @@ export function pendingCells(
       { length: task.count },
       (_, i) => `p:${task.taskId}:${i}`,
     )
-    const card = earlier.items.find((item) => item.task_id === task.taskId)
-    if (card) {
-      let left = card.x
-      for (const key of keys) {
-        cells.push({ key, rect: { x: left, y: card.y, ...task.size } })
-        left += task.size.width + GAP
-      }
-    } else
+    const origin =
+      earlier.items.find((item) => item.task_id === task.taskId) ??
+      anchors.get(task.taskId)
+    if (origin)
+      inRow(
+        origin,
+        keys.map(() => task.size),
+      ).forEach((rect, i) => cells.push({ key: keys[i]!, rect }))
+    else
       rows.push({
         key: task.taskId,
         items: keys.map((key) => ({ key, size: task.size })),
@@ -168,23 +203,71 @@ export function moveItems(
   }
 }
 
-/** Takes items off the canvas; a picture with no copy left stays off until put back. */
+export function resizeItem(
+  layout: Layout,
+  id: string,
+  width: number,
+  height: number,
+): Layout {
+  return {
+    items: layout.items.map((item) =>
+      item.id === id
+        ? {
+            ...item,
+            width: Math.max(MIN_SIDE, width),
+            height: Math.max(MIN_SIDE, height),
+          }
+        : item,
+    ),
+    removed: layout.removed,
+  }
+}
+
+/** Edits a text box or a board (merging the given fields). */
+export function updateItem(
+  layout: Layout,
+  id: string,
+  change: (item: Placement) => Placement,
+): Layout {
+  return {
+    items: layout.items.map((item) => (item.id === id ? change(item) : item)),
+    removed: layout.removed,
+  }
+}
+
+/** Brings the items to the front (drawn last) or sends them to the back, keeping their order. */
+export function reorder(
+  layout: Layout,
+  ids: string[],
+  where: 'front' | 'back',
+): Layout {
+  const chosen = new Set(ids)
+  const picked = layout.items.filter((item) => chosen.has(item.id))
+  const rest = layout.items.filter((item) => !chosen.has(item.id))
+  return {
+    items: where === 'front' ? [...rest, ...picked] : [...picked, ...rest],
+    removed: layout.removed,
+  }
+}
+
+/**
+ * Takes items off the canvas. A result with no copy left stays off until put back; the user's
+ * own things are simply deleted.
+ */
 export function removeItems(layout: Layout, ids: string[]): Layout {
   const gone = new Set(ids)
   const items = layout.items.filter((item) => !gone.has(item.id))
   const still = new Set(items.map(refOf))
   const removed = [...layout.removed]
-  for (const item of layout.items)
-    if (
-      gone.has(item.id) &&
-      !still.has(refOf(item)) &&
-      !removed.includes(refOf(item))
-    )
-      removed.push(refOf(item))
+  for (const item of layout.items) {
+    const ref = refOf(item)
+    if (gone.has(item.id) && ref && !still.has(ref) && !removed.includes(ref))
+      removed.push(ref)
+  }
   return { items, removed }
 }
 
-/** A copy of each picture (not of message cards), shifted down and to the right. */
+/** A copy of each item but message cards, shifted down and to the right. */
 export function duplicate(
   layout: Layout,
   ids: string[],
@@ -192,7 +275,7 @@ export function duplicate(
 ): { layout: Layout; ids: string[] } {
   const wanted = new Set(ids)
   const copies = layout.items
-    .filter((item) => wanted.has(item.id) && item.artifact_id)
+    .filter((item) => wanted.has(item.id) && !item.task_id)
     .map((item) => ({
       ...item,
       id: newId(),
@@ -205,7 +288,10 @@ export function duplicate(
   }
 }
 
-/** One row per message in order, each picture followed by its copies; removed stay removed. */
+/**
+ * One row per message in order, each picture followed by its copies; removed stay removed. The
+ * user's own things keep their places and the rows start to their right.
+ */
 export function tidy(layout: Layout, pieces: Piece[]): Layout {
   const rows: { key: string; items: { key: string; size: Size }[] }[] = []
   const byId = new Map(layout.items.map((item) => [item.id, item]))
@@ -228,11 +314,24 @@ export function tidy(layout: Layout, pieces: Piece[]): Layout {
       )
     rows.push({ key: taskId, items })
   }
+  const own = layout.items.filter(isOwn)
+  const area = bounds(own.map(rectOf))
+  const left = area ? area.x + area.width + 120 : 0
+  const top = area ? area.y : 0
+  const arranged = new Map(
+    stackRows(rows, left, top, GAP, ROW_GAP, CAPTION).map((cell) => [
+      cell.key,
+      cell.rect,
+    ]),
+  )
   return {
-    items: stackRows(rows, 0, 0, GAP, ROW_GAP, CAPTION).map((cell) => ({
-      ...byId.get(cell.key)!,
-      ...cell.rect,
-    })),
+    items: layout.items
+      .filter((item) => isOwn(item) || arranged.has(item.id))
+      .map((item) =>
+        arranged.has(item.id)
+          ? { ...byId.get(item.id)!, ...arranged.get(item.id)! }
+          : item,
+      ),
     removed: layout.removed,
   }
 }
@@ -244,3 +343,90 @@ export const restoreRemoved = (layout: Layout, pieces: Piece[]) =>
 /** Size of a piece on the canvas: pictures by their own proportions, cards a little smaller. */
 export const pieceSize = (size: Size, card = false) =>
   fitSide(size, card ? CARD_SIDE : PICTURE_SIDE)
+
+const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a)
+/** "4:3" for 1200 × 900. */
+export const ratioOf = (width: number, height: number) => {
+  const d = gcd(width, height)
+  return `${width / d}:${height / d}`
+}
+
+export type ExportLayer =
+  | {
+      artifact_id?: string
+      asset_id?: string
+      x: number
+      y: number
+      width: number
+      height: number
+    }
+  | {
+      text: string
+      color: string
+      size: number
+      align: TextSpec['align']
+      x: number
+      y: number
+      width: number
+      height: number
+    }
+const share = (value: number) => Math.round(value * 10000) / 10000
+
+/**
+ * The layers of a board's export (ADR-20261010-W), bottom first: every picture, library picture
+ * and text box touching the board, as shares of the board; text sizes as shares of its width.
+ * Message cards and other boards are left out.
+ */
+export function exportLayers(
+  layout: Layout,
+  frameId: string,
+): { key: string; layer: ExportLayer }[] {
+  const board = layout.items.find((item) => item.id === frameId && item.frame)
+  if (!board) return []
+  const area = rectOf(board)
+  const layers: { key: string; layer: ExportLayer }[] = []
+  for (const item of layout.items) {
+    if (item.frame || item.task_id || !overlaps(area, rectOf(item))) continue
+    const place = {
+      x: share((item.x - board.x) / board.width),
+      y: share((item.y - board.y) / board.height),
+      width: share(item.width / board.width),
+      height: share(item.height / board.height),
+    }
+    // Beyond what the export accepts (far bigger than the board): left out.
+    if (
+      Math.abs(place.x) > 4 ||
+      Math.abs(place.y) > 4 ||
+      place.width > 8 ||
+      place.height > 8 ||
+      place.width <= 0 ||
+      place.height <= 0
+    )
+      continue
+    if (item.text)
+      layers.push({
+        key: item.id,
+        layer: {
+          text: item.text.content,
+          color: item.text.color,
+          size: Math.min(
+            0.5,
+            Math.max(0.004, share(item.text.size / board.width)),
+          ),
+          align: item.text.align,
+          ...place,
+        },
+      })
+    else if (item.artifact_id)
+      layers.push({
+        key: item.id,
+        layer: { artifact_id: item.artifact_id, ...place },
+      })
+    else if (item.asset_id)
+      layers.push({
+        key: item.id,
+        layer: { asset_id: item.asset_id, ...place },
+      })
+  }
+  return layers
+}

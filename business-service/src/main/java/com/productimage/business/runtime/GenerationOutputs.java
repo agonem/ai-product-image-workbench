@@ -26,6 +26,8 @@ final class GenerationOutputs {
     boolean retypeset = request.has("base_image");
     // Keep-original selling images (ADR-20261008-G): every base is the same cropped original.
     boolean original = !retypeset && request.path("keep_original").asBoolean();
+    // A canvas export (ADR-20261010-W): the composed picture itself, from the frozen pictures.
+    boolean composition = request.has("compose");
     if (receipt.path("artifacts").size() != count || receipt.path("generations").size() != count)
       invalid();
     var hashes = new HashSet<String>();
@@ -56,6 +58,9 @@ final class GenerationOutputs {
             || !base.path("sha256").equals(request.path("base_image").path("sha256"))
             || !inputs.path("base_sha256").equals(request.path("base_image").path("sha256")))
           invalid();
+      } else if (composition) {
+        if (!"composition".equals(provenance.path("output_source").asText())
+            || !sameLayers(request, inputs)) invalid();
       } else if (original) {
         if (!"original".equals(provenance.path("output_source").asText())
             || !provenance.path("source_transform").isObject()) invalid();
@@ -92,6 +97,18 @@ final class GenerationOutputs {
               .equals(Json.parse("[" + x + "," + y + "," + (x + width) + "," + (y + height) + "]")))
         invalid();
     }
+  }
+
+  private static boolean sameLayers(JsonNode request, JsonNode inputs) {
+    var expected = Json.MAPPER.createArrayNode();
+    request
+        .path("compose")
+        .path("layers")
+        .forEach(
+            layer -> {
+              if (layer.has("image")) expected.add(layer.path("image").path("sha256"));
+            });
+    return expected.equals(inputs.path("layer_sha256"));
   }
 
   private static boolean sameReferences(JsonNode request, JsonNode inputs) {
