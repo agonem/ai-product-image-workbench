@@ -13,6 +13,7 @@ import schema9 from '../../../contracts/generation-v4-create.schema.json' with {
 import schema10 from '../../../contracts/generation-v4-retypeset.schema.json' with { type: 'json' }
 import schema11 from '../../../contracts/preset-catalog.schema.json' with { type: 'json' }
 import schema12 from '../../../contracts/user-template.schema.json' with { type: 'json' }
+import schema13 from '../../../contracts/canvas-layout.schema.json' with { type: 'json' }
 
 const ajv = new Ajv2020({ strict: true, allErrors: true })
 addFormats(ajv, { mode: 'full' })
@@ -30,6 +31,7 @@ for (const schema of [
   schema10,
   schema11,
   schema12,
+  schema13,
 ])
   ajv.addSchema(schema)
 const contracts: Record<string, string> = {
@@ -37,6 +39,8 @@ const contracts: Record<string, string> = {
     'https://schemas.product-image-workbench.invalid/v4/preset-catalog.json',
   'user-template':
     'https://schemas.product-image-workbench.invalid/v4/user-template.json',
+  'canvas-layout':
+    'https://schemas.product-image-workbench.invalid/v4/canvas-layout.json',
   'generation-v4-create':
     'https://schemas.product-image-workbench.invalid/v4/generation-create.json',
   'generation-v4-retypeset':

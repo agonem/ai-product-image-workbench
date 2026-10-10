@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   MAX_SCALE,
   MIN_SCALE,
+  between,
   bounds,
   columnsFor,
   fitSide,
@@ -10,6 +11,9 @@ import {
   grid,
   nearScreen,
   onScreen,
+  overlaps,
+  stackRows,
+  toWorld,
   turns,
   zoomAt,
 } from './canvas.ts'
@@ -127,4 +131,47 @@ test('conversation rows go top to bottom, pictures side by side', () => {
   assert.equal(at.l2!.y, 38 + 200 + 40)
   assert.equal(at.l3!.y, at.l2!.y + 30 + 40)
   assert.equal(at.c!.y, at.l3!.y + 38)
+})
+
+test('a box drawn either way selects what it touches, in world units', () => {
+  const box = between({ x: 300, y: 200 }, { x: 100, y: 50 })
+  assert.deepEqual(box, { x: 100, y: 50, width: 200, height: 150 })
+  // Zoomed to 50% and panned: the same screen box covers twice the world.
+  const world = toWorld(box, { x: 20, y: -10, scale: 0.5 })
+  assert.deepEqual(world, { x: 160, y: 120, width: 400, height: 300 })
+  assert.equal(
+    overlaps(world, { x: 550, y: 400, width: 100, height: 100 }),
+    true,
+  )
+  assert.equal(
+    overlaps(world, { x: 560, y: 120, width: 100, height: 100 }),
+    false,
+  )
+  // Touching edges do not count.
+  assert.equal(overlaps(world, { x: 0, y: 0, width: 160, height: 120 }), false)
+})
+
+test('new rows stack below, each with room for its captions', () => {
+  const placed = stackRows(
+    [
+      {
+        key: 't1',
+        items: [
+          { key: 'a', size: { width: 200, height: 200 } },
+          { key: 'b', size: { width: 100, height: 300 } },
+        ],
+      },
+      { key: 't2', items: [] },
+      { key: 't3', items: [{ key: 'c', size: { width: 120, height: 120 } }] },
+    ],
+    -40,
+    500,
+    20,
+    48,
+    28,
+  )
+  const at = Object.fromEntries(placed.map((item) => [item.key, item.rect]))
+  assert.deepEqual(Object.keys(at), ['a', 'b', 'c'])
+  assert.deepEqual([at.a!.x, at.a!.y, at.b!.x], [-40, 528, 180])
+  assert.equal(at.c!.y, 528 + 300 + 48 + 28)
 })

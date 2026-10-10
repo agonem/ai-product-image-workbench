@@ -3657,5 +3657,210 @@
       },
       "rewrite": "yes"
     }
+  },
+  {
+    "name": "canvas-layout-valid",
+    "contract": "canvas-layout",
+    "valid": true,
+    "payload": {
+      "version": 3,
+      "layout": {
+        "items": [
+          {
+            "id": "a:art1",
+            "artifact_id": "art1",
+            "x": 0,
+            "y": 0,
+            "width": 360,
+            "height": 360
+          },
+          {
+            "id": "c:copy-1",
+            "artifact_id": "art1",
+            "x": 384.5,
+            "y": -24,
+            "width": 360,
+            "height": 360
+          },
+          {
+            "id": "t:task2",
+            "task_id": "task2",
+            "x": 0,
+            "y": 420,
+            "width": 240,
+            "height": 240
+          }
+        ],
+        "removed": [
+          "art3"
+        ]
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-first-save-empty",
+    "contract": "canvas-layout",
+    "valid": true,
+    "payload": {
+      "version": 0,
+      "layout": {
+        "items": [],
+        "removed": []
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-both-references-invalid",
+    "contract": "canvas-layout",
+    "valid": false,
+    "payload": {
+      "version": 0,
+      "layout": {
+        "items": [
+          {
+            "id": "a:art1",
+            "artifact_id": "art1",
+            "x": 0,
+            "y": 0,
+            "width": 360,
+            "height": 360,
+            "task_id": "task2"
+          }
+        ],
+        "removed": []
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-no-reference-invalid",
+    "contract": "canvas-layout",
+    "valid": false,
+    "payload": {
+      "version": 0,
+      "layout": {
+        "items": [
+          {
+            "id": "a:art1",
+            "x": 0,
+            "y": 0,
+            "width": 360,
+            "height": 360
+          }
+        ],
+        "removed": []
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-coordinate-text-invalid",
+    "contract": "canvas-layout",
+    "valid": false,
+    "payload": {
+      "version": 0,
+      "layout": {
+        "items": [
+          {
+            "id": "a:art1",
+            "artifact_id": "art1",
+            "x": "10",
+            "y": 0,
+            "width": 360,
+            "height": 360
+          }
+        ],
+        "removed": []
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-tiny-size-invalid",
+    "contract": "canvas-layout",
+    "valid": false,
+    "payload": {
+      "version": 0,
+      "layout": {
+        "items": [
+          {
+            "id": "a:art1",
+            "artifact_id": "art1",
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 360
+          }
+        ],
+        "removed": []
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-extra-field-invalid",
+    "contract": "canvas-layout",
+    "valid": false,
+    "payload": {
+      "version": 0,
+      "layout": {
+        "items": [
+          {
+            "id": "a:art1",
+            "artifact_id": "art1",
+            "x": 0,
+            "y": 0,
+            "width": 360,
+            "height": 360,
+            "rotation": 90
+          }
+        ],
+        "removed": []
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-negative-version-invalid",
+    "contract": "canvas-layout",
+    "valid": false,
+    "payload": {
+      "version": -1,
+      "layout": {
+        "items": [],
+        "removed": []
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-repeated-removed-invalid",
+    "contract": "canvas-layout",
+    "valid": false,
+    "payload": {
+      "version": 0,
+      "layout": {
+        "items": [],
+        "removed": [
+          "art3",
+          "art3"
+        ]
+      }
+    }
+  },
+  {
+    "name": "canvas-layout-bad-id-invalid",
+    "contract": "canvas-layout",
+    "valid": false,
+    "payload": {
+      "version": 0,
+      "layout": {
+        "items": [
+          {
+            "id": "a b",
+            "artifact_id": "art1",
+            "x": 0,
+            "y": 0,
+            "width": 360,
+            "height": 360
+          }
+        ],
+        "removed": []
+      }
+    }
   }
 ]

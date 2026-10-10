@@ -4,7 +4,8 @@
 export type Rect = { x: number; y: number; width: number; height: number }
 export type View = { x: number; y: number; scale: number }
 export type Size = { width: number; height: number }
-export type Placed = { key: string; rect: Rect }
+/** A thing on the canvas; `movable` ones can be selected and dragged (ADR-20261010-V). */
+export type Placed = { key: string; rect: Rect; movable?: boolean }
 
 export const MIN_SCALE = 0.05
 export const MAX_SCALE = 4
@@ -165,6 +166,65 @@ export function turns(
     })
     placed.push(...pictures)
     top = (box ? box.y + box.height : top + row.label.height) + rowGap
+  }
+  return placed
+}
+
+/** The rectangle between two corners, whichever way it was drawn. */
+export function between(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): Rect {
+  return {
+    x: Math.min(a.x, b.x),
+    y: Math.min(a.y, b.y),
+    width: Math.abs(a.x - b.x),
+    height: Math.abs(a.y - b.y),
+  }
+}
+
+/** Whether two rectangles share any area (a box selection touching a picture selects it). */
+export function overlaps(a: Rect, b: Rect): boolean {
+  return (
+    a.x < b.x + b.width &&
+    b.x < a.x + a.width &&
+    a.y < b.y + b.height &&
+    b.y < a.y + a.height
+  )
+}
+
+/** A screen rectangle (relative to the canvas) in world units. */
+export function toWorld(rect: Rect, view: View): Rect {
+  return {
+    x: (rect.x - view.x) / view.scale,
+    y: (rect.y - view.y) / view.scale,
+    width: rect.width / view.scale,
+    height: rect.height / view.scale,
+  }
+}
+
+export type Row = { key: string; items: { key: string; size: Size }[] }
+
+/**
+ * Rows of pictures from (`x`, `y`) downwards, oldest first: each row keeps `caption` pixels
+ * above its pictures for their captions, then the pictures side by side. Empty rows take no room.
+ */
+export function stackRows(
+  rows: Row[],
+  x: number,
+  y: number,
+  gap: number,
+  rowGap: number,
+  caption: number,
+): Placed[] {
+  const placed: Placed[] = []
+  let top = y
+  for (const row of rows) {
+    if (!row.items.length) continue
+    const pictures = grid(row.items, row.items.length, x, top + caption, gap)
+    placed.push(...pictures)
+    const box = bounds(pictures.map((item) => item.rect))!
+    top = box.y + box.height + rowGap
   }
   return placed
 }

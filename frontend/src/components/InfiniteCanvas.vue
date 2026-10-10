@@ -9,26 +9,51 @@ import {
   watch,
 } from 'vue'
 import {
+  between,
   fitView,
   nearScreen,
+  overlaps,
+  toWorld,
   zoomAt,
   type Placed,
+  type Rect,
   type View,
 } from '../workbench/canvas'
 import LineIcon from './LineIcon.vue'
 
 // The result canvas (ADR-20261010-S): pictures placed by the page, dragged to pan, the wheel
 // (or two fingers) to zoom, double-click to preview, "显示全部" to frame everything.
+// Editable (ADR-20261010-V, the conversation page): with the select tool a drag on a picture
+// moves the selection and a drag on empty space draws a selection box; the hand tool, a held
+// Space or the middle button pan. The page owns the layout: it hears `move` and `command`.
+export type CanvasCommand =
+  | 'remove'
+  | 'duplicate'
+  | 'copy'
+  | 'paste'
+  | 'undo'
+  | 'redo'
 const props = withDefaults(
   defineProps<{
     items: Placed[]
     /** Keys framed again whenever they or their places change; empty = everything. */
     focus?: string[]
+    /** When given, framing follows this value instead of the places (moving keeps the view). */
+    frameOn?: string
     label: string
+    editable?: boolean
+    selected?: string[]
+    tool?: 'select' | 'hand'
   }>(),
-  { focus: () => [] },
+  { focus: () => [], selected: () => [], tool: 'select' },
 )
-const emit = defineEmits<{ preview: [key: string] }>()
+const emit = defineEmits<{
+  preview: [key: string]
+  move: [keys: string[], dx: number, dy: number]
+  command: [name: CanvasCommand]
+  'update:selected': [keys: string[]]
+  'update:tool': [tool: 'select' | 'hand']
+}>()
 
 const root = ref<HTMLElement>()
 const view = ref<View>({ x: 0, y: 0, scale: 1 })
@@ -37,7 +62,8 @@ const size = ref({ width: 0, height: 0 })
 const overlay = ref<HTMLElement>()
 const reserved = ref({ top: 0, bottom: 52 })
 const ready = ref(false),
-  panning = ref(false)
+  panning = ref(false),
+  spaceHeld = ref(false)
 // Pictures load once they come near the screen, then stay loaded.
 const seen = reactive(new Set<string>())
 // What was framed last; null once the user pans or zooms (a resize then keeps the view).
@@ -60,7 +86,11 @@ function frame(keys: string[] = props.focus) {
   view.value = { ...fitted, y: fitted.y + reserved.value.top }
   ready.value = true
 }
-const signature = computed(() => JSON.stringify(rectsOf(props.focus)))
+const signature = computed(() =>
+  props.frameOn !== undefined
+    ? props.frameOn
+    : JSON.stringify(rectsOf(props.focus)),
+)
 watch(signature, () => void nextTick(() => frame()))
 
 function moved(next: View) {
@@ -83,6 +113,15 @@ watch(
         seen.add(item.key)
   },
   { immediate: true },
+)
+
+const selectedSet = computed(() => new Set(props.selected))
+const movable = computed(
+  () =>
+    new Set(props.items.filter((item) => item.movable).map((item) => item.key)),
+)
+const hand = computed(
+  () => !props.editable || props.tool === 'hand' || spaceHeld.value,
 )
 
 // Controls inside the canvas keep their own pointer and wheel behaviour.
@@ -109,34 +148,84 @@ function wheel(event: WheelEvent) {
   )
 }
 
-const pointers = new Map<number, { x: number; y: number }>()
-let start = { x: 0, y: 0 },
-  last = { x: 0, y: 0 },
-  pinch: { distance: number; middle: { x: number; y: number } } | null = null,
-  dragged = false
+type Point = { x: number; y: number }
+const pointers = new Map<number, Point>()
+let start: Point = { x: 0, y: 0 },
+  last: Point = { x: 0, y: 0 },
+  pinch: { distance: number; middle: Point } | null = null,
+  dragged = false,
+  // What the current press does once it moves: pan, move the selection or draw a box.
+  mode: 'pan' | 'drag' | 'box' | null = null,
+  active = false,
+  boxBase: string[] = []
+// While dragging pictures: which ones and by how much (world units), shown before the drop.
+const dragging = ref<Set<string>>(new Set())
+const offset = reactive({ x: 0, y: 0 })
+// The selection box on screen, relative to the canvas.
+const box = ref<Rect | null>(null)
 const twoFingers = () => {
-  const [a, b] = [...pointers.values()] as [
-    { x: number; y: number },
-    { x: number; y: number },
-  ]
+  const [a, b] = [...pointers.values()] as [Point, Point]
   return {
     distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
     middle: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
   }
+}
+function local(point: Point): Point {
+  const area = root.value!.getBoundingClientRect()
+  return { x: point.x - area.left, y: point.y - area.top }
+}
+function reset() {
+  mode = null
+  active = false
+  panning.value = false
+  dragging.value = new Set()
+  offset.x = offset.y = 0
+  box.value = null
 }
 function down(event: PointerEvent) {
   dragged = false
   const middleButton = event.pointerType === 'mouse' && event.button === 1
   if (event.pointerType === 'mouse' && event.button !== 0 && !middleButton)
     return
-  if (!middleButton && (event.target as Element).closest(OWN)) return
+  const target = event.target as Element
+  if (!middleButton && target.closest(OWN)) return
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY })
   if (pointers.size === 2) {
+    // Two fingers always pan and zoom; whatever one finger started is dropped.
+    reset()
     pinch = twoFingers()
     panning.value = true
     for (const id of pointers.keys()) root.value?.setPointerCapture(id)
-  } else if (pointers.size === 1) {
-    start = last = { x: event.clientX, y: event.clientY }
+    return
+  }
+  if (pointers.size > 2) return
+  start = last = { x: event.clientX, y: event.clientY }
+  const key = (target.closest('.ic-item') as HTMLElement | null)?.dataset.key
+  const onPicture = !!key && movable.value.has(key)
+  if (middleButton || hand.value) mode = 'pan'
+  else if (onPicture) {
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      // Add to or take from the selection; no drag.
+      emit(
+        'update:selected',
+        selectedSet.value.has(key)
+          ? props.selected.filter((item) => item !== key)
+          : [...props.selected, key],
+      )
+      mode = null
+      return
+    }
+    const keys = selectedSet.value.has(key) ? props.selected : [key]
+    if (!selectedSet.value.has(key)) emit('update:selected', keys)
+    dragging.value = new Set(keys)
+    mode = 'drag'
+  } else if (event.pointerType === 'touch') mode = 'pan'
+  else {
+    mode = 'box'
+    boxBase =
+      event.shiftKey || event.ctrlKey || event.metaKey
+        ? [...props.selected]
+        : []
   }
 }
 function move(event: PointerEvent) {
@@ -148,10 +237,10 @@ function move(event: PointerEvent) {
   point.y = event.clientY
   if (pointers.size >= 2 && pinch) {
     const now = twoFingers()
-    const box = root.value!.getBoundingClientRect()
+    const area = root.value!.getBoundingClientRect()
     const zoomed = zoomAt(view.value, now.distance / pinch.distance, {
-      x: now.middle.x - box.left,
-      y: now.middle.y - box.top,
+      x: now.middle.x - area.left,
+      y: now.middle.y - area.top,
     })
     moved({
       ...zoomed,
@@ -162,26 +251,55 @@ function move(event: PointerEvent) {
     dragged = true
     return
   }
-  if (!panning.value) {
+  if (!mode) return
+  if (!active) {
     // A click that wobbles a little is still a click.
     if (Math.hypot(point.x - start.x, point.y - start.y) < 4) return
-    panning.value = true
+    active = true
     dragged = true
+    if (mode === 'pan') panning.value = true
     root.value?.setPointerCapture(event.pointerId)
   }
-  moved({
-    ...view.value,
-    x: view.value.x + point.x - last.x,
-    y: view.value.y + point.y - last.y,
-  })
+  if (mode === 'pan')
+    moved({
+      ...view.value,
+      x: view.value.x + point.x - last.x,
+      y: view.value.y + point.y - last.y,
+    })
+  else if (mode === 'drag') {
+    offset.x += (point.x - last.x) / view.value.scale
+    offset.y += (point.y - last.y) / view.value.scale
+  } else if (mode === 'box') {
+    box.value = between(local(start), local(point))
+    const area = toWorld(box.value, view.value)
+    const hits = props.items
+      .filter((item) => item.movable && overlaps(area, item.rect))
+      .map((item) => item.key)
+    emit('update:selected', [...new Set([...boxBase, ...hits])])
+  }
   last = { x: point.x, y: point.y }
 }
 function up(event: PointerEvent) {
   if (!pointers.delete(event.pointerId)) return
   pinch = null
   const rest = [...pointers.values()][0]
-  if (rest) last = start = { ...rest }
-  else panning.value = false
+  if (rest) {
+    // One finger left after a pinch keeps panning.
+    last = start = { ...rest }
+    mode = 'pan'
+    active = true
+    return
+  }
+  if (mode === 'drag' && active && (offset.x || offset.y))
+    emit(
+      'move',
+      [...dragging.value],
+      Math.round(offset.x),
+      Math.round(offset.y),
+    )
+  // A click on empty space clears the selection (or keeps it while Shift is held).
+  else if (mode === 'box' && !active) emit('update:selected', boxBase)
+  reset()
 }
 // A drag never counts as a click on the picture it started on.
 function swallow(event: MouseEvent) {
@@ -190,22 +308,86 @@ function swallow(event: MouseEvent) {
   event.stopPropagation()
   event.preventDefault()
 }
+const typing = (target: EventTarget | null) =>
+  !!(target as Element | null)?.closest(
+    'input, textarea, select, [contenteditable]',
+  )
 function key(event: KeyboardEvent) {
-  if (event.target !== root.value) return
-  const step = 80
-  const shift: Record<string, [number, number]> = {
-    ArrowLeft: [step, 0],
-    ArrowRight: [-step, 0],
-    ArrowUp: [0, step],
-    ArrowDown: [0, -step],
+  if (props.editable ? typing(event.target) : event.target !== root.value)
+    return
+  const command = event.ctrlKey || event.metaKey
+  const name = event.key.toLowerCase()
+  if (props.editable) {
+    if (event.key === ' ') {
+      spaceHeld.value = true
+      event.preventDefault()
+      return
+    }
+    const commands: Record<string, CanvasCommand> = {
+      d: 'duplicate',
+      c: 'copy',
+      v: 'paste',
+      y: 'redo',
+    }
+    if (command && name === 'a') {
+      emit('update:selected', [...movable.value])
+      event.preventDefault()
+      return
+    }
+    if (command && name === 'z') {
+      emit('command', event.shiftKey ? 'redo' : 'undo')
+      event.preventDefault()
+      return
+    }
+    if (command && commands[name]) {
+      emit('command', commands[name]!)
+      event.preventDefault()
+      return
+    }
+    if (command || event.altKey) return
+    if (name === 'v' || name === 'h') {
+      emit('update:tool', name === 'v' ? 'select' : 'hand')
+      return
+    }
+    if (
+      (event.key === 'Delete' || event.key === 'Backspace') &&
+      props.selected.length
+    ) {
+      emit('command', 'remove')
+      event.preventDefault()
+      return
+    }
+    if (event.key === 'Escape' && props.selected.length) {
+      emit('update:selected', [])
+      return
+    }
+  } else if (command || event.altKey) return
+  const arrows: Record<string, [number, number]> = {
+    ArrowLeft: [-1, 0],
+    ArrowRight: [1, 0],
+    ArrowUp: [0, -1],
+    ArrowDown: [0, 1],
   }
-  const by = shift[event.key]
-  if (by)
-    moved({ ...view.value, x: view.value.x + by[0], y: view.value.y + by[1] })
+  const by = arrows[event.key]
+  if (by && props.editable && props.selected.length) {
+    // Arrow keys nudge the selection; without one they pan.
+    const step = event.shiftKey ? 50 : 10
+    emit('move', [...props.selected], by[0] * step, by[1] * step)
+  } else if (by)
+    moved({
+      ...view.value,
+      x: view.value.x - by[0] * 80,
+      y: view.value.y - by[1] * 80,
+    })
   else if (event.key === '+' || event.key === '=') zoomBy(1.25)
   else if (event.key === '-') zoomBy(0.8)
   else if (event.key === '0') frame([])
   else return
+  event.preventDefault()
+}
+function keyUp(event: KeyboardEvent) {
+  if (event.key !== ' ' || !spaceHeld.value) return
+  spaceHeld.value = false
   event.preventDefault()
 }
 
@@ -236,11 +418,16 @@ defineExpose({ frame })
   <div
     ref="root"
     class="ic"
-    :class="{ panning }"
+    :class="{
+      panning,
+      editable,
+      hand: editable && hand,
+    }"
     role="region"
     :aria-label="label"
     tabindex="0"
     data-testid="canvas"
+    :data-tool="editable ? (hand ? 'hand' : 'select') : undefined"
     :style="{ backgroundPosition: `${view.x}px ${view.y}px` }"
     @pointerdown="down"
     @pointermove="move"
@@ -251,6 +438,8 @@ defineExpose({ frame })
     @click.capture="swallow"
     @dragstart.prevent
     @keydown="key"
+    @keyup="keyUp"
+    @blur.capture="spaceHeld = false"
   >
     <div
       class="ic-world"
@@ -266,18 +455,36 @@ defineExpose({ frame })
         v-for="item in items"
         :key="item.key"
         class="ic-item"
+        :class="{
+          movable: editable && item.movable,
+          selected: editable && selectedSet.has(item.key),
+        }"
         :data-key="item.key"
         :style="{
           left: `${item.rect.x}px`,
           top: `${item.rect.y}px`,
           width: `${item.rect.width}px`,
           height: `${item.rect.height}px`,
+          transform: dragging.has(item.key)
+            ? `translate(${offset.x}px, ${offset.y}px)`
+            : undefined,
         }"
         @dblclick="emit('preview', item.key)"
       >
         <slot :item="item" :near="seen.has(item.key)" />
       </div>
     </div>
+    <div
+      v-if="box"
+      class="ic-box"
+      data-testid="canvas-box"
+      :style="{
+        left: `${box.x}px`,
+        top: `${box.y}px`,
+        width: `${box.width}px`,
+        height: `${box.height}px`,
+      }"
+    ></div>
     <div v-if="!items.length" class="ic-empty"><slot name="empty" /></div>
     <div ref="overlay" class="ic-overlay"><slot name="overlay" /></div>
     <div class="ic-footer"><slot name="footer" /></div>

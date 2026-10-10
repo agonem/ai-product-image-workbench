@@ -3,6 +3,7 @@ package com.productimage.business.runtime;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletRequest;
 import java.sql.Timestamp;
+import java.util.HashSet;
 import java.util.Map;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
@@ -12,7 +13,8 @@ import org.springframework.web.bind.annotation.*;
 /**
  * Conversations of the conversational generation page (ADR-20261008-I). A conversation groups the
  * owner's CUSTOM tasks in one project; each message is an ordinary v4 task created through {@code
- * POST /api/v4/generation-tasks}. Deleting a conversation keeps its tasks and images.
+ * POST /api/v4/generation-tasks}. Deleting a conversation keeps its tasks and images. Its canvas
+ * layout (ADR-20261010-V) is kept per conversation and deleted with it.
  */
 @RestController
 @Profile("runtime")
@@ -111,6 +113,83 @@ public class ConversationApi {
             String.class,
             id)) list.add(tasks.getGeneration(actor, task));
     return ResponseEntity.ok().header("Cache-Control", "no-store").body(conversation);
+  }
+
+  /** Where the owner placed the conversation's pictures; version 0 when never saved. */
+  @GetMapping("/api/v1/conversations/{id}/canvas")
+  ResponseEntity<JsonNode> canvas(@PathVariable String id, HttpServletRequest request) {
+    String actor = actor(request);
+    owned(actor, id);
+    var body = Json.object();
+    var rows =
+        jdbc.queryForList(
+            "SELECT layout::text AS layout,version,updated_at FROM conversation_canvases WHERE conversation_id=?",
+            id);
+    if (rows.isEmpty()) body.put("version", 0).putNull("layout").putNull("updated_at");
+    else {
+      var row = rows.getFirst();
+      body.put("version", ((Number) row.get("version")).intValue());
+      body.set("layout", Json.parse(row.get("layout").toString()));
+      body.put("updated_at", ((Timestamp) row.get("updated_at")).toInstant().toString());
+    }
+    return ResponseEntity.ok().header("Cache-Control", "no-store").body(body);
+  }
+
+  /**
+   * Saves the layout over the version the client read (optimistic: another window's save makes this
+   * one 409). Every picture or placeholder must belong to this conversation.
+   */
+  @PutMapping("/api/v1/conversations/{id}/canvas")
+  ResponseEntity<JsonNode> saveCanvas(@PathVariable String id, HttpServletRequest request) {
+    String actor = actor(request);
+    var body = HttpInput.json(request, 262144);
+    Json.validate("canvas-layout", body);
+    owned(actor, id);
+    var layout = body.get("layout");
+    var ids = new HashSet<String>();
+    for (var item : layout.get("items"))
+      if (!ids.add(item.get("id").asText())) throw new Problem(400, "INVALID_CONTRACT");
+    var pictures =
+        new HashSet<>(
+            jdbc.queryForList(
+                "SELECT a.id FROM artifacts a JOIN generation_tasks t ON t.id=a.task_id WHERE t.conversation_id=? AND a.kind='COMPOSITE'",
+                String.class,
+                id));
+    var messages =
+        new HashSet<>(
+            jdbc.queryForList(
+                "SELECT id FROM generation_tasks WHERE conversation_id=?", String.class, id));
+    for (var item : layout.get("items")) {
+      if (item.has("artifact_id") && !pictures.contains(item.get("artifact_id").asText()))
+        throw new Problem(400, "INVALID_CANVAS");
+      if (item.has("task_id") && !messages.contains(item.get("task_id").asText()))
+        throw new Problem(400, "INVALID_CANVAS");
+    }
+    for (var removed : layout.get("removed"))
+      if (!pictures.contains(removed.asText()) && !messages.contains(removed.asText()))
+        throw new Problem(400, "INVALID_CANVAS");
+    int version = body.get("version").intValue();
+    int saved =
+        version == 0
+            ? jdbc.update(
+                "INSERT INTO conversation_canvases(conversation_id,layout,version) VALUES (?,?::jsonb,1) ON CONFLICT (conversation_id) DO NOTHING",
+                id,
+                layout.toString())
+            : jdbc.update(
+                "UPDATE conversation_canvases SET layout=?::jsonb,version=version+1,updated_at=now() WHERE conversation_id=? AND version=?",
+                layout.toString(),
+                id,
+                version);
+    if (saved != 1) throw new Problem(409, "CANVAS_CONFLICT");
+    var row =
+        jdbc.queryForMap(
+            "SELECT version,updated_at FROM conversation_canvases WHERE conversation_id=?", id);
+    return ResponseEntity.ok()
+        .header("Cache-Control", "no-store")
+        .body(
+            Json.object()
+                .put("version", ((Number) row.get("version")).intValue())
+                .put("updated_at", ((Timestamp) row.get("updated_at")).toInstant().toString()));
   }
 
   @DeleteMapping("/api/v1/conversations/{id}")

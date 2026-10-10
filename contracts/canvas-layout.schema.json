@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.product-image-workbench.invalid/v4/canvas-layout.json",
+  "title": "Where the owner placed a conversation's pictures on its canvas (ADR-20261010-V)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "layout"],
+  "properties": {
+    "version": {
+      "description": "The version the client read; 0 when the canvas was never saved.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2147483646
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items", "removed"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 500,
+          "items": { "$ref": "#/$defs/item" }
+        },
+        "removed": {
+          "description": "Results or message placeholders taken off the canvas (not deleted).",
+          "type": "array",
+          "maxItems": 1000,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/reference" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "reference": {
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+    },
+    "coordinate": {
+      "type": "number",
+      "minimum": -1000000,
+      "maximum": 1000000
+    },
+    "size": {
+      "type": "number",
+      "minimum": 8,
+      "maximum": 20000
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "x", "y", "width", "height"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9:_-]{1,80}$"
+        },
+        "artifact_id": { "$ref": "#/$defs/reference" },
+        "task_id": { "$ref": "#/$defs/reference" },
+        "x": { "$ref": "#/$defs/coordinate" },
+        "y": { "$ref": "#/$defs/coordinate" },
+        "width": { "$ref": "#/$defs/size" },
+        "height": { "$ref": "#/$defs/size" }
+      },
+      "oneOf": [
+        { "properties": { "artifact_id": {} }, "required": ["artifact_id"] },
+        { "properties": { "task_id": {} }, "required": ["task_id"] }
+      ]
+    }
+  }
+}

@@ -1279,3 +1279,116 @@ test('V4-B21: the canvas - pan, wheel zoom, show all, double-click preview', asy
   })
   expect(errors).toEqual([])
 })
+
+test('V4-B22: arranging the conversation canvas - move, copy, remove and put back, undo, tidy', async ({
+  page,
+}) => {
+  const errors = watchErrors(page)
+  await login(page)
+  await page.getByRole('link', { name: '对话生图' }).click()
+  await page.getByTestId('new-chat').click()
+  await choose(page, '商品图')
+  await page.getByLabel('描述').fill('浅色木桌，两张不同角度')
+  await page.getByRole('button', { name: /^数量/ }).click()
+  await page.getByRole('option', { name: '2 张' }).click()
+  await page.getByTestId('chat-send').click()
+  const images = page.getByTestId('canvas-image')
+  await expect(images).toHaveCount(2)
+  await expect(images.nth(1)).toHaveAttribute('data-status', 'SUCCEEDED', {
+    timeout: 60000,
+  })
+  const tools = page.getByRole('toolbar', { name: '画布工具' })
+  await expect(
+    tools.getByRole('button', { name: '选择', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  const first = images.first()
+  const second = images.nth(1)
+  /** Where the first picture is relative to the second, in picture widths. */
+  const apart = async () => {
+    const [a, b] = [(await first.boundingBox())!, (await second.boundingBox())!]
+    return [(a.x - b.x) / a.width, (a.y - b.y) / a.width]
+  }
+  const centre = async (locator: typeof first) => {
+    const box = (await locator.boundingBox())!
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  }
+  const tidyGap = await apart()
+  // ADR-20261010-V: dragging a picture moves it (and selects it); the place is saved.
+  const saved = page.waitForResponse(
+    (r) =>
+      r.request().method() === 'PUT' &&
+      r.url().endsWith('/canvas') &&
+      r.status() === 200,
+  )
+  const from = await centre(first)
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(from.x + 60, from.y + 120, { steps: 8 })
+  await page.mouse.up()
+  await saved
+  await expect(first).toHaveAttribute('data-selected', 'true')
+  const movedGap = await apart()
+  expect(movedGap[1]).toBeGreaterThan(tidyGap[1] + 0.1)
+  await page.reload()
+  await expect(images).toHaveCount(2)
+  const reloaded = await apart()
+  expect(reloaded[0]).toBeCloseTo(movedGap[0], 1)
+  expect(reloaded[1]).toBeCloseTo(movedGap[1], 1)
+  // A copy of the selected picture, marked as such.
+  await first.getByRole('button', { name: /^选中第 1 条图 1/ }).click()
+  await tools.getByRole('button', { name: '复制' }).click()
+  await expect(images).toHaveCount(3)
+  await expect(
+    page.locator('[data-testid="canvas-image"][data-copy]'),
+  ).toHaveCount(1)
+  await expect(page.getByText('副本')).toBeVisible()
+  // A box drawn over empty space selects everything it touches; Delete takes it off the canvas.
+  await page.getByRole('button', { name: '显示全部' }).click()
+  const area = (await page.getByTestId('canvas').boundingBox())!
+  await page.mouse.move(area.x + 6, area.y + 6)
+  await page.mouse.down()
+  await page.mouse.move(area.x + area.width - 6, area.y + area.height - 70, {
+    steps: 8,
+  })
+  await page.mouse.up()
+  await expect(
+    page.locator('[data-testid="canvas-image"][data-selected="true"]'),
+  ).toHaveCount(3)
+  await page.keyboard.press('Delete')
+  await expect(images).toHaveCount(0)
+  await expect(page.getByText('都已从画布移除')).toBeVisible()
+  const putBack = tools.getByRole('button', { name: '放回已移除（2）' })
+  await expect(putBack).toBeVisible()
+  // Undo and redo.
+  await tools.getByRole('button', { name: '撤销' }).click()
+  await expect(images).toHaveCount(3)
+  await tools.getByRole('button', { name: '重做' }).click()
+  await expect(images).toHaveCount(0)
+  // Put back: the two pictures return (the copy was taken off with them).
+  await putBack.click()
+  await expect(images).toHaveCount(2)
+  await expect(
+    page.locator('[data-testid="canvas-image"][data-copy]'),
+  ).toHaveCount(0)
+  // Tidy: back in one row, in order.
+  await first.getByRole('button', { name: /^选中第 1 条图 1/ }).click()
+  await page.keyboard.press('ArrowDown')
+  await tools.getByRole('button', { name: '整理' }).click()
+  const tidied = await apart()
+  expect(tidied[0]).toBeCloseTo(tidyGap[0], 1)
+  expect(tidied[1]).toBeCloseTo(tidyGap[1], 1)
+  // With the hand tool a drag pans: everything moves together, nothing is rearranged.
+  await tools.getByRole('button', { name: '抓手', exact: true }).click()
+  const handFrom = await centre(second)
+  const startBox = (await second.boundingBox())!
+  await page.mouse.move(handFrom.x, handFrom.y)
+  await page.mouse.down()
+  await page.mouse.move(handFrom.x - 90, handFrom.y + 40, { steps: 6 })
+  await page.mouse.up()
+  const panned = (await second.boundingBox())!
+  expect(panned.x).toBeCloseTo(startBox.x - 90, 0)
+  const afterPan = await apart()
+  expect(afterPan[0]).toBeCloseTo(tidied[0], 2)
+  await page.screenshot({ path: join(artifacts, 'chat-arranged.png') })
+  expect(errors).toEqual([])
+})

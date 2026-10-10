@@ -1063,9 +1063,68 @@ def api_checks(core, admin, alice, bob, project):
     assert run.http("GET", f"/api/v1/conversations/{chat['id']}", bob)[0] == 404
     listed = run.http("GET", conversations, alice)[1]["items"]
     assert listed[0]["id"] == chat["id"] and listed[0]["turns"] == 2 and listed[0]["cover"]
+
+    # A29 (ADR-20261010-V): where the pictures sit on the conversation's canvas, per conversation.
+    canvas = f"/api/v1/conversations/{chat['id']}/canvas"
+    status, empty, _ = run.http("GET", canvas, alice)
+    assert status == 200 and empty == {"version": 0, "layout": None, "updated_at": None}, empty
+    assert run.http("GET", canvas, bob)[0] == 404
+    layout = {
+        "items": [
+            {
+                "id": f"a:{picture}",
+                "artifact_id": picture,
+                "x": 0,
+                "y": 0,
+                "width": 360,
+                "height": 360,
+            },
+            {
+                "id": "c:copy-1",
+                "artifact_id": picture,
+                "x": 400.5,
+                "y": -24,
+                "width": 360,
+                "height": 360,
+            },
+        ],
+        "removed": [state["artifacts"][0]["id"]],
+    }
+    assert run.http("PUT", canvas, bob, {"version": 0, "layout": layout})[0] == 404
+    status, saved, _ = run.http("PUT", canvas, alice, {"version": 0, "layout": layout})
+    assert status == 200 and saved["version"] == 1, (status, saved)
+    status, read, _ = run.http("GET", canvas, alice)
+    assert status == 200 and read["version"] == 1 and read["layout"] == layout, read
+    # A stale version (another window saved first) is refused.
+    status, problem, _ = run.http("PUT", canvas, alice, {"version": 0, "layout": layout})
+    assert status == 409 and problem["code"] == "CANVAS_CONFLICT", (status, problem)
+    other = run.sql(
+        "SELECT a.id FROM artifacts a JOIN generation_tasks t ON t.id=a.task_id "
+        "WHERE a.kind='COMPOSITE' AND t.conversation_id IS NULL LIMIT 1"
+    )
+    stranger = dict(layout, items=[dict(layout["items"][0], id="a:x", artifact_id=other)])
+    status, problem, _ = run.http("PUT", canvas, alice, {"version": 1, "layout": stranger})
+    assert status == 400 and problem["code"] == "INVALID_CANVAS", (status, problem)
+    for broken in (
+        dict(layout, items=[dict(layout["items"][0], x="0")]),
+        dict(layout, items=[layout["items"][0], layout["items"][0]]),  # the same id twice
+        dict(layout, rotation=1),
+    ):
+        assert run.http("PUT", canvas, alice, {"version": 1, "layout": broken})[0] == 400, broken
+    status, saved, _ = run.http(
+        "PUT", canvas, alice, {"version": 1, "layout": dict(layout, removed=[])}
+    )
+    assert status == 200 and saved["version"] == 2, (status, saved)
+    evidence["canvas"] = {"conversation": chat["id"], "version": saved["version"]}
+
     assert run.http("DELETE", f"/api/v1/conversations/{chat['id']}", bob)[0] == 404
     assert run.http("DELETE", f"/api/v1/conversations/{chat['id']}", alice)[0] == 204
     assert run.http("GET", conversations, alice)[1]["items"] == []
+    # The layout goes with the conversation.
+    assert (
+        run.sql(f"SELECT count(*) FROM conversation_canvases WHERE conversation_id='{chat['id']}'")
+        == "0"
+    )
     # The images stay: the task is still readable and in the history.
     assert core.get(alice, state["id"])[1]["status"] == "SUCCEEDED"
     evidence["conversation"] = {"first": picture, "edit": state["id"]}
@@ -1392,13 +1451,13 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A28: three entries, references, text, retypeset, isolation, "
+            "PASS V4-A1..A29: three entries, references, text, retypeset, isolation, "
             "withdrawn routes, model catalog and proxy, owner deletion, real-world uploads, "
             "reuse, original background, third-party endpoint, account deletion, "
             "template management, personal templates, image management, dashboard, "
             "operation log, per-point selling, keep-original selling, gift card, "
             "product position, conversational generation, agents and magic wand, look-first "
-            "chat, model editing and clarity, material categories",
+            "chat, model editing and clarity, material categories, conversation canvas",
             flush=True,
         )
         if browser_checks(core, stack):
