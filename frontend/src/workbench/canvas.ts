@@ -5,13 +5,7 @@ export type Rect = { x: number; y: number; width: number; height: number }
 export type View = { x: number; y: number; scale: number }
 export type Size = { width: number; height: number }
 /** A thing on the canvas; `movable` ones can be selected and dragged (ADR-20261010-V). */
-export type Placed = {
-  key: string
-  rect: Rect
-  movable?: boolean
-  /** A single selected item gets a corner handle: keeping its proportions or freely. */
-  resize?: 'ratio' | 'free'
-}
+export type Placed = { key: string; rect: Rect; movable?: boolean }
 
 export const MIN_SCALE = 0.05
 export const MAX_SCALE = 4

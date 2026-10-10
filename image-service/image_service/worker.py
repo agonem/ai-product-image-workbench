@@ -101,11 +101,6 @@ def process(
         from image_service.background_config import config_from_mapping, load_config
 
         try:
-            if "compose" in request:
-                # A canvas export (ADR-20261010-W): pictures and text composed, no provider.
-                from image_service import compose
-
-                return compose.process_composition(api, request, lease)
             if "base_image" in request or (
                 request.get("keep_original") and not request.get("gift_reshoot")
             ):

@@ -90,7 +90,7 @@ public class ConversationApi {
     var items = Json.MAPPER.createArrayNode();
     for (var row :
         jdbc.queryForList(
-            "SELECT c.*,(SELECT count(*) FROM generation_tasks t WHERE t.conversation_id=c.id AND t.feature_type='CUSTOM') AS turns,(SELECT a.id FROM generation_tasks t JOIN artifacts a ON a.task_id=t.id AND a.attempt_id=t.current_attempt_id AND a.kind='COMPOSITE' WHERE t.conversation_id=c.id AND t.status='SUCCEEDED' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) ORDER BY t.created_at DESC,a.ordinal LIMIT 1) AS cover FROM conversations c WHERE c.project_id=? ORDER BY c.updated_at DESC,c.id LIMIT 100",
+            "SELECT c.*,(SELECT count(*) FROM generation_tasks t WHERE t.conversation_id=c.id) AS turns,(SELECT a.id FROM generation_tasks t JOIN artifacts a ON a.task_id=t.id AND a.attempt_id=t.current_attempt_id AND a.kind='COMPOSITE' WHERE t.conversation_id=c.id AND t.status='SUCCEEDED' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) ORDER BY t.created_at DESC,a.ordinal LIMIT 1) AS cover FROM conversations c WHERE c.project_id=? ORDER BY c.updated_at DESC,c.id LIMIT 100",
             project)) {
       var item = summary(row).put("turns", ((Number) row.get("turns")).intValue());
       if (row.get("cover") == null) item.putNull("cover");
@@ -165,16 +165,6 @@ public class ConversationApi {
       if (item.has("task_id") && !messages.contains(item.get("task_id").asText()))
         throw new Problem(400, "INVALID_CANVAS");
     }
-    // Pictures from the library (ADR-20261010-W): any original of the conversation's project.
-    var originals =
-        new HashSet<>(
-            jdbc.queryForList(
-                "SELECT a.id FROM assets a JOIN conversations c ON c.project_id=a.project_id WHERE c.id=? AND a.kind IN ('PRODUCT','GIFT','REFERENCE')",
-                String.class,
-                id));
-    for (var item : layout.get("items"))
-      if (item.has("asset_id") && !originals.contains(item.get("asset_id").asText()))
-        throw new Problem(400, "INVALID_CANVAS");
     for (var removed : layout.get("removed"))
       if (!pictures.contains(removed.asText()) && !messages.contains(removed.asText()))
         throw new Problem(400, "INVALID_CANVAS");

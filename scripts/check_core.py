@@ -1117,138 +1117,6 @@ def api_checks(core, admin, alice, bob, project):
     assert status == 200 and saved["version"] == 2, (status, saved)
     evidence["canvas"] = {"conversation": chat["id"], "version": saved["version"]}
 
-    # A30 (ADR-20261010-W): text, library pictures and boards on the canvas; a board composed
-    # into one picture by the Worker with no model.
-    board_layout = {
-        "items": [
-            {
-                "id": "f:1",
-                "frame": {"width": 400, "height": 400, "background": "#FFF6EC"},
-                "x": 0,
-                "y": 0,
-                "width": 600,
-                "height": 600,
-            },
-            {
-                "id": "s:1",
-                "asset_id": fresh_gift["id"],
-                "x": 330,
-                "y": 330,
-                "width": 240,
-                "height": 240,
-            },
-            {
-                "id": "x:1",
-                "text": {"content": "下单即送", "size": 48, "color": "#1E3A5F", "align": "center"},
-                "x": 0,
-                "y": 492,
-                "width": 600,
-                "height": 96,
-            },
-        ],
-        "removed": [],
-    }
-    status, saved, _ = run.http("PUT", canvas, alice, {"version": 2, "layout": board_layout})
-    assert status == 200 and saved["version"] == 3, (status, saved)
-    bob_project = run.http("POST", "/api/v1/projects", bob, {"name": "bob canvas"})[1]["id"]
-    status, theirs, _ = run.http(
-        "POST",
-        f"/api/v1/projects/{bob_project}/assets?kind=GIFT",
-        bob,
-        data=synthetic_png(shape=GIFT_RGB),
-        mime="image/png",
-    )
-    assert status == 201, (status, theirs)
-    stranger = dict(
-        board_layout, items=[dict(board_layout["items"][1], id="s:2", asset_id=theirs["id"])]
-    )
-    status, problem, _ = run.http("PUT", canvas, alice, {"version": 3, "layout": stranger})
-    assert status == 400 and problem["code"] == "INVALID_CANVAS", (status, problem)
-    text_layer = {
-        "text": "下单即送",
-        "color": "#1E3A5F",
-        "size": 0.06,
-        "align": "center",
-        "x": 0,
-        "y": 0.82,
-        "width": 1,
-        "height": 0.16,
-    }
-    compose_body = {
-        "project_id": project,
-        "feature_type": "COMPOSE",
-        "conversation_id": chat["id"],
-        "frame_id": "f:1",
-        "output": {"aspect_ratio": "1:1", "width": 400, "height": 400, "format": "png", "count": 1},
-        "compose": {
-            "background": "#FFF6EC",
-            "layers": [
-                {"artifact_id": picture, "x": 0, "y": 0, "width": 0.5, "height": 0.5},
-                {"asset_id": fresh_gift["id"], "x": 0.55, "y": 0.55, "width": 0.4, "height": 0.4},
-            ]
-            + ([text_layer] if core.font else []),
-        },
-    }
-    missing = {"artifact_id": "missing", "x": 0, "y": 0, "width": 1, "height": 1}
-    for body, expected in (
-        (dict(compose_body, conversation_id="missing"), 404),
-        (dict(compose_body, compose=dict(compose_body["compose"], layers=[])), 400),
-        (dict(compose_body, output=dict(compose_body["output"], count=2)), 400),
-        (dict(compose_body, compose=dict(compose_body["compose"], layers=[missing])), 422),
-        (dict(compose_body, product_asset_id=fresh["id"]), 400),
-    ):
-        assert core.post(alice, "/api/v4/generation-tasks", body)[0] == expected, body
-    status, queued = core.post(alice, "/api/v4/generation-tasks", compose_body)
-    assert status == 202 and queued["feature_type"] == "COMPOSE", (status, queued)
-    # While queued its library pictures cannot be deleted.
-    status, problem, _ = run.http("DELETE", f"/api/v1/assets/{fresh_gift['id']}", alice)
-    assert status == 409 and problem["code"] == "ASSET_IN_USE", (status, problem)
-    core.worker(font=True)
-    exported = core.get(alice, queued["id"])[1]
-    assert exported["status"] == "SUCCEEDED" and len(exported["artifacts"]) == 1, exported
-    assert [exported["artifacts"][0][k] for k in ("width", "height")] == [400, 400]
-    attempt, gens = core.generations(exported["id"])
-    provenance = gens[0]["provenance"]
-    assert provenance["output_source"] == "composition", provenance
-    assert provenance["inputs"]["layer_sha256"] == [
-        run.sql(f"SELECT sha256 FROM artifacts WHERE id='{picture}'"),
-        run.sql(f"SELECT sha256 FROM assets WHERE id='{fresh_gift['id']}'"),
-    ]
-    # No model: no paid permit, no bound model, no product image.
-    assert core.fences(attempt) == "0"
-    assert (
-        run.sql(
-            "SELECT provider_config_version IS NULL AND product_asset_id IS NULL "
-            f"FROM generation_tasks WHERE id='{exported['id']}'"
-        )
-        == "t"
-    )
-    regions = [
-        [[390, 0, 400, 10], [255, 246, 236], 2],  # the board colour
-        [[220, 220, 380, 380], list(GIFT_RGB), 8],  # the library picture
-    ]
-    if core.font:
-        regions.append([[0, 328, 400, 392], [30, 58, 95], 40])  # the text
-    checked = core.inspect(core.image(alice, exported["artifacts"][0]["id"]), regions)
-    assert checked["format"] == "PNG" and checked["size"] == [400, 400], checked
-    assert all(checked["regions"]), checked
-    if core.font:
-        # Text that cannot fit its box even at 12 px fails instead of being cut.
-        tiny = dict(text_layer, text="很长的文字" * 30, width=0.05, height=0.03)
-        overflow = core.generate(
-            alice,
-            dict(compose_body, compose={"background": "#FFFFFF", "layers": [tiny]}),
-            font=True,
-        )
-        assert overflow["status"] == "FAILED", overflow
-        assert overflow["error"]["code"] == "TEXT_OVERFLOW", overflow
-    # The export belongs to the conversation, but only messages count as turns.
-    detail = run.http("GET", f"/api/v1/conversations/{chat['id']}", alice)[1]
-    assert "COMPOSE" in [t["feature_type"] for t in detail["tasks"]], detail
-    listed = run.http("GET", conversations, alice)[1]["items"]
-    assert listed[0]["turns"] == 2, listed[0]
-    evidence["compose"] = {"task": exported["id"]}
-
     assert run.http("DELETE", f"/api/v1/conversations/{chat['id']}", bob)[0] == 404
     assert run.http("DELETE", f"/api/v1/conversations/{chat['id']}", alice)[0] == 204
     assert run.http("GET", conversations, alice)[1]["items"] == []
@@ -1583,14 +1451,13 @@ def run_core_checks(env, work):
         project = run.http("POST", "/api/v1/projects", alice, {"name": "v4 core"})[1]["id"]
         evidence["api"] = api_checks(core, admin, alice, bob, project)
         print(
-            "PASS V4-A1..A30: three entries, references, text, retypeset, isolation, "
+            "PASS V4-A1..A29: three entries, references, text, retypeset, isolation, "
             "withdrawn routes, model catalog and proxy, owner deletion, real-world uploads, "
             "reuse, original background, third-party endpoint, account deletion, "
             "template management, personal templates, image management, dashboard, "
             "operation log, per-point selling, keep-original selling, gift card, "
             "product position, conversational generation, agents and magic wand, look-first "
-            "chat, model editing and clarity, material categories, conversation canvas, "
-            "canvas export",
+            "chat, model editing and clarity, material categories, conversation canvas",
             flush=True,
         )
         if browser_checks(core, stack):

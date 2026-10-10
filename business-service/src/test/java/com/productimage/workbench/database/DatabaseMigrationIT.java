@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(19, flyway.migrate().migrationsExecuted);
+    assertEquals(20, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -141,7 +141,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(18, upgrade.migrate().migrationsExecuted);
+      assertEquals(19, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +187,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(17, current.migrate().migrationsExecuted);
+      assertEquals(18, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -476,6 +476,53 @@ class DatabaseMigrationIT {
   }
 
   @Test
+  void withdrawingCanvasExportsTakesTheirItemsOffSavedCanvases() throws SQLException {
+    // A layout saved while phase 3 was live (V19) keeps only results and message cards (V20).
+    String upgradeSchema = "upgrade_" + UUID.randomUUID().toString().replace("-", "");
+    var v19 =
+        Flyway.configure()
+            .dataSource(url, user, password)
+            .schemas(upgradeSchema)
+            .target("19")
+            .load();
+    assertEquals(19, v19.migrate().migrationsExecuted);
+    try (var connection = DriverManager.getConnection(url, user, password);
+        var query = connection.createStatement()) {
+      connection.setSchema(upgradeSchema);
+      query.execute("INSERT INTO users(id,status) VALUES ('u','ACTIVE')");
+      query.execute("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture')");
+      query.execute(
+          "INSERT INTO conversations(id,project_id,title) VALUES ('c1','p','画布'),('c2','p','只有结果')");
+      query.execute(
+          "INSERT INTO conversation_canvases(conversation_id,layout,version) VALUES "
+              + "('c1','{\"items\":[{\"id\":\"f:1\",\"frame\":{\"width\":800,\"height\":800,\"background\":\"#FFFFFF\"},\"x\":0,\"y\":0,\"width\":600,\"height\":600},"
+              + "{\"id\":\"a:r1\",\"artifact_id\":\"r1\",\"x\":1,\"y\":2,\"width\":3,\"height\":4},"
+              + "{\"id\":\"x:1\",\"text\":{\"content\":\"送\",\"size\":48,\"color\":\"#000000\",\"align\":\"left\"},\"x\":0,\"y\":0,\"width\":9,\"height\":9},"
+              + "{\"id\":\"t:m1\",\"task_id\":\"m1\",\"x\":5,\"y\":6,\"width\":7,\"height\":8},"
+              + "{\"id\":\"s:1\",\"asset_id\":\"g1\",\"x\":0,\"y\":0,\"width\":9,\"height\":9}],\"removed\":[\"r2\"]}',4),"
+              + "('c2','{\"items\":[{\"id\":\"a:r3\",\"artifact_id\":\"r3\",\"x\":0,\"y\":0,\"width\":9,\"height\":9}],\"removed\":[]}',2)");
+      var upgrade =
+          Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
+      assertEquals(1, upgrade.migrate().migrationsExecuted);
+      try (var rows =
+          query.executeQuery(
+              "SELECT conversation_id,layout->'items',layout->'removed',version FROM conversation_canvases ORDER BY conversation_id")) {
+        assertTrue(rows.next());
+        assertEquals(
+            "[{\"x\": 1, \"y\": 2, \"id\": \"a:r1\", \"width\": 3, \"height\": 4, \"artifact_id\": \"r1\"}, "
+                + "{\"x\": 5, \"y\": 6, \"id\": \"t:m1\", \"width\": 7, \"height\": 8, \"task_id\": \"m1\"}]",
+            rows.getString(2));
+        assertEquals("[\"r2\"]", rows.getString(3));
+        assertEquals(5, rows.getInt(4));
+        // A canvas without withdrawn items is left as it was.
+        assertTrue(rows.next());
+        assertEquals(2, rows.getInt(4));
+        assertFalse(rows.next());
+      }
+    }
+  }
+
+  @Test
   void upgradesKeepTheActiveOpenRouterConfiguration() throws SQLException {
     String upgradeSchema = "upgrade_" + UUID.randomUUID().toString().replace("-", "");
     var v7 =
@@ -495,7 +542,7 @@ class DatabaseMigrationIT {
           "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(12, upgrade.migrate().migrationsExecuted);
+      assertEquals(13, upgrade.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery("SELECT provider,active_version_id FROM provider_config_state")) {
         assertTrue(rows.next());
@@ -595,18 +642,18 @@ class DatabaseMigrationIT {
     rejects(
         "23503",
         "INSERT INTO conversation_canvases(conversation_id,layout,version) VALUES ('nobody','{}',1)");
-    // V19: a canvas export belongs to its conversation and has no product image; every other
-    // task keeps one.
-    String export =
+    // V20: the withdrawn canvas export (V19, ADR-20261010-X) is gone again: every task has a
+    // product image and only messages belong to a conversation.
+    String compose =
         "INSERT INTO generation_tasks(id,project_id,product_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,conversation_id) VALUES ('%s','p',%s,'%s','u','%s','"
             + "f".repeat(64)
             + "','{}','c1')";
-    sql(export.formatted("export", "NULL", "COMPOSE", "export-key"));
-    rejects("23514", export.formatted("export2", "'product'", "COMPOSE", "export-key-2"));
-    rejects("23514", export.formatted("scene2", "NULL", "CUSTOM", "custom-key-2"));
-    // Deleting the conversation keeps the tasks (and their images); the layout goes with it.
+    rejects("23514", compose.formatted("export", "'product'", "COMPOSE", "export-key"));
+    rejects("23502", compose.formatted("blank", "NULL", "CUSTOM", "blank-key"));
+    rejects("23514", compose.formatted("scene-chat", "'product'", "SCENE", "scene-chat-key"));
+    // Deleting the conversation keeps the task (and its images); the layout goes with it.
     sql("DELETE FROM conversations WHERE id='c1'");
-    assertEquals(3, count("generation_tasks"));
+    assertEquals(2, count("generation_tasks"));
     assertEquals(0, count("conversation_canvases"));
   }
 

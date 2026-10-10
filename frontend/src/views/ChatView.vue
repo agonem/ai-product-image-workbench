@@ -13,7 +13,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { ApiError, json } from '../api/workbench'
 import { validateContract } from '../contracts/validate'
 import AssetSlot from '../components/AssetSlot.vue'
-import CanvasText from '../components/CanvasText.vue'
 import DropSelect from '../components/DropSelect.vue'
 import EmptyState from '../components/EmptyState.vue'
 import AgentAvatar from '../components/AgentAvatar.vue'
@@ -24,38 +23,26 @@ import InfiniteCanvas, {
   type CanvasCommand,
 } from '../components/InfiniteCanvas.vue'
 import LineIcon from '../components/LineIcon.vue'
-import { fitSide, type Placed } from '../workbench/canvas'
+import type { Placed } from '../workbench/canvas'
 import {
-  BOARD_SIDE,
   EMPTY,
-  PICTURE_SIDE,
   complete,
   duplicate,
-  exportLayers,
   idOf,
-  isOwn,
   moveItems,
   pendingCells,
   pieceSize,
-  ratioOf,
   rectOf,
   refOf,
   removeItems,
-  reorder,
-  resizeItem,
   restoreRemoved,
   tidy,
-  updateItem,
-  type Anchors,
   type Layout,
   type Pending,
   type Piece,
-  type Placement,
-  type TextSpec,
 } from '../workbench/chatCanvas'
 import { confirmAction } from '../workbench/confirm'
 import {
-  backgrounds,
   canvasSizes,
   resolutionsOf,
   type Resolution,
@@ -215,24 +202,10 @@ const images = computed(() =>
     task.artifacts.map((artifact, index) => ({ task, turn, index, artifact })),
   ),
 )
-// Messages and canvas exports are numbered separately (ADR-20261010-W).
-const isExport = (task: Generation) => task.feature_type === 'COMPOSE'
-const numbers = computed(() => {
-  const map = new Map<string, number>()
-  let messages = 0,
-    exports = 0
-  for (const task of current.value?.tasks ?? [])
-    map.set(task.id, isExport(task) ? ++exports : ++messages)
-  return map
-})
-const pictureName = (task: Generation, index: number) =>
-  isExport(task)
-    ? `导出 ${numbers.value.get(task.id)}`
-    : `第 ${numbers.value.get(task.id)} 条 · 图 ${index + 1}`
 const viewerItems = computed(() =>
   images.value.map((item) => ({
     path: `/artifacts/${item.artifact.id}/content`,
-    title: pictureName(item.task, item.index),
+    title: `第 ${item.turn + 1} 条 · 图 ${item.index + 1}`,
     detail: `${item.artifact.width} × ${item.artifact.height}`,
     download: () => w.download(item.artifact.id, `chat-${item.artifact.id}`),
   })),
@@ -277,61 +250,32 @@ const pendingTasks = computed<Pending[]>(() =>
 // As saved on the server (null: never arranged, shown in the automatic rows).
 const saved = ref<Layout | null>(null)
 const savedVersion = ref(0)
-// An export's result goes beside the board it came from (ADR-20261010-W).
-const anchors = computed<Anchors>(() => {
-  const boards = new Map(
-    (saved.value ?? EMPTY).items
-      .filter((item) => item.frame)
-      .map((item) => [item.id, item]),
-  )
-  const map: Anchors = new Map()
-  for (const task of current.value?.tasks ?? []) {
-    const board = boards.get(String(task.request?.frame_id ?? ''))
-    if (isExport(task) && board)
-      map.set(task.id, { x: board.x + board.width + 48, y: board.y })
-  }
-  return map
-})
 const arranged = computed(
-  () => complete(saved.value ?? EMPTY, pieces.value, anchors.value).layout,
+  () => complete(saved.value ?? EMPTY, pieces.value).layout,
 )
 const placeholders = computed(() =>
-  pendingCells(
-    arranged.value,
-    pendingTasks.value,
-    saved.value ?? EMPTY,
-    anchors.value,
-  ),
+  pendingCells(arranged.value, pendingTasks.value, saved.value ?? EMPTY),
 )
-// Boards always lie under everything else; the rest in the user's order.
 const placed = computed<Placed[]>(() => [
-  ...[...arranged.value.items]
-    .sort((a, b) => Number(!!b.frame) - Number(!!a.frame))
-    .map(
-      (item): Placed => ({
-        key: item.id,
-        rect: rectOf(item),
-        movable: true,
-        resize: item.task_id ? undefined : item.text ? 'free' : 'ratio',
-      }),
-    ),
+  ...arranged.value.items.map((item) => ({
+    key: item.id,
+    rect: rectOf(item),
+    movable: true,
+  })),
   ...placeholders.value,
 ])
 type Entry = {
   key: string
-  kind: 'result' | 'text' | 'asset' | 'frame'
-  item: Placement | null
-  task: Generation | null
-  no: number
+  task: Generation
+  turn: number
   index: number
   artifact: Generation['artifacts'][number] | null
   copy: boolean
   lead: boolean
 }
 const entries = computed(() => {
-  const tasks = new Map(
-    (current.value?.tasks ?? []).map((task) => [task.id, task]),
-  )
+  const tasks = current.value?.tasks ?? []
+  const turns = new Map(tasks.map((task, turn) => [task.id, turn]))
   const byRef = new Map(pieces.value.map((piece) => [piece.ref, piece]))
   const map = new Map<string, Entry>()
   const leads = new Set<string>()
@@ -341,19 +285,17 @@ const entries = computed(() => {
     index: number,
     artifactId: string | null,
     copy: boolean,
-    item: Placement | null,
   ) => {
-    const task = tasks.get(taskId)
-    if (!task) return
+    const turn = turns.get(taskId)
+    if (turn === undefined) return
+    const task = tasks[turn]!
     map.set(key, {
       key,
-      kind: 'result',
-      item,
       task,
-      no: numbers.value.get(taskId) ?? 0,
+      turn,
       index,
       artifact: artifactId
-        ? (task.artifacts.find((entry) => entry.id === artifactId) ?? null)
+        ? (task.artifacts.find((item) => item.id === artifactId) ?? null)
         : null,
       copy,
       lead: !leads.has(taskId),
@@ -361,21 +303,7 @@ const entries = computed(() => {
     leads.add(taskId)
   }
   for (const item of arranged.value.items) {
-    if (isOwn(item)) {
-      map.set(item.id, {
-        key: item.id,
-        kind: item.text ? 'text' : item.frame ? 'frame' : 'asset',
-        item,
-        task: null,
-        no: 0,
-        index: 0,
-        artifact: null,
-        copy: false,
-        lead: false,
-      })
-      continue
-    }
-    const piece = byRef.get(refOf(item)!)
+    const piece = byRef.get(refOf(item))
     if (piece)
       add(
         item.id,
@@ -383,12 +311,11 @@ const entries = computed(() => {
         piece.index,
         item.artifact_id ?? null,
         item.id !== idOf(piece),
-        item,
       )
   }
   for (const cell of placeholders.value) {
     const [, taskId, index] = cell.key.split(':')
-    add(cell.key, taskId!, Number(index), null, false, null)
+    add(cell.key, taskId!, Number(index), null, false)
   }
   return map
 })
@@ -401,7 +328,7 @@ const newest = computed(() => {
   const last = current.value?.tasks.at(-1)
   return last
     ? [...entries.value.values()]
-        .filter((entry) => entry.task?.id === last.id)
+        .filter((entry) => entry.task.id === last.id)
         .map((entry) => entry.key)
     : []
 })
@@ -423,12 +350,8 @@ const clipboard = ref<string[]>([])
 const history = reactive({ past: [] as string[], future: [] as string[] })
 const onCanvas = (key: string) =>
   arranged.value.items.find((item) => item.id === key)
-// Everything but a failed message's card can be copied.
 const selectedPictures = computed(() =>
-  selection.value.filter((key) => {
-    const item = onCanvas(key)
-    return !!item && !item.task_id
-  }),
+  selection.value.filter((key) => onCanvas(key)?.artifact_id),
 )
 const removable = computed(() =>
   selection.value.filter((key) => !!onCanvas(key)),
@@ -437,210 +360,12 @@ const removedCount = computed(() => {
   const known = new Set(pieces.value.map((piece) => piece.ref))
   return arranged.value.removed.filter((ref) => known.has(ref)).length
 })
-// A burst of edits to one text box (typing) is one undo step.
-let lastMerge = '',
-  lastAt = 0
-function change(next: Layout, merge = '') {
-  const now = Date.now()
-  if (!merge || merge !== lastMerge || now - lastAt > 1500) {
-    history.past.push(JSON.stringify(arranged.value))
-    if (history.past.length > 50) history.past.shift()
-    history.future = []
-  }
-  lastMerge = merge
-  lastAt = now
+function change(next: Layout) {
+  history.past.push(JSON.stringify(arranged.value))
+  if (history.past.length > 50) history.past.shift()
+  history.future = []
   saved.value = next
   scheduleSave()
-}
-// Adding text, library pictures and boards (ADR-20261010-W), in the middle of what is shown.
-const shortId = () => crypto.randomUUID().replace(/-/g, '').slice(0, 12)
-function addItem(item: Omit<Placement, 'x' | 'y'>) {
-  const centre = board.value?.worldCentre() ?? { x: 0, y: 0 }
-  const placed = {
-    ...item,
-    x: Math.round(centre.x - item.width / 2),
-    y: Math.round(centre.y - item.height / 2),
-  } as Placement
-  change({
-    items: [...arranged.value.items, placed],
-    removed: arranged.value.removed,
-  })
-  tool.value = 'select'
-  selection.value = [placed.id]
-}
-const textPalette = [
-  { color: '#1D2129', name: '深灰' },
-  { color: '#FFFFFF', name: '白色' },
-  { color: '#4A2E1F', name: '深棕' },
-  { color: '#1E3A5F', name: '深蓝' },
-  { color: '#C8573A', name: '橙红' },
-  { color: '#1683D8', name: '主题蓝' },
-]
-const textSizes = [24, 32, 40, 48, 64, 80, 96, 120, 160].map((size) => ({
-  value: size,
-  label: `${size}`,
-}))
-function addText() {
-  addItem({
-    id: `x:${shortId()}`,
-    text: {
-      content: '双击编辑文字',
-      size: 48,
-      color: '#1D2129',
-      align: 'left',
-    },
-    width: 360,
-    height: 120,
-  })
-  void nextTick(() => textEditor.value?.select())
-}
-function addBoard() {
-  const size = canvasSizes[0]!
-  const world = fitSide(size, BOARD_SIDE)
-  addItem({
-    id: `f:${shortId()}`,
-    frame: { width: size.width, height: size.height, background: '#FFFFFF' },
-    ...world,
-  })
-}
-// The image button is a material slot: what is picked lands on the canvas.
-const picking = ref('')
-watch(picking, (id) => {
-  if (!id) return
-  const asset = w.assets.find((item) => item.id === id)
-  const size = fitSide(
-    asset
-      ? { width: asset.width, height: asset.height }
-      : { width: 1, height: 1 },
-    PICTURE_SIDE,
-  )
-  addItem({ id: `s:${shortId()}`, asset_id: id, ...size })
-  picking.value = ''
-})
-function resizeOne(key: string, width: number, height: number) {
-  if (onCanvas(key)) change(resizeItem(arranged.value, key, width, height))
-}
-function order(where: 'front' | 'back') {
-  if (removable.value.length)
-    change(reorder(arranged.value, removable.value, where))
-}
-// The settings bar edits the one selected text box or board.
-const editing = computed(() => {
-  if (selection.value.length !== 1) return null
-  const item = onCanvas(selection.value[0]!)
-  return item && (item.text || item.frame) ? item : null
-})
-const textEditor = ref<HTMLTextAreaElement>()
-function setText(field: keyof TextSpec, value: string | number) {
-  const item = editing.value
-  if (!item?.text) return
-  change(
-    updateItem(arranged.value, item.id, (entry) => ({
-      ...entry,
-      text: { ...entry.text!, [field]: value },
-    })),
-    field === 'content' ? `text:${item.id}` : '',
-  )
-}
-const boardSize = computed({
-  get: () => {
-    const frame = editing.value?.frame
-    return frame
-      ? canvasSizes.findIndex(
-          (size) => size.width === frame.width && size.height === frame.height,
-        )
-      : -1
-  },
-  set: (index: number) => {
-    const item = editing.value
-    const size = canvasSizes[index]
-    if (!item?.frame || !size) return
-    // Same width on the canvas; the height follows the new proportions.
-    change(
-      updateItem(arranged.value, item.id, (entry) => ({
-        ...entry,
-        frame: { ...entry.frame!, width: size.width, height: size.height },
-        height: Math.round((entry.width * size.height) / size.width),
-      })),
-    )
-  },
-})
-const boardSizes = canvasSizes.map((size, index) => ({
-  value: index,
-  label: size.label,
-  hint: size.ratio,
-}))
-function setBackground(color: string) {
-  const item = editing.value
-  if (item?.frame)
-    change(
-      updateItem(arranged.value, item.id, (entry) => ({
-        ...entry,
-        frame: { ...entry.frame!, background: color },
-      })),
-    )
-}
-// How much each text box shrank to fit on the canvas (1 = the chosen size).
-const fits = reactive(new Map<string, number>())
-const exporting = ref('')
-async function exportBoard(id: string) {
-  const item = onCanvas(id)
-  if (!item?.frame || !current.value || exporting.value) return
-  const layers = exportLayers(arranged.value, id)
-  if (!layers.length) {
-    error.value = '画板里还没有图片或文字：先把内容拖到画板上。'
-    return
-  }
-  // Text ending below 12 px on the export is refused by the server; say so now (approximate).
-  const scale = item.frame.width / item.width
-  if (
-    layers.some(({ key }) => {
-      const text = onCanvas(key)?.text
-      return text && text.size * (fits.get(key) ?? 1) * scale < 12
-    })
-  ) {
-    error.value =
-      '有文字在文字框里放不下（导出后会小于 12px）：请放大文字框、调小字号或减少文字。'
-    return
-  }
-  const body = {
-    project_id: w.project,
-    feature_type: 'COMPOSE',
-    conversation_id: current.value.id,
-    frame_id: id,
-    output: {
-      aspect_ratio: ratioOf(item.frame.width, item.frame.height),
-      width: item.frame.width,
-      height: item.frame.height,
-      format: 'png',
-      count: 1,
-    },
-    compose: {
-      background: item.frame.background,
-      layers: layers.map((entry) => entry.layer),
-    },
-  }
-  if (validateContract('generation-v4-create', body).length) {
-    error.value =
-      '画板内容超出导出范围（最多 40 个图层，图片不能比画板大太多）。'
-    return
-  }
-  exporting.value = id
-  await run(async () => {
-    try {
-      await w.api('/v4/generation-tasks', {
-        ...json(body),
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': crypto.randomUUID(),
-        },
-      })
-      w.notice = '已提交导出，几秒后结果显示在画板右侧。'
-      await refresh()
-    } finally {
-      exporting.value = ''
-    }
-  })
 }
 const newId = () => `c:${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`
 function moveSelection(keys: string[], dx: number, dy: number) {
@@ -653,10 +378,7 @@ function removeSelection() {
   selection.value = []
 }
 function duplicateSelection(ids: string[] = selectedPictures.value) {
-  const pictures = ids.filter((key) => {
-    const item = onCanvas(key)
-    return !!item && !item.task_id
-  })
+  const pictures = ids.filter((key) => onCanvas(key)?.artifact_id)
   if (!pictures.length) return
   const copied = duplicate(arranged.value, pictures, newId)
   change(copied.layout)
@@ -695,7 +417,7 @@ function command(name: CanvasCommand) {
 // New results join a saved layout and are saved with it (no undo step).
 watch([pieces, saved], () => {
   if (!saved.value) return
-  const next = complete(saved.value, pieces.value, anchors.value)
+  const next = complete(saved.value, pieces.value)
   if (!next.added) return
   saved.value = next.layout
   scheduleSave()
@@ -780,12 +502,6 @@ const detail = computed(() => {
   return turn >= 0 ? { task: tasks[turn]!, turn } : null
 })
 function previewImage(key: string) {
-  // Double-clicking a text box edits it.
-  if (onCanvas(key)?.text) {
-    selection.value = [key]
-    void nextTick(() => textEditor.value?.select())
-    return
-  }
   const id = entries.value.get(key)?.artifact?.id ?? key
   const index = images.value.findIndex((item) => item.artifact.id === id)
   if (index >= 0) viewing.value = index
@@ -823,12 +539,11 @@ async function loadList() {
 }
 function pickLatest() {
   if (manualEdit || !current.value) return
-  // Only messages: an export is chosen by hand ("继续修改").
-  const tasks = current.value.tasks.filter((task) => !isExport(task))
+  const tasks = current.value.tasks
   for (let turn = tasks.length - 1; turn >= 0; turn--) {
     const artifact = tasks[turn]!.artifacts[0]
     if (tasks[turn]!.status === 'SUCCEEDED' && artifact) {
-      edit.value = { id: artifact.id, label: pictureName(tasks[turn]!, 0) }
+      edit.value = { id: artifact.id, label: `第 ${turn + 1} 条 · 图 1` }
       return
     }
   }
@@ -1105,315 +820,150 @@ onUnmounted(() => {
           label="画布：本对话的所有图片"
           @preview="previewImage"
           @move="moveSelection"
-          @resize="resizeOne"
           @command="command"
         >
           <template #default="{ item, near }">
             <template v-for="entry in entryAt(item.key)" :key="entry.key">
-              <!-- A board (ADR-20261010-W): what lies on it is exported as one picture. -->
               <div
-                v-if="entry.kind === 'frame' && entry.item?.frame"
-                class="board-frame"
-                data-testid="canvas-frame"
-                :style="{ background: entry.item.frame.background }"
+                class="cell-caption"
+                :class="{ lead: entry.lead }"
+                v-bind="
+                  entry.lead
+                    ? {
+                        'data-testid': 'chat-turn',
+                        'data-status': entry.task.status,
+                      }
+                    : {}
+                "
               >
-                <div class="cell-caption board-caption">
-                  <b>画板</b>
-                  <span class="muted num"
-                    >{{ entry.item.frame.width }} ×
-                    {{ entry.item.frame.height }}</span
+                <b>第 {{ entry.turn + 1 }} 条</b>
+                <template v-if="entry.lead">
+                  <span
+                    class="canvas-prompt"
+                    :title="String(entry.task.request?.prompt ?? '')"
+                    >{{ entry.task.request?.prompt }}</span
+                  >
+                  <span
+                    v-if="entry.task.status !== 'SUCCEEDED'"
+                    class="turn-status"
+                    :data-status="entry.task.status"
+                    >{{ statusLabels[entry.task.status] }}</span
                   >
                   <button
                     type="button"
                     class="link-btn"
-                    data-testid="export-board"
-                    :disabled="!!exporting"
-                    @click="exportBoard(entry.key)"
+                    :aria-label="`第 ${entry.turn + 1} 条详情`"
+                    @click="detailId = entry.task.id"
                   >
-                    <LineIcon name="dl" :size="12" />{{
-                      exporting === entry.key ? '提交中…' : '导出图片'
-                    }}
+                    详情
                   </button>
-                </div>
+                </template>
+                <span v-else-if="entry.artifact" class="muted"
+                  >图 {{ entry.index + 1 }}</span
+                >
+                <span v-if="entry.copy" class="copy-tag">副本</span>
               </div>
-              <CanvasText
-                v-else-if="entry.kind === 'text' && entry.item?.text"
-                data-testid="canvas-text"
-                :text="entry.item.text"
-                :width="item.rect.width"
-                :height="item.rect.height"
-                @fit="fits.set(entry.key, $event)"
-              />
               <figure
-                v-else-if="entry.kind === 'asset' && entry.item?.asset_id"
-                class="tile canvas-tile asset-cell"
-                data-testid="canvas-asset"
+                class="tile canvas-tile chat-cell"
+                :class="{
+                  running: !entry.artifact && entry.task.status !== 'FAILED',
+                  shimmer: ['QUEUED', 'RUNNING'].includes(entry.task.status),
+                  chosen: !!entry.artifact && edit?.id === entry.artifact.id,
+                }"
+                data-testid="canvas-image"
+                :data-status="entry.task.status"
+                :data-artifact="entry.artifact?.id"
+                :data-copy="entry.copy || undefined"
                 :data-selected="selection.includes(entry.key)"
               >
-                <PrivateImage
-                  v-if="near"
-                  :path="`/assets/${entry.item.asset_id}/content`"
-                  alt="画布上的素材图"
-                  :api="w.api"
-                  missing="原图已删除"
-                />
-              </figure>
-              <template v-else-if="entry.task">
-                <div
-                  class="cell-caption"
-                  :class="{ lead: entry.lead }"
-                  v-bind="
-                    entry.lead
-                      ? {
-                          'data-testid': isExport(entry.task)
-                            ? 'chat-export'
-                            : 'chat-turn',
-                          'data-status': entry.task.status,
-                        }
-                      : {}
-                  "
-                >
-                  <template v-if="isExport(entry.task)">
-                    <b>导出</b>
-                    <span v-if="entry.task.output" class="muted num"
-                      >{{ entry.task.output.width }} ×
-                      {{ entry.task.output.height }}</span
-                    >
-                    <span
-                      v-if="entry.task.status !== 'SUCCEEDED'"
-                      class="turn-status"
-                      :data-status="entry.task.status"
-                      >{{ statusLabels[entry.task.status] }}</span
-                    >
-                  </template>
-                  <template v-else>
-                    <b>第 {{ entry.no }} 条</b>
-                    <template v-if="entry.lead">
-                      <span
-                        class="canvas-prompt"
-                        :title="String(entry.task.request?.prompt ?? '')"
-                        >{{ entry.task.request?.prompt }}</span
-                      >
-                      <span
-                        v-if="entry.task.status !== 'SUCCEEDED'"
-                        class="turn-status"
-                        :data-status="entry.task.status"
-                        >{{ statusLabels[entry.task.status] }}</span
-                      >
-                      <button
-                        type="button"
-                        class="link-btn"
-                        :aria-label="`第 ${entry.no} 条详情`"
-                        @click="detailId = entry.task.id"
-                      >
-                        详情
-                      </button>
-                    </template>
-                    <span v-else-if="entry.artifact" class="muted"
-                      >图 {{ entry.index + 1 }}</span
-                    >
-                  </template>
-                  <span v-if="entry.copy" class="copy-tag">副本</span>
-                </div>
-                <figure
-                  class="tile canvas-tile chat-cell"
-                  :class="{
-                    running: !entry.artifact && entry.task.status !== 'FAILED',
-                    shimmer: ['QUEUED', 'RUNNING'].includes(entry.task.status),
-                    chosen: !!entry.artifact && edit?.id === entry.artifact.id,
-                  }"
-                  data-testid="canvas-image"
-                  :data-status="entry.task.status"
-                  :data-artifact="entry.artifact?.id"
-                  :data-export="isExport(entry.task) || undefined"
-                  :data-copy="entry.copy || undefined"
-                  :data-selected="selection.includes(entry.key)"
-                >
-                  <button
-                    type="button"
-                    class="open"
-                    :aria-label="`选中${pictureName(entry.task, entry.index).replace(' · ', '')}${entry.copy ? '（副本）' : ''}`"
-                    :title="
-                      entry.artifact
-                        ? '单击选中，拖动移动，双击全屏查看'
-                        : undefined
-                    "
-                    @click="$event.detail === 0 && (selection = [entry.key])"
-                  >
-                    <PrivateImage
-                      v-if="entry.artifact && near"
-                      :path="`/artifacts/${entry.artifact.id}/content`"
-                      :alt="`${pictureName(entry.task, entry.index)} 结果`"
-                      :api="w.api"
-                    />
-                    <span
-                      v-else-if="entry.task.status === 'FAILED'"
-                      class="tile-note"
-                      ><LineIcon name="alert" :size="20" /><span
-                        >{{ entry.task.error?.message }}（{{
-                          entry.task.error?.code
-                        }}）</span
-                      ></span
-                    >
-                    <span v-else-if="!entry.artifact" class="tile-note"
-                      ><span class="spinner"></span
-                      ><span>{{
-                        entry.task.status === 'QUEUED' ? '排队中' : '生成中'
-                      }}</span></span
-                    >
-                  </button>
-                  <span
-                    v-if="entry.artifact && edit?.id === entry.artifact.id"
-                    class="flag edit-flag"
-                    >修改这张</span
-                  >
-                  <div v-if="entry.artifact" class="hover-actions">
-                    <button
-                      type="button"
-                      aria-label="继续修改"
-                      title="继续修改：下一条消息修改这张图"
-                      @click="
-                        chooseEdit(
-                          entry.artifact.id,
-                          pictureName(entry.task, entry.index),
-                        )
-                      "
-                    >
-                      <LineIcon name="edit" :size="13" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="放大查看"
-                      title="放大查看"
-                      @click="previewImage(entry.artifact.id)"
-                    >
-                      <LineIcon name="zoomin" :size="13" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="下载"
-                      title="下载"
-                      @click="
-                        w.download(
-                          entry.artifact.id,
-                          `chat-${entry.artifact.id}`,
-                        )
-                      "
-                    >
-                      <LineIcon name="dl" :size="13" />
-                    </button>
-                  </div>
-                  <div
-                    v-else-if="entry.task.status === 'FAILED'"
-                    class="hover-actions always"
-                  >
-                    <button
-                      type="button"
-                      aria-label="重试"
-                      title="重试"
-                      @click="retry(entry.task)"
-                    >
-                      <LineIcon name="redo" :size="13" />
-                    </button>
-                  </div>
-                </figure>
-              </template>
-            </template>
-          </template>
-          <template v-if="editing" #overlay>
-            <div
-              class="canvas-settings"
-              role="group"
-              :aria-label="editing.text ? '文字设置' : '画板设置'"
-            >
-              <template v-if="editing.text">
-                <textarea
-                  ref="textEditor"
-                  class="canvas-settings-text"
-                  aria-label="文字内容"
-                  rows="2"
-                  maxlength="200"
-                  :value="editing.text.content"
-                  @input="
-                    setText(
-                      'content',
-                      ($event.target as HTMLTextAreaElement).value,
-                    )
-                  "
-                ></textarea>
-                <DropSelect
-                  :model-value="editing.text.size"
-                  label="字号"
-                  :options="textSizes"
-                  @update:model-value="setText('size', Number($event))"
-                />
-                <div class="swatches" role="group" aria-label="文字颜色">
-                  <button
-                    v-for="option in textPalette"
-                    :key="option.color"
-                    type="button"
-                    class="swatch"
-                    :title="option.name"
-                    :aria-label="`文字 ${option.name}`"
-                    :aria-pressed="editing.text.color === option.color"
-                    :style="{ background: option.color }"
-                    @click="setText('color', option.color)"
-                  ></button>
-                </div>
-                <div class="seg" role="group" aria-label="对齐">
-                  <button
-                    v-for="option in [
-                      { id: 'left', name: '左' },
-                      { id: 'center', name: '中' },
-                      { id: 'right', name: '右' },
-                    ] as const"
-                    :key="option.id"
-                    type="button"
-                    :aria-pressed="editing.text.align === option.id"
-                    @click="setText('align', option.id)"
-                  >
-                    {{ option.name }}
-                  </button>
-                </div>
-                <small class="hint"
-                  >画布上为近似显示，导出时用方正兰亭圆简体_中粗，放不下会自动缩小。</small
-                >
-              </template>
-              <template v-else-if="editing.frame">
-                <DropSelect
-                  v-model="boardSize"
-                  label="画板尺寸"
-                  :options="boardSizes"
-                />
-                <div class="swatches" role="group" aria-label="画板背景">
-                  <button
-                    v-for="option in backgrounds"
-                    :key="option.color"
-                    type="button"
-                    class="swatch"
-                    :title="option.name"
-                    :aria-label="`画板 ${option.name}`"
-                    :aria-pressed="editing.frame.background === option.color"
-                    :style="{ background: option.color }"
-                    @click="setBackground(option.color)"
-                  ></button>
-                </div>
                 <button
                   type="button"
-                  class="btn primary sm"
-                  :disabled="!!exporting"
-                  @click="exportBoard(editing.id)"
+                  class="open"
+                  :aria-label="`选中第 ${entry.turn + 1} 条图 ${entry.index + 1}${entry.copy ? '（副本）' : ''}`"
+                  :title="
+                    entry.artifact
+                      ? '单击选中，拖动移动，双击全屏查看'
+                      : undefined
+                  "
+                  @click="$event.detail === 0 && (selection = [entry.key])"
                 >
-                  <LineIcon name="dl" :size="14" />导出图片
+                  <PrivateImage
+                    v-if="entry.artifact && near"
+                    :path="`/artifacts/${entry.artifact.id}/content`"
+                    :alt="`第 ${entry.turn + 1} 条结果 ${entry.index + 1}`"
+                    :api="w.api"
+                  />
+                  <span
+                    v-else-if="entry.task.status === 'FAILED'"
+                    class="tile-note"
+                    ><LineIcon name="alert" :size="20" /><span
+                      >{{ entry.task.error?.message }}（{{
+                        entry.task.error?.code
+                      }}）</span
+                    ></span
+                  >
+                  <span v-else-if="!entry.artifact" class="tile-note"
+                    ><span class="spinner"></span
+                    ><span>{{
+                      entry.task.status === 'QUEUED' ? '排队中' : '生成中'
+                    }}</span></span
+                  >
                 </button>
-                <small class="hint"
-                  >导出与画板重叠的图片和文字（超出画板的部分裁掉），不调用
-                  AI、不产生费用。</small
+                <span
+                  v-if="entry.artifact && edit?.id === entry.artifact.id"
+                  class="flag edit-flag"
+                  >修改这张</span
                 >
-              </template>
-            </div>
+                <div v-if="entry.artifact" class="hover-actions">
+                  <button
+                    type="button"
+                    aria-label="继续修改"
+                    title="继续修改：下一条消息修改这张图"
+                    @click="
+                      chooseEdit(
+                        entry.artifact.id,
+                        `第 ${entry.turn + 1} 条 · 图 ${entry.index + 1}`,
+                      )
+                    "
+                  >
+                    <LineIcon name="edit" :size="13" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="放大查看"
+                    title="放大查看"
+                    @click="previewImage(entry.artifact.id)"
+                  >
+                    <LineIcon name="zoomin" :size="13" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="下载"
+                    title="下载"
+                    @click="
+                      w.download(entry.artifact.id, `chat-${entry.artifact.id}`)
+                    "
+                  >
+                    <LineIcon name="dl" :size="13" />
+                  </button>
+                </div>
+                <div
+                  v-else-if="entry.task.status === 'FAILED'"
+                  class="hover-actions always"
+                >
+                  <button
+                    type="button"
+                    aria-label="重试"
+                    title="重试"
+                    @click="retry(entry.task)"
+                  >
+                    <LineIcon name="redo" :size="13" />
+                  </button>
+                </div>
+              </figure>
+            </template>
           </template>
-          <template v-if="current" #footer>
+          <template v-if="placed.length || removedCount" #footer>
             <div class="canvas-tools" role="toolbar" aria-label="画布工具">
               <div class="seg" role="group" aria-label="画布操作方式">
                 <button
@@ -1456,30 +1006,6 @@ onUnmounted(() => {
               <button
                 type="button"
                 class="tool"
-                aria-label="添加文字"
-                title="在画布中间加一个文字框"
-                @click="addText"
-              >
-                <LineIcon name="text" /><span class="label">文字</span>
-              </button>
-              <AssetSlot
-                v-model="picking"
-                class="canvas-add-image"
-                label="图片"
-                kind="REFERENCE"
-              />
-              <button
-                type="button"
-                class="tool"
-                aria-label="添加画板"
-                title="加一个画板：画板上的内容可以导出成一张图"
-                @click="addBoard"
-              >
-                <LineIcon name="box" /><span class="label">画板</span>
-              </button>
-              <button
-                type="button"
-                class="tool"
                 aria-label="复制"
                 title="复制所选图片（Ctrl+D）"
                 :disabled="!selectedPictures.length"
@@ -1496,26 +1022,6 @@ onUnmounted(() => {
                 @click="removeSelection"
               >
                 <LineIcon name="close" /><span class="label">移除</span>
-              </button>
-              <button
-                type="button"
-                class="tool"
-                aria-label="置顶"
-                title="放到最上层（导出时盖在其他内容上面）"
-                :disabled="!removable.length"
-                @click="order('front')"
-              >
-                <LineIcon name="up" /><span class="label">置顶</span>
-              </button>
-              <button
-                type="button"
-                class="tool"
-                aria-label="置底"
-                title="放到最下层"
-                :disabled="!removable.length"
-                @click="order('back')"
-              >
-                <LineIcon name="down" /><span class="label">置底</span>
               </button>
               <button
                 type="button"

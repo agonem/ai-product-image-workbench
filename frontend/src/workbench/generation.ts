@@ -45,12 +45,10 @@ export const featureByRoute = (route: string) =>
 export const featureName = (id: TaskFeature) =>
   id === 'CUSTOM'
     ? '对话生图'
-    : id === 'COMPOSE'
-      ? '画布导出'
-      : (features.find((item) => item.id === id)?.name ?? id)
+    : (features.find((item) => item.id === id)?.name ?? id)
 /** Where a task of any entry is opened again. */
 export const taskLink = (feature: TaskFeature, task: string) =>
-  feature === 'CUSTOM' || feature === 'COMPOSE'
+  feature === 'CUSTOM'
     ? { path: '/chat', query: { task } }
     : {
         path: `/create/${features.find((item) => item.id === feature)!.route}`,
