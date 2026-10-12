@@ -7,9 +7,11 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 /**
- * Per-model parameters and clarity (ADR-20261009-Q, -R), from contracts/model-parameters.json. A
- * family is matched by purpose and model id; administrators may only store the listed values, and
- * the pages offer the clarities (1K, 2K) the family says how to request.
+ * Model interfaces and their official parameters (ADR-20261012-AB), from
+ * contracts/model-parameters.json. A set is matched by interface kind, purpose and model id; an
+ * administrator may only store the parameters it lists, each in its type and range (blank ones are
+ * not stored, so the vendor's default applies), and the pages offer the clarities (1K, 2K) the set
+ * says how to request.
  */
 final class ModelParameters {
   private static final JsonNode CATALOG = load();
@@ -26,41 +28,86 @@ final class ModelParameters {
     }
   }
 
-  /** The first family of this purpose whose pattern matches the model id, or a missing node. */
-  static JsonNode family(String model, String purpose) {
-    for (var family : CATALOG.path("families"))
-      if (family.path("purpose").asText().equals(purpose)
-          && Pattern.compile(family.path("match").asText()).matcher(model).find()) return family;
+  /** The interface type's entry (label, purposes, offered), or a missing node. */
+  static JsonNode kind(String kind) {
+    return CATALOG.path("kinds").path(kind);
+  }
+
+  /** Whether new interfaces of this type may be created. */
+  static boolean offered(String kind) {
+    return kind(kind).path("offered").asBoolean();
+  }
+
+  /** Whether models of this purpose can be added to an interface of this type. */
+  static boolean serves(String kind, String purpose) {
+    for (var item : kind(kind).path("purposes")) if (item.asText().equals(purpose)) return true;
+    return false;
+  }
+
+  /** The first set for this interface type and purpose whose pattern matches the model id. */
+  static JsonNode set(String kind, String model, String purpose) {
+    for (var set : CATALOG.path("sets")) {
+      boolean forKind = false;
+      for (var item : set.path("kinds")) forKind |= item.asText().equals(kind);
+      if (forKind
+          && set.path("purpose").asText().equals(purpose)
+          && Pattern.compile(set.path("match").asText()).matcher(model).find()) return set;
+    }
     return Json.MAPPER.missingNode();
   }
 
-  /** Stored parameters: an object of listed keys, each with one of its listed string values. */
-  static void validate(String model, String purpose, JsonNode parameters) {
-    if (!parameters.isObject()) throw new Problem(400, "INVALID_CONTRACT");
-    var allowed = family(model, purpose).path("parameters");
+  /**
+   * Stored parameters: an object of listed names, each value in its listed type - one of the values
+   * (enum), a number in range (number) or a whole number in range (integer).
+   */
+  static void validate(String kind, String model, String purpose, JsonNode parameters) {
+    if (!parameters.isObject() || parameters.size() > 20)
+      throw new Problem(400, "INVALID_CONTRACT");
+    var specs = set(kind, model, purpose).path("parameters");
     parameters
         .properties()
         .forEach(
             entry -> {
-              boolean listed = false;
-              for (var value : allowed.path(entry.getKey()).path("values"))
-                listed |= value.path("value").asText().equals(entry.getValue().asText());
-              if (!entry.getValue().isTextual() || !listed)
+              JsonNode spec = null;
+              for (var item : specs)
+                if (item.path("name").asText().equals(entry.getKey())) spec = item;
+              if (spec == null || !accepts(spec, entry.getValue()))
                 throw new Problem(400, "INVALID_CONTRACT");
             });
   }
 
+  private static boolean accepts(JsonNode spec, JsonNode value) {
+    switch (spec.path("type").asText()) {
+      case "enum" -> {
+        if (!value.isTextual()) return false;
+        for (var option : spec.path("values"))
+          if (option.path("value").asText().equals(value.asText())) return true;
+        return false;
+      }
+      case "number", "integer" -> {
+        if (!value.isNumber()) return false;
+        double number = value.asDouble();
+        if (!Double.isFinite(number)) return false;
+        if (spec.path("type").asText().equals("integer") && number != Math.rint(number))
+          return false;
+        return number >= spec.path("min").asDouble() && number <= spec.path("max").asDouble();
+      }
+      default -> {
+        return false;
+      }
+    }
+  }
+
   /** The clarities (e.g. ["1K", "2K"]) the pages may offer for this model; empty if unknown. */
-  static List<String> resolutions(String model, String purpose) {
+  static List<String> resolutions(String kind, String model, String purpose) {
     var names = new ArrayList<String>();
-    family(model, purpose).path("resolutions").properties().forEach(e -> names.add(e.getKey()));
+    set(kind, model, purpose).path("resolutions").properties().forEach(e -> names.add(e.getKey()));
     return names;
   }
 
-  /** The page's starting clarity: the model's stored resolution if offered, else the first. */
-  static String defaultResolution(String model, String purpose, JsonNode stored) {
-    var offered = resolutions(model, purpose);
-    String chosen = stored.path("resolution").asText();
-    return offered.contains(chosen) ? chosen : offered.isEmpty() ? null : offered.getFirst();
+  /** The page's starting clarity: the first one the model offers (ADR-20261012-AB). */
+  static String defaultResolution(String kind, String model, String purpose) {
+    var offered = resolutions(kind, model, purpose);
+    return offered.isEmpty() ? null : offered.getFirst();
   }
 }

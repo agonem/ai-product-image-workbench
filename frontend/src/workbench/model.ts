@@ -64,7 +64,8 @@ export interface Generation extends Task {
   /** Agent used and, after a magic-wand rewrite, the brief the image model got. */
   agent?: { id?: string; name?: string; rewrite: boolean; rewritten?: string }
   /** Chat: what the text model saw in the images before drawing (ADR-20261009-P). */
-  analysis?: { text?: string }
+  /** What the text model saw, or why it did not look (ADR-20261012-AB: NO_VISION). */
+  analysis?: { text?: string; skipped?: 'NO_VISION' }
 }
 /** Agents of the conversation page (ADR-20261008-L). */
 export interface Agent {
@@ -151,7 +152,8 @@ export const statusLabels: Record<Task['status'], string> = {
 export const providerNames: Record<string, string> = {
   openrouter: 'OpenRouter',
   openai: 'OpenAI 官方',
+  deepseek: 'DeepSeek 官方',
   gemini: 'Gemini 官方',
-  'openai-compatible': 'OpenAI 格式（第三方）',
-  'gemini-compatible': 'Gemini 格式（第三方）',
+  'openai-compatible': 'OpenAI 协议第三方',
+  'gemini-compatible': 'Gemini 格式第三方',
 }

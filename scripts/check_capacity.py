@@ -214,14 +214,20 @@ def run_capacity_checks(env, work):
         stack.callback(run.close)
         run.start()
         admin = run.login("admin")
+        face = {
+            "name": "模拟 OpenRouter",
+            "kind": "openrouter",
+            "api_key": "mock-" + secrets.token_urlsafe(24),
+            "use_proxy": False,
+        }
+        status, face, _ = run.http("POST", "/api/v1/admin/model-interfaces", admin, face)
+        assert status == 201, status
         config = {
+            "interface_id": face["id"],
             "name": "模拟主力",
-            "provider": "openrouter",
             "model": "test/mock-model",
             "provider_tag": "mock",
-            "api_key": "mock-" + secrets.token_urlsafe(24),
             "enabled": True,
-            "use_proxy": False,
         }
         assert run.http("POST", "/api/v1/admin/provider-configs", admin, config)[0] == 201
         users = []

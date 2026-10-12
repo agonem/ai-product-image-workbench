@@ -4,6 +4,7 @@ Since ADR-20260929 (v4), requests carry up to four reference images (the product
 the gift) for whole-image generation; a request without references stays valid for adapter tests.
 """
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -20,6 +21,45 @@ class BackgroundError(Exception):
         self.ambiguous = ambiguous
 
 
+# Model parameters (ADR-20261012-AB): official names, dotted for nested objects, with scalar
+# values. Java only stores the ones the catalog lists; this is the shape the Worker accepts.
+PARAMETER_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,39}(\.[A-Za-z_][A-Za-z0-9_]{0,39}){0,3}")
+
+
+def valid_parameter(name, value):
+    if not isinstance(name, str) or not PARAMETER_NAME.fullmatch(name):
+        return False
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, int):
+        return abs(value) <= 10**12
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return isinstance(value, str) and re.fullmatch(r"[\w.-]{1,40}", value) is not None
+
+
+def merge_parameters(body, pairs, protected=()):
+    """Adds stored parameters to a request body; dotted names become nested objects. None may
+    replace what the system sets for the call (``protected`` names or dotted paths)."""
+    for name, value in pairs:
+        if any(
+            name == path or name.startswith(path + ".") or path.startswith(name + ".")
+            for path in protected
+        ):
+            raise BackgroundError("UNSUPPORTED_CAPABILITY")
+        target = body
+        *parents, leaf = name.split(".")
+        for part in parents:
+            child = target.setdefault(part, {})
+            if not isinstance(child, dict):
+                raise BackgroundError("UNSUPPORTED_CAPABILITY")
+            target = child
+        if isinstance(target.get(leaf), dict):
+            raise BackgroundError("UNSUPPORTED_CAPABILITY")
+        target[leaf] = value
+    return body
+
+
 @dataclass(frozen=True)
 class BackgroundRequest:
     prompt: str = field(repr=False)
@@ -29,7 +69,8 @@ class BackgroundRequest:
     resolution: str | None
     output_format: str | None
     references: tuple = field(default=(), repr=False)
-    # Extra model parameters as (name, value) pairs: quality or resolution (ADR-20261009-Q).
+    # Extra model parameters as (name, value) pairs: the model's stored official parameters and
+    # the parameters of the chosen clarity (ADR-20261012-AB).
     parameters: tuple = ()
 
     def __post_init__(self):
@@ -47,12 +88,9 @@ class BackgroundRequest:
             or self.output_format not in (None, "png", "jpeg")
             or (self.resolution is None) != (self.output_format is None)
             or not isinstance(self.parameters, tuple)
+            or len(self.parameters) > 24
             or any(
-                not isinstance(pair, tuple)
-                or len(pair) != 2
-                or pair[0] not in ("quality", "resolution")
-                or not isinstance(pair[1], str)
-                or not re.fullmatch(r"[\w.-]{1,20}", pair[1])
+                not isinstance(pair, tuple) or len(pair) != 2 or not valid_parameter(*pair)
                 for pair in self.parameters
             )
             or not isinstance(self.references, tuple)

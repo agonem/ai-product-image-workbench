@@ -123,17 +123,18 @@ def rehearse(env, work):
         assert call(run.port, ca, "GET", "/api/v1/local-auth/me", token=admin)[0] == 200
         # The generated master key encrypts a stored provider key (mock value, never used).
         mock = "mock-" + secrets.token_urlsafe(24)
+        face = {"name": "rehearsal", "kind": "openrouter", "api_key": mock, "use_proxy": False}
+        status, saved = call(run.port, ca, "POST", "/api/v1/admin/model-interfaces", face, admin)
+        assert status == 201 and mock not in json.dumps(saved), status
         config = {
+            "interface_id": saved["id"],
             "name": "rehearsal",
-            "provider": "openrouter",
             "model": "test/mock-model",
             "provider_tag": "mock",
-            "api_key": mock,
             "enabled": False,
-            "use_proxy": False,
         }
-        status, saved = call(run.port, ca, "POST", "/api/v1/admin/provider-configs", config, admin)
-        assert status == 201 and mock not in json.dumps(saved), status
+        status, model = call(run.port, ca, "POST", "/api/v1/admin/provider-configs", config, admin)
+        assert status == 201 and mock not in json.dumps(model), status
         # The generated Worker token is accepted; the admin session is not a Worker credential.
         worker = read("worker_token")
         assert call(run.port, ca, "POST", "/internal/v1/work/claim", {}, worker)[0] == 204

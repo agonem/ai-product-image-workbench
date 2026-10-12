@@ -1,16 +1,109 @@
 {
-  "version": "model-parameters-v1",
-  "description": "Per-model parameters an administrator may set, and which clarity (1K or 2K output) the generation pages may offer (ADR-20261009-Q, -R). Families are matched in order by purpose and a regular expression on the model id; the first match wins. Values follow OpenRouter's published Images API capabilities as of 2026-10-09 and are limited to what this system can handle (up to 2K; 4K is left out). 'resolutions' maps each clarity to the parameters that request it. The Worker still has OpenRouter check every value before a paid call.",
-  "families": [
+  "version": "model-parameters-v2",
+  "description": "Model interfaces and the official parameters an administrator may fill in for a model (ADR-20261012-AB; replaces the v1 lists of ADR-20261009-Q). A parameter left blank is not sent, so the vendor's default applies; a filled one is sent as typed. Sets match in order by interface kind, purpose and a regular expression on the model id; the first match wins. Names with dots are nested objects in the request body. Parameters the system sets per task (model, prompt, messages, images, aspect ratio or size, count, clarity, output format) are never listed. 'resolutions' maps each clarity the generation pages may offer to the parameters that request it. Compiled from the vendors' documentation and OpenRouter's published per-model parameters on 2026-10-12.",
+  "kinds": {
+    "openrouter": {
+      "label": "OpenRouter",
+      "purposes": [
+        "IMAGE",
+        "TEXT"
+      ],
+      "offered": true,
+      "examples": {
+        "IMAGE": [
+          "openai/gpt-image-2",
+          "openai/gpt-image-2.5-flare",
+          "bytedance-seed/seedream-5-0-pro",
+          "bytedance-seed/seedream-5-0-lite",
+          "google/gemini-3.1-flash-image"
+        ],
+        "TEXT": [
+          "deepseek/deepseek-v4.1-flash"
+        ]
+      }
+    },
+    "openai": {
+      "label": "OpenAI 官方",
+      "purposes": [
+        "IMAGE",
+        "TEXT"
+      ],
+      "offered": true,
+      "examples": {
+        "IMAGE": [
+          "gpt-image-2"
+        ],
+        "TEXT": []
+      }
+    },
+    "deepseek": {
+      "label": "DeepSeek 官方",
+      "purposes": [
+        "TEXT"
+      ],
+      "offered": true,
+      "examples": {
+        "TEXT": [
+          "deepseek-flash",
+          "deepseek-v4-pro"
+        ]
+      }
+    },
+    "gemini": {
+      "label": "Gemini 官方",
+      "purposes": [
+        "IMAGE",
+        "TEXT"
+      ],
+      "offered": true,
+      "examples": {
+        "IMAGE": [
+          "gemini-2.5-flash-image"
+        ],
+        "TEXT": []
+      }
+    },
+    "openai-compatible": {
+      "label": "兼容 OpenAI 协议的第三方",
+      "purposes": [
+        "IMAGE",
+        "TEXT"
+      ],
+      "offered": true,
+      "examples": {
+        "IMAGE": [
+          "gpt-image-2"
+        ],
+        "TEXT": []
+      }
+    },
+    "gemini-compatible": {
+      "label": "Gemini 格式第三方（旧）",
+      "purposes": [
+        "IMAGE",
+        "TEXT"
+      ],
+      "offered": false,
+      "examples": {
+        "IMAGE": [],
+        "TEXT": []
+      }
+    }
+  },
+  "sets": [
     {
-      "id": "gpt-image-2.5",
-      "name": "OpenAI GPT Image 2.5",
+      "id": "openrouter-gpt-image-2.5",
+      "name": "GPT Image 2.5",
+      "kinds": [
+        "openrouter"
+      ],
       "purpose": "IMAGE",
-      "match": "^(openai/)?gpt-image-2\\.5",
-      "parameters": {
-        "quality": {
-          "label": "画质档",
-          "default": "auto",
+      "match": "^openai/gpt-image-2\\.5",
+      "parameters": [
+        {
+          "name": "quality",
+          "label": "画质",
+          "type": "enum",
           "values": [
             {
               "value": "auto",
@@ -36,22 +129,44 @@
               "value": "max",
               "label": "最高"
             }
-          ]
+          ],
+          "official_default": "auto"
+        },
+        {
+          "name": "background",
+          "label": "背景",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "opaque",
+              "label": "不透明"
+            }
+          ],
+          "official_default": "auto",
+          "help": "官方另有透明背景；本系统输出不透明主图，不提供。"
         }
-      },
+      ],
       "resolutions": {
         "1K": {}
       }
     },
     {
-      "id": "gpt-image",
-      "name": "OpenAI GPT Image",
+      "id": "openrouter-gpt-image",
+      "name": "GPT Image",
+      "kinds": [
+        "openrouter"
+      ],
       "purpose": "IMAGE",
-      "match": "^(openai/)?gpt-image",
-      "parameters": {
-        "quality": {
-          "label": "画质档",
-          "default": "auto",
+      "match": "^openai/gpt-image",
+      "parameters": [
+        {
+          "name": "quality",
+          "label": "画质",
+          "type": "enum",
           "values": [
             {
               "value": "auto",
@@ -69,30 +184,50 @@
               "value": "high",
               "label": "高"
             }
-          ]
+          ],
+          "official_default": "auto"
+        },
+        {
+          "name": "background",
+          "label": "背景",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "opaque",
+              "label": "不透明"
+            }
+          ],
+          "official_default": "auto",
+          "help": "官方另有透明背景；本系统输出不透明主图，不提供。"
         }
-      },
+      ],
       "resolutions": {
         "1K": {}
       }
     },
     {
-      "id": "seedream-lite",
+      "id": "openrouter-seedream-lite",
       "name": "Seedream 5.0 Lite",
+      "kinds": [
+        "openrouter"
+      ],
       "purpose": "IMAGE",
-      "match": "^(bytedance-seed/)?seedream-5-0-lite",
-      "parameters": {
-        "resolution": {
-          "label": "分辨率",
-          "default": "2K",
-          "values": [
-            {
-              "value": "2K",
-              "label": "2K"
-            }
-          ]
+      "match": "^bytedance-seed/seedream-5-0-lite",
+      "parameters": [
+        {
+          "name": "seed",
+          "label": "随机种子",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "official_default": "随机",
+          "help": "固定后同样的输入更容易得到相近的图。"
         }
-      },
+      ],
       "resolutions": {
         "2K": {
           "resolution": "2K"
@@ -100,26 +235,24 @@
       }
     },
     {
-      "id": "seedream",
+      "id": "openrouter-seedream",
       "name": "Seedream",
+      "kinds": [
+        "openrouter"
+      ],
       "purpose": "IMAGE",
-      "match": "^(bytedance-seed/)?seedream",
-      "parameters": {
-        "resolution": {
-          "label": "分辨率",
-          "default": "1K",
-          "values": [
-            {
-              "value": "1K",
-              "label": "1K"
-            },
-            {
-              "value": "2K",
-              "label": "2K"
-            }
-          ]
+      "match": "^bytedance-seed/seedream",
+      "parameters": [
+        {
+          "name": "seed",
+          "label": "随机种子",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "official_default": "随机",
+          "help": "固定后同样的输入更容易得到相近的图。"
         }
-      },
+      ],
       "resolutions": {
         "1K": {
           "resolution": "1K"
@@ -130,11 +263,367 @@
       }
     },
     {
-      "id": "gemini-lite-image",
+      "id": "openrouter-gemini-lite-image",
       "name": "Nano Banana 2 Lite",
+      "kinds": [
+        "openrouter"
+      ],
       "purpose": "IMAGE",
-      "match": "^(google/)?gemini-3\\.1-flash-lite-image",
-      "parameters": {},
+      "match": "^google/gemini-3\\.1-flash-lite-image",
+      "parameters": [],
+      "resolutions": {
+        "1K": {}
+      }
+    },
+    {
+      "id": "openrouter-gemini-image",
+      "name": "Nano Banana 2 / Pro / 2.1",
+      "kinds": [
+        "openrouter"
+      ],
+      "purpose": "IMAGE",
+      "match": "^google/gemini-(3(\\.1)?-(pro|flash)-image|nano-banana)",
+      "parameters": [],
+      "resolutions": {
+        "1K": {
+          "resolution": "1K"
+        },
+        "2K": {
+          "resolution": "2K"
+        }
+      }
+    },
+    {
+      "id": "openrouter-gemini-2.5-image",
+      "name": "Gemini 2.5 Flash Image",
+      "kinds": [
+        "openrouter"
+      ],
+      "purpose": "IMAGE",
+      "match": "^google/gemini-2\\.5-flash-image",
+      "parameters": [],
+      "resolutions": {}
+    },
+    {
+      "id": "openrouter-image",
+      "name": "OpenRouter 出图（其他模型）",
+      "kinds": [
+        "openrouter"
+      ],
+      "purpose": "IMAGE",
+      "match": ".",
+      "parameters": [
+        {
+          "name": "quality",
+          "label": "画质",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "low",
+              "label": "低"
+            },
+            {
+              "value": "medium",
+              "label": "中"
+            },
+            {
+              "value": "high",
+              "label": "高"
+            }
+          ],
+          "official_default": "auto"
+        },
+        {
+          "name": "background",
+          "label": "背景",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "opaque",
+              "label": "不透明"
+            }
+          ],
+          "official_default": "auto",
+          "help": "官方另有透明背景；本系统输出不透明主图，不提供。"
+        },
+        {
+          "name": "seed",
+          "label": "随机种子",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "official_default": "随机",
+          "help": "固定后同样的输入更容易得到相近的图。"
+        }
+      ],
+      "resolutions": {},
+      "help": "列出 OpenRouter 出图接口的通用参数；模型不支持时生成前会报错，不产生费用。"
+    },
+    {
+      "id": "openai-gpt-image-2.5",
+      "name": "GPT Image 2.5",
+      "kinds": [
+        "openai",
+        "openai-compatible"
+      ],
+      "purpose": "IMAGE",
+      "match": "gpt-image-2\\.5",
+      "parameters": [
+        {
+          "name": "quality",
+          "label": "画质",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "low",
+              "label": "低"
+            },
+            {
+              "value": "medium",
+              "label": "中"
+            },
+            {
+              "value": "high",
+              "label": "高"
+            },
+            {
+              "value": "xhigh",
+              "label": "很高"
+            },
+            {
+              "value": "max",
+              "label": "最高"
+            }
+          ],
+          "official_default": "auto"
+        },
+        {
+          "name": "background",
+          "label": "背景",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "opaque",
+              "label": "不透明"
+            }
+          ],
+          "official_default": "auto",
+          "help": "官方另有透明背景；本系统输出不透明主图，不提供。"
+        },
+        {
+          "name": "moderation",
+          "label": "内容审核",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "标准"
+            },
+            {
+              "value": "low",
+              "label": "宽松"
+            }
+          ],
+          "official_default": "auto"
+        }
+      ],
+      "resolutions": {
+        "1K": {}
+      }
+    },
+    {
+      "id": "openai-gpt-image",
+      "name": "GPT Image",
+      "kinds": [
+        "openai",
+        "openai-compatible"
+      ],
+      "purpose": "IMAGE",
+      "match": "gpt-image",
+      "parameters": [
+        {
+          "name": "quality",
+          "label": "画质",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "low",
+              "label": "低"
+            },
+            {
+              "value": "medium",
+              "label": "中"
+            },
+            {
+              "value": "high",
+              "label": "高"
+            }
+          ],
+          "official_default": "auto"
+        },
+        {
+          "name": "background",
+          "label": "背景",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "opaque",
+              "label": "不透明"
+            }
+          ],
+          "official_default": "auto",
+          "help": "官方另有透明背景；本系统输出不透明主图，不提供。"
+        },
+        {
+          "name": "moderation",
+          "label": "内容审核",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "标准"
+            },
+            {
+              "value": "low",
+              "label": "宽松"
+            }
+          ],
+          "official_default": "auto"
+        }
+      ],
+      "resolutions": {
+        "1K": {}
+      }
+    },
+    {
+      "id": "openai-image",
+      "name": "OpenAI 图片接口（其他模型）",
+      "kinds": [
+        "openai",
+        "openai-compatible"
+      ],
+      "purpose": "IMAGE",
+      "match": ".",
+      "parameters": [
+        {
+          "name": "quality",
+          "label": "画质",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "low",
+              "label": "低"
+            },
+            {
+              "value": "medium",
+              "label": "中"
+            },
+            {
+              "value": "high",
+              "label": "高"
+            }
+          ],
+          "official_default": "auto"
+        },
+        {
+          "name": "background",
+          "label": "背景",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "自动"
+            },
+            {
+              "value": "opaque",
+              "label": "不透明"
+            }
+          ],
+          "official_default": "auto",
+          "help": "官方另有透明背景；本系统输出不透明主图，不提供。"
+        },
+        {
+          "name": "moderation",
+          "label": "内容审核",
+          "type": "enum",
+          "values": [
+            {
+              "value": "auto",
+              "label": "标准"
+            },
+            {
+              "value": "low",
+              "label": "宽松"
+            }
+          ],
+          "official_default": "auto"
+        }
+      ],
+      "resolutions": {}
+    },
+    {
+      "id": "gemini-image-lite",
+      "name": "Nano Banana 2 Lite",
+      "kinds": [
+        "gemini",
+        "gemini-compatible"
+      ],
+      "purpose": "IMAGE",
+      "match": "gemini-3\\.1-flash-lite-image",
+      "parameters": [
+        {
+          "name": "generationConfig.temperature",
+          "label": "温度",
+          "type": "number",
+          "min": 0,
+          "max": 2,
+          "official_default": "模型默认"
+        },
+        {
+          "name": "generationConfig.topP",
+          "label": "topP",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "official_default": "模型默认"
+        },
+        {
+          "name": "generationConfig.seed",
+          "label": "随机种子",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "official_default": "随机"
+        }
+      ],
       "resolutions": {
         "1K": {}
       }
@@ -142,24 +631,38 @@
     {
       "id": "gemini-image",
       "name": "Nano Banana 2 / Pro / 2.1",
+      "kinds": [
+        "gemini",
+        "gemini-compatible"
+      ],
       "purpose": "IMAGE",
-      "match": "^(google/)?gemini-(3(\\.1)?-(pro|flash)-image|nano-banana)",
-      "parameters": {
-        "resolution": {
-          "label": "分辨率",
-          "default": "1K",
-          "values": [
-            {
-              "value": "1K",
-              "label": "1K"
-            },
-            {
-              "value": "2K",
-              "label": "2K"
-            }
-          ]
+      "match": "gemini-(3(\\.1)?-(pro|flash)-image|nano-banana)",
+      "parameters": [
+        {
+          "name": "generationConfig.temperature",
+          "label": "温度",
+          "type": "number",
+          "min": 0,
+          "max": 2,
+          "official_default": "模型默认"
+        },
+        {
+          "name": "generationConfig.topP",
+          "label": "topP",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "official_default": "模型默认"
+        },
+        {
+          "name": "generationConfig.seed",
+          "label": "随机种子",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "official_default": "随机"
         }
-      },
+      ],
       "resolutions": {
         "1K": {
           "resolution": "1K"
@@ -170,34 +673,454 @@
       }
     },
     {
-      "id": "text",
-      "name": "Text models",
+      "id": "gemini-image-other",
+      "name": "Gemini 出图（其他模型）",
+      "kinds": [
+        "gemini",
+        "gemini-compatible"
+      ],
+      "purpose": "IMAGE",
+      "match": ".",
+      "parameters": [
+        {
+          "name": "generationConfig.temperature",
+          "label": "温度",
+          "type": "number",
+          "min": 0,
+          "max": 2,
+          "official_default": "模型默认"
+        },
+        {
+          "name": "generationConfig.topP",
+          "label": "topP",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "official_default": "模型默认"
+        },
+        {
+          "name": "generationConfig.seed",
+          "label": "随机种子",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "official_default": "随机"
+        }
+      ],
+      "resolutions": {}
+    },
+    {
+      "id": "openrouter-text",
+      "name": "OpenRouter 文本",
+      "kinds": [
+        "openrouter"
+      ],
       "purpose": "TEXT",
       "match": ".",
-      "parameters": {
-        "temperature": {
-          "label": "创意程度（温度）",
-          "default": "0.7",
+      "parameters": [
+        {
+          "name": "temperature",
+          "label": "温度",
+          "type": "number",
+          "min": 0,
+          "max": 2,
+          "official_default": "1",
+          "help": "越高越发散，越低越稳定。"
+        },
+        {
+          "name": "top_p",
+          "label": "top_p",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "official_default": "1"
+        },
+        {
+          "name": "top_k",
+          "label": "top_k",
+          "type": "integer",
+          "min": 0,
+          "max": 1000,
+          "official_default": "0（不限制）"
+        },
+        {
+          "name": "min_p",
+          "label": "min_p",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "official_default": "0"
+        },
+        {
+          "name": "frequency_penalty",
+          "label": "频率惩罚",
+          "type": "number",
+          "min": -2,
+          "max": 2,
+          "official_default": "0"
+        },
+        {
+          "name": "presence_penalty",
+          "label": "存在惩罚",
+          "type": "number",
+          "min": -2,
+          "max": 2,
+          "official_default": "0"
+        },
+        {
+          "name": "repetition_penalty",
+          "label": "重复惩罚",
+          "type": "number",
+          "min": 0,
+          "max": 2,
+          "official_default": "1"
+        },
+        {
+          "name": "seed",
+          "label": "随机种子",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "official_default": "随机"
+        },
+        {
+          "name": "max_tokens",
+          "label": "最大输出 token",
+          "type": "integer",
+          "min": 1,
+          "max": 1000000,
+          "official_default": "模型上限",
+          "help": "思考型模型的内部思考也算在内，设得太小可能没有输出。"
+        },
+        {
+          "name": "reasoning.effort",
+          "label": "思考强度",
+          "type": "enum",
           "values": [
             {
-              "value": "0.2",
-              "label": "严谨（0.2）"
+              "value": "none",
+              "label": "不思考"
             },
             {
-              "value": "0.5",
-              "label": "平衡（0.5）"
+              "value": "minimal",
+              "label": "极少"
             },
             {
-              "value": "0.7",
-              "label": "默认（0.7）"
+              "value": "low",
+              "label": "低"
             },
             {
-              "value": "1.0",
-              "label": "更有创意（1.0）"
+              "value": "medium",
+              "label": "中"
+            },
+            {
+              "value": "high",
+              "label": "高"
+            },
+            {
+              "value": "xhigh",
+              "label": "很高"
+            },
+            {
+              "value": "max",
+              "label": "最高"
             }
-          ]
+          ],
+          "official_default": "模型默认",
+          "help": "只对会思考的模型有效，其他模型忽略。"
         }
-      }
+      ]
+    },
+    {
+      "id": "openai-text",
+      "name": "OpenAI 官方文本",
+      "kinds": [
+        "openai"
+      ],
+      "purpose": "TEXT",
+      "match": ".",
+      "parameters": [
+        {
+          "name": "temperature",
+          "label": "温度",
+          "type": "number",
+          "min": 0,
+          "max": 2,
+          "official_default": "1",
+          "help": "越高越发散，越低越稳定。"
+        },
+        {
+          "name": "top_p",
+          "label": "top_p",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "official_default": "1"
+        },
+        {
+          "name": "frequency_penalty",
+          "label": "频率惩罚",
+          "type": "number",
+          "min": -2,
+          "max": 2,
+          "official_default": "0"
+        },
+        {
+          "name": "presence_penalty",
+          "label": "存在惩罚",
+          "type": "number",
+          "min": -2,
+          "max": 2,
+          "official_default": "0"
+        },
+        {
+          "name": "seed",
+          "label": "随机种子",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "official_default": "随机"
+        },
+        {
+          "name": "max_completion_tokens",
+          "label": "最大输出 token",
+          "type": "integer",
+          "min": 1,
+          "max": 1000000,
+          "official_default": "模型上限",
+          "help": "推理模型的内部思考也算在内。"
+        },
+        {
+          "name": "reasoning_effort",
+          "label": "思考强度",
+          "type": "enum",
+          "values": [
+            {
+              "value": "none",
+              "label": "不思考"
+            },
+            {
+              "value": "minimal",
+              "label": "极少"
+            },
+            {
+              "value": "low",
+              "label": "低"
+            },
+            {
+              "value": "medium",
+              "label": "中"
+            },
+            {
+              "value": "high",
+              "label": "高"
+            },
+            {
+              "value": "xhigh",
+              "label": "很高"
+            }
+          ],
+          "official_default": "模型默认",
+          "help": "只对推理模型有效，各模型支持的档位不同。"
+        }
+      ]
+    },
+    {
+      "id": "compatible-text",
+      "name": "OpenAI 协议第三方文本",
+      "kinds": [
+        "openai-compatible"
+      ],
+      "purpose": "TEXT",
+      "match": ".",
+      "parameters": [
+        {
+          "name": "temperature",
+          "label": "温度",
+          "type": "number",
+          "min": 0,
+          "max": 2,
+          "official_default": "1",
+          "help": "越高越发散，越低越稳定。"
+        },
+        {
+          "name": "top_p",
+          "label": "top_p",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "official_default": "1"
+        },
+        {
+          "name": "frequency_penalty",
+          "label": "频率惩罚",
+          "type": "number",
+          "min": -2,
+          "max": 2,
+          "official_default": "0"
+        },
+        {
+          "name": "presence_penalty",
+          "label": "存在惩罚",
+          "type": "number",
+          "min": -2,
+          "max": 2,
+          "official_default": "0"
+        },
+        {
+          "name": "seed",
+          "label": "随机种子",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "official_default": "随机"
+        },
+        {
+          "name": "max_tokens",
+          "label": "最大输出 token",
+          "type": "integer",
+          "min": 1,
+          "max": 1000000,
+          "official_default": "接口默认"
+        }
+      ]
+    },
+    {
+      "id": "deepseek-text",
+      "name": "DeepSeek 官方",
+      "kinds": [
+        "deepseek"
+      ],
+      "purpose": "TEXT",
+      "match": ".",
+      "parameters": [
+        {
+          "name": "temperature",
+          "label": "温度",
+          "type": "number",
+          "min": 0,
+          "max": 2,
+          "official_default": "1",
+          "help": "思考模式下无效。"
+        },
+        {
+          "name": "top_p",
+          "label": "top_p",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "official_default": "1"
+        },
+        {
+          "name": "max_tokens",
+          "label": "最大输出 token",
+          "type": "integer",
+          "min": 1,
+          "max": 393216,
+          "official_default": "不思考 8K / 思考 64K"
+        },
+        {
+          "name": "thinking.type",
+          "label": "思考模式",
+          "type": "enum",
+          "values": [
+            {
+              "value": "enabled",
+              "label": "开启"
+            },
+            {
+              "value": "disabled",
+              "label": "关闭"
+            }
+          ],
+          "official_default": "开启"
+        },
+        {
+          "name": "reasoning_effort",
+          "label": "思考强度",
+          "type": "enum",
+          "values": [
+            {
+              "value": "none",
+              "label": "不思考"
+            },
+            {
+              "value": "low",
+              "label": "低"
+            },
+            {
+              "value": "high",
+              "label": "高"
+            },
+            {
+              "value": "max",
+              "label": "最高"
+            }
+          ],
+          "official_default": "高"
+        }
+      ]
+    },
+    {
+      "id": "gemini-text",
+      "name": "Gemini 文本",
+      "kinds": [
+        "gemini",
+        "gemini-compatible"
+      ],
+      "purpose": "TEXT",
+      "match": ".",
+      "parameters": [
+        {
+          "name": "generationConfig.temperature",
+          "label": "温度",
+          "type": "number",
+          "min": 0,
+          "max": 2,
+          "official_default": "模型默认"
+        },
+        {
+          "name": "generationConfig.topP",
+          "label": "topP",
+          "type": "number",
+          "min": 0,
+          "max": 1,
+          "official_default": "模型默认"
+        },
+        {
+          "name": "generationConfig.topK",
+          "label": "topK",
+          "type": "integer",
+          "min": 1,
+          "max": 1000,
+          "official_default": "模型默认"
+        },
+        {
+          "name": "generationConfig.maxOutputTokens",
+          "label": "最大输出 token",
+          "type": "integer",
+          "min": 1,
+          "max": 1000000,
+          "official_default": "模型上限"
+        },
+        {
+          "name": "generationConfig.seed",
+          "label": "随机种子",
+          "type": "integer",
+          "min": 0,
+          "max": 2147483647,
+          "official_default": "随机"
+        },
+        {
+          "name": "generationConfig.thinkingConfig.thinkingBudget",
+          "label": "思考预算 token",
+          "type": "integer",
+          "min": -1,
+          "max": 32768,
+          "official_default": "自动",
+          "help": "-1 为自动，0 为不思考（部分模型不能关闭）。"
+        }
+      ]
     }
   ]
 }

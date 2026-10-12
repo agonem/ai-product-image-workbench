@@ -144,19 +144,28 @@ public final class TaskService {
               && !configs.resolutions(configVersion).contains(worker.path("resolution").asText()))
             throw new Problem(422, "MODEL_RESOLUTION_UNSUPPORTED");
           // An agent rewrite freezes the text model too (ADR-20261008-L). Chat messages look at
-          // the images first whenever a text model is configured (ADR-20261009-P).
+          // the images first whenever a text model is configured (ADR-20261009-P) - unless it
+          // cannot look at images: then the picture is drawn without the analysis and the
+          // details say so; the wand still rewrites from the words (ADR-20261012-AB).
           String textVersion = null;
+          String analysisSkipped = null;
           boolean chat = "CUSTOM".equals(worker.path("feature_type").asText());
-          if (worker.path("rewrite").asBoolean() || chat) {
+          boolean rewrite = worker.path("rewrite").asBoolean();
+          if (rewrite || chat) {
             textVersion = configs.textBinding();
-            if (textVersion == null && worker.path("rewrite").asBoolean())
-              throw new Problem(422, "TEXT_MODEL_UNAVAILABLE");
-            if (textVersion != null && chat) worker.put("analyze", true);
+            if (textVersion == null && rewrite) throw new Problem(422, "TEXT_MODEL_UNAVAILABLE");
+            if (textVersion != null && chat) {
+              if (configs.vision(textVersion)) worker.put("analyze", true);
+              else {
+                analysisSkipped = "NO_VISION";
+                if (!rewrite) textVersion = null;
+              }
+            }
           }
           String id = Json.id();
           int inserted =
               jdbc.update(
-                  "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,template_snapshot_json,worker_snapshot_json,provider_config_version,conversation_id,text_config_version) VALUES (?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?,?) ON CONFLICT(created_by,feature_type,idempotency_key) DO NOTHING",
+                  "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,template_snapshot_json,worker_snapshot_json,provider_config_version,conversation_id,text_config_version,analysis_skipped) VALUES (?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?,?,?) ON CONFLICT(created_by,feature_type,idempotency_key) DO NOTHING",
                   id,
                   request.path("project_id").asText(),
                   request.path("product_asset_id").asText(),
@@ -170,7 +179,8 @@ public final class TaskService {
                   worker.toString(),
                   configVersion,
                   request.has("conversation_id") ? request.get("conversation_id").asText() : null,
-                  textVersion);
+                  textVersion,
+                  analysisSkipped);
           if (inserted == 0)
             return existing(
                 actor,
@@ -320,8 +330,11 @@ public final class TaskService {
         }
       }
     }
-    // Look first, then draw (ADR-20261009-P): what the text model saw, once the task is done.
-    if (snapshot.path("analyze").asBoolean()) {
+    // Look first, then draw (ADR-20261009-P): what the text model saw, once the task is done; or
+    // why it did not look (ADR-20261012-AB).
+    if (row.get("analysis_skipped") != null)
+      result.putObject("analysis").put("skipped", row.get("analysis_skipped").toString());
+    else if (snapshot.path("analyze").asBoolean()) {
       var analysis = result.putObject("analysis");
       if ("SUCCEEDED".equals(row.get("status"))) {
         var info =

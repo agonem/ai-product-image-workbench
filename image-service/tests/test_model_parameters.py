@@ -1,4 +1,4 @@
-"""Model parameters and the pages' clarity options (ADR-20261009-Q)."""
+"""Model parameters and the pages' clarity options (ADR-20261009-Q, ADR-20261012-AB)."""
 
 import base64
 import io
@@ -26,17 +26,21 @@ def task(width=800, height=800, **extra):
 
 GPT = ModelConfig("k" * 20, "openai/gpt-image-2", "openai", parameters=(("quality", "low"),))
 SEEDREAM = ModelConfig(
-    "k" * 20, "bytedance-seed/seedream-5-0-pro", "seed", parameters=(("resolution", "1K"),)
+    "k" * 20, "bytedance-seed/seedream-5-0-pro", "seed", parameters=(("seed", 42),)
 )
 
 
 def test_stored_parameters_then_the_chosen_clarity():
     assert model_parameters.for_call(GPT, task()) == (("quality", "low"),)
     assert model_parameters.for_call(GPT, task(resolution="1K")) == (("quality", "low"),)
-    assert model_parameters.for_call(SEEDREAM, task()) == (("resolution", "1K"),)
-    assert model_parameters.for_call(SEEDREAM, task(resolution="2K")) == (("resolution", "2K"),)
+    # ADR-20261012-AB: clarity is the task's alone; without one nothing about it is sent.
+    assert model_parameters.for_call(SEEDREAM, task()) == (("seed", 42),)
+    assert model_parameters.for_call(SEEDREAM, task(resolution="2K")) == (
+        ("resolution", "2K"),
+        ("seed", 42),
+    )
     # The output size is separate: a large size alone asks nothing more of the model.
-    assert model_parameters.for_call(SEEDREAM, task(1600, 1600)) == (("resolution", "1K"),)
+    assert model_parameters.for_call(SEEDREAM, task(1600, 1600)) == (("seed", 42),)
     assert model_parameters.for_call(None, task(resolution="2K")) == ()
 
 
@@ -50,22 +54,41 @@ def test_a_clarity_the_model_cannot_do_fails_before_any_call():
     assert model_parameters.for_call(GPT, task(resolution="2K"), gift=True) == (("quality", "low"),)
 
 
-def test_the_catalog_matches_the_known_models():
-    assert model_parameters.family("openai/gpt-image-2.5-flare")["id"] == "gpt-image-2.5"
-    assert model_parameters.family("gpt-image-2")["id"] == "gpt-image"
-    assert model_parameters.family("google/gemini-3.1-flash-image")["id"] == "gemini-image"
-    assert model_parameters.family("google/gemini-3.1-flash-lite-image")["id"] == (
-        "gemini-lite-image"
-    )
-    assert model_parameters.family("google/gemini-2.5-flash-image") == {}
-    assert model_parameters.family("deepseek/deepseek-v4.1-flash", "TEXT")["id"] == "text"
+def test_the_catalog_matches_the_interface_type_and_model():
+    def named(kind, model, purpose="IMAGE"):
+        return model_parameters.parameter_set(kind, model, purpose).get("id")
+
+    assert named("openrouter", "openai/gpt-image-2.5-flare") == "openrouter-gpt-image-2.5"
+    assert named("openai", "gpt-image-2") == "openai-gpt-image"
+    assert named("openrouter", "google/gemini-3.1-flash-image") == "openrouter-gemini-image"
+    assert named("gemini", "gemini-3.1-flash-image") == "gemini-image"
+    assert named("openrouter", "google/gemini-2.5-flash-image") == "openrouter-gemini-2.5-image"
+    assert named("openrouter", "deepseek/deepseek-v4.1-flash", "TEXT") == "openrouter-text"
+    assert named("deepseek", "deepseek-flash", "TEXT") == "deepseek-text"
+    assert named("deepseek", "deepseek-flash") is None
 
 
 def test_leased_parameters_are_checked():
     base = {"provider": "openrouter", "model": "a/b", "provider_tag": "t", "api_key": "k" * 20}
-    config = config_from_mapping({**base, "parameters": {"quality": "high"}})
-    assert config.parameters == (("quality", "high"),)
-    for bad in ({"quality": 3}, {"Quality": "high"}, {"quality": "a b"}, ["quality"]):
+    config = config_from_mapping(
+        {**base, "parameters": {"quality": "high", "reasoning.effort": "low", "seed": 7}}
+    )
+    assert config.parameters == (("quality", "high"), ("reasoning.effort", "low"), ("seed", 7))
+    assert config_from_mapping({**base, "parameters": {"temperature": 0.7}}).parameters == (
+        ("temperature", 0.7),
+    )
+    assert config_from_mapping({**base, "provider": "deepseek", "provider_tag": None}).provider == (
+        "deepseek"
+    )
+    for bad in (
+        {"Quality ": "high"},
+        {"quality": "a b"},
+        {"quality": None},
+        {"quality": [1]},
+        {"a.b.c.d.e": 1},
+        {"temperature": float("nan")},
+        ["quality"],
+    ):
         with pytest.raises(BackgroundError, match="CONFIGURATION"):
             config_from_mapping({**base, "parameters": bad})
 
@@ -103,10 +126,12 @@ def test_official_openai_sends_the_quality():
     with providers.OpenAIImagesAdapter(
         config, transport=httpx.MockTransport(image_answer(seen))
     ) as adapter:
-        result = adapter.generate(request((("quality", "high"),)))
-        with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
-            adapter.generate(request((("resolution", "2K"),)))
-    assert 'name="quality"\r\n\r\nhigh' in seen[0].content.decode("latin-1")
+        result = adapter.generate(request((("moderation", "low"), ("quality", "high"))))
+        for bad in ((("resolution", "2K"),), (("size", "1024x1024"),), (("model", "x"),)):
+            with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
+                adapter.generate(request(bad))
+    form = seen[0].content.decode("latin-1")
+    assert 'name="quality"\r\n\r\nhigh' in form and 'name="moderation"\r\n\r\nlow' in form
     assert result.provenance["parameters"]["quality"] == "high"
 
 
@@ -119,6 +144,14 @@ def test_official_gemini_sends_the_image_size():
         result = adapter.generate(request((("resolution", "2K"),)))
     image_config = json.loads(seen[0].content)["generationConfig"]["imageConfig"]
     assert image_config == {"aspectRatio": "1:1", "imageSize": "2K"}
+    # Stored official parameters join the generation config (ADR-20261012-AB).
+    with providers.GeminiAdapter(
+        config, transport=httpx.MockTransport(image_answer(seen, gemini=True))
+    ) as adapter:
+        adapter.generate(request((("generationConfig.temperature", 0.4),)))
+        with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
+            adapter.generate(request((("generationConfig.responseModalities", "IMAGE"),)))
+    assert json.loads(seen[1].content)["generationConfig"]["temperature"] == 0.4
     assert result.provenance["parameters"]["resolution"] == "2K"
 
 
@@ -128,6 +161,8 @@ def test_openrouter_sends_and_checks_the_parameters():
         "aspect_ratio": {"type": "enum", "values": ["1:1"]},
         "resolution": {"type": "enum", "values": ["1K", "2K"]},
         "input_references": {"type": "range", "min": 0, "max": 4},
+        "output_compression": {"type": "range", "min": 0, "max": 100},
+        "seed": {"type": "boolean"},
     }
 
     def handler(req):
@@ -149,11 +184,19 @@ def test_openrouter_sends_and_checks_the_parameters():
         # A value the endpoint does not list never reaches a paid call.
         with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
             adapter.generate(request((("resolution", "4K"),)))
+        # Ranges and plain "supported" markers are checked too (ADR-20261012-AB).
+        for bad in ((("output_compression", 101),), (("quality", "high"),), (("n", 2),)):
+            with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
+                adapter.generate(request(bad))
+        checked = len(seen)
+        adapter.generate(request((("output_compression", 80), ("seed", 42))))
     assert json.loads(seen[sent - 1].content)["resolution"] == "2K"
-    assert all(call.method == "GET" for call in seen[sent:])
+    assert all(call.method == "GET" for call in seen[sent:checked])
+    sent_body = json.loads(seen[-1].content)
+    assert sent_body["output_compression"] == 80 and sent_body["seed"] == 42
 
 
-def test_text_models_use_the_stored_temperature():
+def test_text_models_send_the_temperature_only_when_filled_in():
     seen = []
 
     def handler(req):
@@ -161,9 +204,10 @@ def test_text_models_use_the_stored_temperature():
         return httpx.Response(200, json={"choices": [{"message": {"content": "好"}}]})
 
     config = ModelConfig(
-        "k" * 20, "vendor/text", "openai", proxy="", parameters=(("temperature", "0.2"),)
+        "k" * 20, "vendor/text", "openai", proxy="", parameters=(("temperature", 0.2),)
     )
     text_models.rewrite(config, "s", "u", transport=httpx.MockTransport(handler))
     plain = ModelConfig("k" * 20, "vendor/text", "openai", proxy="")
     text_models.rewrite(plain, "s", "u", transport=httpx.MockTransport(handler))
-    assert [body["temperature"] for body in seen] == [0.2, 0.7]
+    # ADR-20261012-AB: blank means the vendor's default, no longer 0.7.
+    assert seen[0]["temperature"] == 0.2 and "temperature" not in seen[1]

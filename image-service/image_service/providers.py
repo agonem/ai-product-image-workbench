@@ -11,6 +11,10 @@ fixed codes (no provider bodies), and every result stays pending human review.
 - Gemini format: POST {root}/models/{model}:generateContent with the prompt and ``inline_data``
   references, ``responseModalities`` TEXT+IMAGE and ``imageConfig.aspectRatio``; the image is
   the first ``inlineData`` part of the first candidate.
+
+The model's stored official parameters (ADR-20261012-AB) are added to the request as they are;
+none may replace what the system sets for the call (model, prompt, images, size, count, format).
+DeepSeek (official) serves text models only, so it has no image adapter.
 """
 
 import base64
@@ -27,13 +31,34 @@ from image_service.background import (
     BackgroundError,
     BackgroundRequest,
     BackgroundResult,
+    merge_parameters,
 )
 from image_service.egress import route
 
 OFFICIAL_ROOTS = {
     "openai": "https://api.openai.com/v1",
+    "deepseek": "https://api.deepseek.com",
     "gemini": "https://generativelanguage.googleapis.com/v1beta",
 }
+# What the system sets for each image call; stored parameters never replace it.
+OPENAI_IMAGE_FIELDS = (
+    "model",
+    "prompt",
+    "n",
+    "size",
+    "image",
+    "image[]",
+    "mask",
+    "response_format",
+    "output_format",
+    "stream",
+    "resolution",
+)
+GEMINI_IMAGE_FIELDS = (
+    "contents",
+    "generationConfig.responseModalities",
+    "generationConfig.imageConfig",
+)
 TIMEOUT = httpx.Timeout(300, connect=10)
 
 
@@ -157,20 +182,23 @@ class OpenAIImagesAdapter(_Adapter):
         if not isinstance(request, BackgroundRequest):
             raise BackgroundError("INVALID_INPUT")
         size = openai_size(request.aspect_ratio)
-        fields = {"model": self.config.model, "prompt": request.prompt, "n": "1", "size": size}
+        fields = {"model": self.config.model, "prompt": request.prompt, "n": 1, "size": size}
         extra = dict(request.parameters)
-        if set(extra) - {"quality"}:
-            raise BackgroundError("UNSUPPORTED_CAPABILITY")
-        fields.update(extra)
+        merge_parameters(fields, request.parameters, OPENAI_IMAGE_FIELDS)
         started = time.monotonic()
         if request.references:
             files = [
                 ("image[]", (f"reference-{index}.{_mime(item)[6:]}", item, _mime(item)))
                 for index, item in enumerate(request.references)
             ]
-            response = self._post("images/edits", data=fields, files=files)
+            # Multipart form: every field as text (booleans as the API spells them).
+            form = {
+                key: str(value).lower() if isinstance(value, bool) else str(value)
+                for key, value in fields.items()
+            }
+            response = self._post("images/edits", data=form, files=files)
         else:
-            response = self._post("images/generations", json={**fields, "n": 1})
+            response = self._post("images/generations", json=fields)
         parameters = {"aspect_ratio": request.aspect_ratio, "size": size, **extra}
         return self._result(request, response, parameters, response.get("usage"), started)
 
@@ -189,8 +217,6 @@ class GeminiAdapter(_Adapter):
             for item in request.references
         ]
         extra = dict(request.parameters)
-        if set(extra) - {"resolution"}:
-            raise BackgroundError("UNSUPPORTED_CAPABILITY")
         image_config = {"aspectRatio": request.aspect_ratio}
         if "resolution" in extra:
             image_config["imageSize"] = extra["resolution"]
@@ -201,6 +227,8 @@ class GeminiAdapter(_Adapter):
                 "imageConfig": image_config,
             },
         }
+        stored = [(key, value) for key, value in request.parameters if key != "resolution"]
+        merge_parameters(body, stored, GEMINI_IMAGE_FIELDS)
         model = self.config.model.removeprefix("models/")
         started = time.monotonic()
         response = self._post(f"models/{model}:generateContent", json=body)

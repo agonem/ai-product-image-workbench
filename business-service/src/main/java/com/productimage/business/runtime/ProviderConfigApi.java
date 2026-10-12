@@ -6,7 +6,10 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/** Production administrator management of generation models and the outbound proxy. */
+/**
+ * Production administrator management of model interfaces, the models under them (ADR-20261012-AB)
+ * and the outbound proxy.
+ */
 @RestController
 @Profile("prod-local")
 public class ProviderConfigApi {
@@ -44,9 +47,33 @@ public class ProviderConfigApi {
         .body(configs.create(actor, body(request)));
   }
 
+  /** {name, kind, api_key, use_proxy, base_url? (third parties)} */
+  @PostMapping("/api/v1/admin/model-interfaces")
+  ResponseEntity<JsonNode> createInterface(HttpServletRequest request) {
+    String actor = admin(request);
+    return ResponseEntity.status(201)
+        .header("Cache-Control", "no-store")
+        .body(configs.createInterface(actor, body(request)));
+  }
+
+  /** Edit in place: {name?, base_url?, api_key?, use_proxy?}; the type never changes. */
+  @PostMapping("/api/v1/admin/model-interfaces/{id}/settings")
+  ResponseEntity<Void> interfaceSettings(@PathVariable String id, HttpServletRequest request) {
+    String actor = admin(request);
+    configs.updateInterface(actor, id, body(request));
+    return done();
+  }
+
+  /** Only an interface without models (409 INTERFACE_IN_USE). */
+  @DeleteMapping("/api/v1/admin/model-interfaces/{id}")
+  ResponseEntity<Void> deleteInterface(@PathVariable String id, HttpServletRequest request) {
+    configs.deleteInterface(admin(request), id);
+    return done();
+  }
+
   /**
-   * Edit in place (ADR-20261009-Q): {name?, enabled?, use_proxy?, provider?, model?, provider_tag?,
-   * base_url?, api_key?, parameters?}.
+   * Edit a model in place (ADR-20261009-Q, -AB): {name?, model?, provider_tag?, vision?, enabled?,
+   * parameters?}.
    */
   @PostMapping("/api/v1/admin/provider-configs/{id}/settings")
   ResponseEntity<Void> settings(@PathVariable String id, HttpServletRequest request) {
@@ -76,15 +103,6 @@ public class ProviderConfigApi {
   ResponseEntity<Void> delete(@PathVariable String id, HttpServletRequest request) {
     configs.delete(admin(request), id);
     return done();
-  }
-
-  /** {api_key}: replaces the key in place. */
-  @PostMapping("/api/v1/admin/provider-configs/{id}/key")
-  ResponseEntity<JsonNode> rotate(@PathVariable String id, HttpServletRequest request) {
-    String actor = admin(request);
-    return ResponseEntity.status(201)
-        .header("Cache-Control", "no-store")
-        .body(configs.rotate(actor, id, body(request)));
   }
 
   @GetMapping("/api/v1/admin/network-proxy")

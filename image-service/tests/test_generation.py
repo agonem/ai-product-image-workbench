@@ -655,7 +655,10 @@ def test_custom_prompt_keeps_the_guard_and_sends_the_product(font):
     assert "Instruction from the user: 把商品放在浅色木桌上" in sent.prompt
     assert "input image 1 = 「商品图」 (the product)." in sent.prompt
     assert GUARD in sent.prompt
-    assert "Do not write any new words, letters or numbers" in sent.prompt
+    # ADR-20261012-AA: only the user's own words are written, and an added gift may lie down.
+    assert "Write only the words the user explicitly asks to appear in the picture" in sent.prompt
+    assert "make up no slogans" in sent.prompt
+    assert "may be laid down, tilted or turned to fit its card" in sent.prompt
     assert sent.template_version == "generation-v4-custom"
 
 
@@ -1002,7 +1005,8 @@ def test_magic_wand_rewrites_once_then_every_image_uses_the_brief(font, monkeypa
     assert not validate_contract("generation-v4-completed", receipt)
     assert len(calls) == 1 and calls[0][0] == "vendor/text"
     assert calls[0][1].startswith("你是Gloria。画面干净，商品是主角")
-    assert "不要要求图中出现任何文字" in calls[0][1]
+    assert "图中文字只能是用户在需求里明确要求写进图里的原文" in calls[0][1]
+    assert "也不要自己编文案" in calls[0][1]
     assert "需求：把商品放在浅色木桌上" in calls[0][2]
     assert "提供的图片：“商品图”。" in calls[0][2]
     assert "沿用用户的叫法" in calls[0][1]
@@ -1085,10 +1089,64 @@ def test_text_models_speak_each_format(provider, extra, payload, url):
     if provider == "openrouter":
         # The tag is a preference: other providers serve the model when that one does not.
         assert body["provider"] == {"order": ["openai"], "allow_fallbacks": True}
-        # Light thinking, so the answer fits the budget (ADR-20261012-Y).
-        assert body["reasoning"] == {"effort": "low"}
-    else:
-        assert "reasoning" not in body
+    # ADR-20261012-AB: nothing the admin left blank is sent, so the vendor's defaults apply.
+    for name in ("max_tokens", "temperature", "reasoning", "generationConfig"):
+        assert name not in body, name
+
+
+@pytest.mark.parametrize(
+    ("provider", "parameters", "url", "expected"),
+    [
+        (
+            "openrouter",
+            (("max_tokens", 6000), ("reasoning.effort", "low"), ("temperature", 0.7)),
+            "https://openrouter.ai/api/v1/chat/completions",
+            {"max_tokens": 6000, "reasoning": {"effort": "low"}, "temperature": 0.7},
+        ),
+        (
+            "deepseek",
+            (("max_tokens", 4096), ("thinking.type", "disabled")),
+            "https://api.deepseek.com/chat/completions",
+            {"max_tokens": 4096, "thinking": {"type": "disabled"}},
+        ),
+        (
+            "gemini",
+            (("generationConfig.maxOutputTokens", 6000), ("generationConfig.temperature", 0.2)),
+            "https://generativelanguage.googleapis.com/v1beta/models/vision:generateContent",
+            {"generationConfig": {"maxOutputTokens": 6000, "temperature": 0.2}},
+        ),
+    ],
+)
+def test_text_models_send_the_filled_in_official_parameters(provider, parameters, url, expected):
+    """ADR-20261012-AB: the admin's values go into the request under their official names."""
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    seen = []
+    model = "vendor/vision" if provider == "openrouter" else "vision"
+    config = ModelConfig("k" * 20, model, provider=provider, proxy="", parameters=parameters)
+    payload = (
+        {"candidates": [{"content": {"parts": [{"text": "好"}]}}]}
+        if provider == "gemini"
+        else {"choices": [{"message": {"content": "好"}}]}
+    )
+    text_models.rewrite(config, "系统", "需求：x", transport=text_reply(provider, payload, seen))
+    assert str(seen[0].url) == url
+    body = json.loads(seen[0].content)
+    for name, value in expected.items():
+        assert body[name] == value, name
+
+
+def test_stored_parameters_never_replace_what_the_system_sends():
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    config = ModelConfig("k" * 20, "vendor/x", provider="openrouter", proxy="")
+    for bad in ((("messages", "x"),), (("model", "y"),), (("provider.only", "z"),)):
+        with pytest.raises(BackgroundError, match="UNSUPPORTED_CAPABILITY"):
+            text_models._request(
+                ModelConfig(config.api_key, config.model, parameters=bad), "s", "u"
+            )
 
 
 def test_text_model_errors_are_fixed_codes():
@@ -1217,8 +1275,8 @@ def test_chat_looks_at_every_image_before_drawing(font, monkeypatch):
 
     calls = []
 
-    def look(config, system, user, *, images=(), max_tokens=800):
-        calls.append((system, user, images, max_tokens))
+    def look(config, system, user, *, images=(), **options):
+        calls.append((system, user, images, options))
         return SEEN, {"total_tokens": 900}
 
     monkeypatch.setattr(text_models, "rewrite", look)
@@ -1227,7 +1285,7 @@ def test_chat_looks_at_every_image_before_drawing(font, monkeypatch):
     text = ModelConfig("k" * 20, "vendor/vision", "openai")
     receipt = process_generation(local, value, "lease", adapter, text_config=text)
     assert not validate_contract("generation-v4-completed", receipt)
-    ((system, user, images, max_tokens),) = calls
+    ((system, user, images, options),) = calls
     # Every image, by its page name and in the order the image model gets them.
     assert [name for name, _ in images] == ["商品图", "参考图1", "参考图2"]
     for _, content in images:
@@ -1235,9 +1293,12 @@ def test_chat_looks_at_every_image_before_drawing(font, monkeypatch):
             assert copy.format == "JPEG" and max(copy.size) <= 1024
     assert "【看图】" in system and "【出图方案】" in system and "只忠实分析和规划" in system
     assert "不要添加用户和参考图都没有的元素或装饰" in system
+    # ADR-20261012-AA: the plan lists the user's words for the picture, or says there are none.
+    assert "在出图方案里逐字列出" in system and "写明“不加文字”" in system
+    assert "加入的赠品可以横放、倾斜或转向" in system
     assert user.startswith("需求：在参考图1的基础上") and "下面依次是图片" in user
-    # Room for a thinking model's hidden reasoning plus the answer (ADR-20261012-Y).
-    assert max_tokens == 6000 and local.posts[0] == "heartbeat"
+    # The output budget is the model's own parameter now (ADR-20261012-AB), not set here.
+    assert options == {} and local.posts[0] == "heartbeat"
     prompt = adapter.requests[0].prompt
     assert "Instruction from the user: 在参考图1的基础上" in prompt
     assert "Image analysis and plan, written after looking at every input image" in prompt

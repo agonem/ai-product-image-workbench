@@ -569,6 +569,8 @@ function previewImage(key: string) {
   const index = images.value.findIndex((item) => item.artifact.id === id)
   if (index >= 0) viewing.value = index
 }
+/** Whether the text model looked at the images (not when it could not, ADR-20261012-AB). */
+const looked = (task: Generation) => !!task.analysis && !task.analysis.skipped
 const modelName = (task: Generation) => {
   const id = task.request?.model_id
   return w.models.find((item) => item.id === id)?.name ?? '默认模型'
@@ -1366,7 +1368,7 @@ onUnmounted(() => {
             <LineIcon name="wand" :size="13" />{{
               detail.task.agent.name ?? '默认设计师'
             }}
-            {{ detail.task.analysis ? '看图改写' : '改写' }}
+            {{ looked(detail.task) ? '看图改写' : '改写' }}
           </summary>
           <p>{{ detail.task.agent.rewritten }}</p>
         </details>
@@ -1382,12 +1384,20 @@ onUnmounted(() => {
         </details>
         <p
           v-else-if="
-            (detail.task.agent?.rewrite || detail.task.analysis) &&
+            (detail.task.agent?.rewrite || looked(detail.task)) &&
             ['QUEUED', 'RUNNING'].includes(detail.task.status)
           "
           class="hint"
         >
           正在看图分析，写清每张图的细节后再出图…
+        </p>
+        <!-- ADR-20261012-AB: the default text model cannot look at images. -->
+        <p
+          v-if="detail.task.analysis?.skipped === 'NO_VISION'"
+          class="hint"
+          data-testid="analysis-skipped"
+        >
+          未做看图分析：文本模型不能看图，已直接出图。
         </p>
         <p v-if="detail.task.status === 'FAILED'" class="ai-fail">
           <LineIcon name="alert" :size="14" />{{

@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(20, flyway.migrate().migrationsExecuted);
+    assertEquals(21, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -120,6 +120,7 @@ class DatabaseMigrationIT {
             "local_sessions",
             "local_auth_throttle",
             "provider_config_versions",
+            "model_interfaces",
             "provider_config_state")) {
       assertEquals(List.of("users", "projects", "assets").contains(table) ? 2 : 0, count(table));
     }
@@ -141,7 +142,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(19, upgrade.migrate().migrationsExecuted);
+      assertEquals(20, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -187,7 +188,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(18, current.migrate().migrationsExecuted);
+      assertEquals(19, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -401,13 +402,17 @@ class DatabaseMigrationIT {
             + "',64,64)");
   }
 
+  private static final String INTERFACE =
+      "INSERT INTO model_interfaces(id,name,kind,base_url,api_key_cipher,api_key_mask,created_by) VALUES ";
+
   @Test
   void providerConfigsAreEditedInPlaceAndDeletionUnbindsTasks() throws SQLException {
+    sql(INTERFACE + "('i','OpenRouter','openrouter',NULL,'cipher','****st','u')");
     sql(
-        "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,api_key_cipher,api_key_mask,created_by) VALUES ('cfg','主力','openrouter','test/model','openai','cipher','****st','u')");
-    // ADR-20261009-Q: model, key and parameters change in place; identity and purpose do not.
+        "INSERT INTO provider_config_versions(id,interface_id,name,model,provider_tag,created_by) VALUES ('cfg','i','主力','test/model','openai','u')");
+    // ADR-20261009-Q: model and parameters change in place; identity and purpose do not.
     sql(
-        "UPDATE provider_config_versions SET model='other/model',api_key_cipher='c2',parameters='{\"quality\":\"high\"}' WHERE id='cfg'");
+        "UPDATE provider_config_versions SET model='other/model',parameters='{\"quality\":\"high\"}' WHERE id='cfg'");
     rejects("23514", "UPDATE provider_config_versions SET purpose='TEXT' WHERE id='cfg'");
     rejects("23514", "UPDATE provider_config_versions SET created_by='x' WHERE id='cfg'");
     rejects("23514", "UPDATE provider_config_versions SET parameters='[]' WHERE id='cfg'");
@@ -419,8 +424,11 @@ class DatabaseMigrationIT {
     rejects(
         "23514",
         "INSERT INTO provider_config_state(provider,active_version_id) VALUES ('openrouter','cfg')");
-    // Name, enabled and proxy routing are editable; a retired row can never be enabled.
-    sql("UPDATE provider_config_versions SET name='备用',enabled=true,use_proxy=true WHERE id='cfg'");
+    // Name and enabled are editable (the proxy setting is the interface's); a retired row can
+    // never be enabled; only text models say whether they can look at images (V21).
+    sql("UPDATE provider_config_versions SET name='备用',enabled=true WHERE id='cfg'");
+    sql("UPDATE model_interfaces SET use_proxy=true,api_key_cipher='c2' WHERE id='i'");
+    rejects("23514", "UPDATE provider_config_versions SET vision=true WHERE id='cfg'");
     rejects("23514", "UPDATE provider_config_versions SET retired=true WHERE id='cfg'");
     rejects("23514", "UPDATE provider_config_versions SET name=' ' WHERE id='cfg'");
     seedTaskAndAttempt();
@@ -435,7 +443,7 @@ class DatabaseMigrationIT {
             .replace("'{}')", "'{}','cfg')"));
     // A task can move to another model, and deleting a model unbinds the tasks still on it.
     sql(
-        "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,api_key_cipher,api_key_mask,created_by) VALUES ('spare','备用','openrouter','test/spare','openai','cipher','****st','u')");
+        "INSERT INTO provider_config_versions(id,interface_id,name,model,provider_tag,created_by) VALUES ('spare','i','备用','test/spare','openai','u')");
     sql("UPDATE generation_tasks SET provider_config_version='spare' WHERE id='bound'");
     sql("DELETE FROM provider_config_versions WHERE id='spare'");
     try (var connection = connection();
@@ -446,33 +454,36 @@ class DatabaseMigrationIT {
       assertTrue(rows.next());
       assertNull(rows.getString(1));
     }
+    // An interface with models cannot go; a chat message may note why it did not look first.
+    rejects("23503", "DELETE FROM model_interfaces WHERE id='i'");
+    rejects("23514", "UPDATE generation_tasks SET analysis_skipped='OTHER' WHERE id='bound'");
+    sql("UPDATE generation_tasks SET analysis_skipped='NO_VISION' WHERE id='bound'");
   }
 
   @Test
-  void providerFormatsCarryOnlyTheirOwnFields() throws SQLException {
-    String insert =
-        "INSERT INTO provider_config_versions(id,name,provider,model,provider_tag,base_url,api_key_cipher,api_key_mask,created_by) VALUES ";
-    sql(insert + "('o','n','openai','gpt-image-2',NULL,NULL,'c','****','u')");
-    sql(insert + "('g','n','gemini','gemini-2.5-flash-image',NULL,NULL,'c','****','u')");
-    sql(
-        insert
-            + "('oc','n','openai-compatible','gpt-image-2',NULL,'http://10.2.2.110:3000/v1','c','****','u')");
-    sql(
-        insert
-            + "('gc','n','gemini-compatible','gemini-2.5-flash-image',NULL,'https://relay.example.com','c','****','u')");
-    rejects("23514", insert + "('x1','n','other','m',NULL,NULL,'c','****','u')");
-    rejects("23514", insert + "('x2','n','openai','gpt-image-2','tag',NULL,'c','****','u')");
-    rejects("23514", insert + "('x3','n','openrouter','test/model',NULL,NULL,'c','****','u')");
-    rejects("23514", insert + "('x4','n','openrouter','no-slash','tag',NULL,'c','****','u')");
-    rejects("23514", insert + "('x5','n','openai-compatible','m',NULL,NULL,'c','****','u')");
-    rejects("23514", insert + "('x6','n','openai','m',NULL,'https://a.example','c','****','u')");
-    rejects(
-        "23514",
-        insert + "('x7','n','gemini-compatible','m',NULL,'ftp://a.example','c','****','u')");
-    // Editable since ADR-20261009-Q, still within the format's rules.
-    sql("UPDATE provider_config_versions SET base_url='https://b.example' WHERE id='oc'");
-    rejects(
-        "23514", "UPDATE provider_config_versions SET base_url='ftp://b.example' WHERE id='oc'");
+  void interfacesCarryOnlyTheirOwnFields() throws SQLException {
+    // ADR-20261012-AB: the five offered types, plus the older Gemini-format third party.
+    sql(INTERFACE + "('o','n','openai',NULL,'c','****','u')");
+    sql(INTERFACE + "('d','n','deepseek',NULL,'c','****','u')");
+    sql(INTERFACE + "('g','n','gemini',NULL,'c','****','u')");
+    sql(INTERFACE + "('oc','n','openai-compatible','http://10.2.2.110:3000/v1','c','****','u')");
+    sql(INTERFACE + "('gc','n','gemini-compatible','https://relay.example.com','c','****','u')");
+    rejects("23514", INTERFACE + "('x1','n','other',NULL,'c','****','u')");
+    rejects("23514", INTERFACE + "('x2','n','openai-compatible',NULL,'c','****','u')");
+    rejects("23514", INTERFACE + "('x3','n','openai','https://a.example','c','****','u')");
+    rejects("23514", INTERFACE + "('x4','n','gemini-compatible','ftp://a.example','c','****','u')");
+    rejects("23514", INTERFACE + "('x5',' ','openai',NULL,'c','****','u')");
+    rejects("23503", INTERFACE + "('x6','n','openai',NULL,'c','****','nobody')");
+    // Editable, still within the type's rules.
+    sql("UPDATE model_interfaces SET base_url='https://b.example' WHERE id='oc'");
+    rejects("23514", "UPDATE model_interfaces SET base_url='ftp://b.example' WHERE id='oc'");
+    // A model needs an interface; ids and tags keep their shapes.
+    String model =
+        "INSERT INTO provider_config_versions(id,interface_id,name,model,provider_tag,created_by) VALUES ";
+    sql(model + "('m','o','n','gpt-image-2',NULL,'u')");
+    rejects("23503", model + "('m2','missing','n','gpt-image-2',NULL,'u')");
+    rejects("23514", model + "('m3','o','n','gpt image',NULL,'u')");
+    rejects("23514", model + "('m4','o','n','gpt-image-2','bad tag','u')");
   }
 
   @Test
@@ -503,7 +514,7 @@ class DatabaseMigrationIT {
               + "('c2','{\"items\":[{\"id\":\"a:r3\",\"artifact_id\":\"r3\",\"x\":0,\"y\":0,\"width\":9,\"height\":9}],\"removed\":[]}',2)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(1, upgrade.migrate().migrationsExecuted);
+      assertEquals(2, upgrade.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
               "SELECT conversation_id,layout->'items',layout->'removed',version FROM conversation_canvases ORDER BY conversation_id")) {
@@ -542,7 +553,7 @@ class DatabaseMigrationIT {
           "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(13, upgrade.migrate().migrationsExecuted);
+      assertEquals(14, upgrade.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery("SELECT provider,active_version_id FROM provider_config_state")) {
         assertTrue(rows.next());
@@ -550,10 +561,11 @@ class DatabaseMigrationIT {
         assertEquals("cfg", rows.getString(2));
         assertFalse(rows.next());
       }
-      // V10: the previously active, enabled row becomes a named, enabled default model.
+      // V10: the previously active, enabled row becomes a named, enabled default model; V21
+      // moves its type, address and proxy setting to its own interface.
       try (var rows =
           query.executeQuery(
-              "SELECT provider,provider_tag,base_url,name,enabled,retired,use_proxy FROM provider_config_versions")) {
+              "SELECT i.kind,v.provider_tag,i.base_url,v.name,v.enabled,v.retired,i.use_proxy FROM provider_config_versions v JOIN model_interfaces i ON i.id=v.interface_id")) {
         assertTrue(rows.next());
         assertEquals("openrouter", rows.getString(1));
         assertEquals("openai", rows.getString(2));

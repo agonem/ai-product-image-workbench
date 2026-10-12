@@ -409,33 +409,64 @@ test('V4-B6: history, works, account page and the admin model settings', async (
   const admin = await browser.newPage()
   await login(admin, 'admin')
   await admin.getByRole('link', { name: '模型配置' }).click()
+  // ADR-20261012-AB: models are listed under the interface that holds their key.
+  const cards = admin.getByTestId('interface-card')
   const rows = admin.getByTestId('model-row')
+  const mockCard = cards.filter({ hasText: '模拟 OpenRouter' })
   const main = rows.filter({ hasText: '模拟主力' })
+  await expect(
+    mockCard.getByTestId('model-row').filter({ hasText: '模拟主力' }),
+  ).toHaveCount(1)
   await expect(main).toContainText('默认')
-  await expect(main).toContainText('****')
+  await expect(mockCard).toContainText('****')
   await expect(admin.getByText('付费')).toHaveCount(0)
-  // Official interfaces plus third-party endpoints in either format (ADR-20260930-E).
-  await admin.getByRole('button', { name: '添加模型' }).click()
-  let dialog = admin.getByRole('dialog', { name: '添加模型' })
+  // The five interface types of the first batch.
+  await admin.getByRole('button', { name: '添加接口' }).click()
+  let dialog = admin.getByRole('dialog', { name: '添加接口' })
   await expect(dialog.getByLabel('接口类型').locator('option')).toHaveText([
     'OpenRouter',
     'OpenAI 官方',
+    'DeepSeek 官方',
     'Gemini 官方',
-    'OpenAI 格式（第三方）',
-    'Gemini 格式（第三方）',
+    '兼容 OpenAI 协议的第三方',
   ])
-  await dialog.getByLabel('显示名称').fill('Gemini 备用')
   await dialog.getByLabel('接口类型').selectOption('gemini')
-  await dialog.getByLabel('模型标识').fill('gemini-2.5-flash-image')
+  await dialog.getByLabel('接口名称').fill('Gemini 备用')
   await dialog.getByLabel('API Key').fill('mock-gemini-key')
   await dialog.getByLabel('通过网络代理访问').check()
+  await dialog.getByRole('button', { name: '保存接口' }).click()
+  await expect(dialog).toHaveCount(0)
+  const gemini = cards.filter({ hasText: 'Gemini 备用' })
+  await expect(gemini).toContainText('Gemini 官方')
+  await expect(
+    gemini.getByRole('switch', { name: 'Gemini 备用 走代理' }),
+  ).toHaveAttribute('aria-checked', 'true')
+  // A model under it, with an official parameter filled in; blank ones stay at the default.
+  await gemini
+    .getByRole('button', { name: '在「Gemini 备用」下添加模型' })
+    .click()
+  dialog = admin.getByRole('dialog', { name: '添加模型' })
+  await expect(dialog).toContainText('接口：Gemini 备用（Gemini 官方）')
+  await dialog.getByLabel('显示名称').fill('Gemini 出图')
+  await dialog.getByLabel('模型标识').fill('gemini-2.5-flash-image')
+  await expect(dialog.getByLabel('温度')).toHaveAttribute(
+    'placeholder',
+    /不填 = 官方默认/,
+  )
+  // Out of range: the browser keeps the dialog open and marks the field.
+  await dialog.getByLabel('温度').fill('3')
+  await dialog.getByRole('button', { name: '保存模型' }).click()
+  await expect(dialog).toBeVisible()
+  expect(
+    await dialog
+      .getByLabel('温度')
+      .evaluate((input: HTMLInputElement) => input.validity.rangeOverflow),
+  ).toBe(true)
+  await dialog.getByLabel('温度').fill('0.4')
   await dialog.getByRole('button', { name: '保存模型' }).click()
   await expect(dialog).toHaveCount(0)
-  const added = rows.filter({ hasText: 'Gemini 备用' })
-  await expect(added).toContainText('Gemini 官方')
-  await expect(
-    added.getByRole('switch', { name: 'Gemini 备用 走代理' }),
-  ).toHaveAttribute('aria-checked', 'true')
+  const added = rows.filter({ hasText: 'Gemini 出图' })
+  await expect(added.getByTestId('model-params')).toHaveText('温度：0.4')
   // The default model cannot be switched off.
   await main.getByRole('switch', { name: '模拟主力 启用' }).click()
   await expect(admin.locator('.banner[role="alert"]')).toContainText(
@@ -445,44 +476,56 @@ test('V4-B6: history, works, account page and the admin model settings', async (
   await expect(added).toContainText('默认')
   await main.getByRole('button', { name: '设为默认' }).click()
   await expect(main).toContainText('默认')
-  // Third-party endpoint: plain http only to intranet addresses, with a warning.
-  await admin.getByRole('button', { name: '添加模型' }).click()
-  dialog = admin.getByRole('dialog', { name: '添加模型' })
-  await dialog.getByLabel('显示名称').fill('中转备用')
+  // Third-party interface: plain http only to intranet addresses, with a warning.
+  await admin.getByRole('button', { name: '添加接口' }).click()
+  dialog = admin.getByRole('dialog', { name: '添加接口' })
   await dialog.getByLabel('接口类型').selectOption('openai-compatible')
+  await dialog.getByLabel('接口名称').fill('中转备用')
   await dialog.getByLabel('接口地址').fill('http://8.8.8.8/v1')
   await expect(dialog.getByRole('note')).toContainText('明文传输')
-  await dialog.getByLabel('模型标识').fill('gpt-image-2')
   await dialog.getByLabel('API Key').fill('mock-relay-key')
-  await dialog.getByRole('button', { name: '保存模型' }).click()
+  await dialog.getByRole('button', { name: '保存接口' }).click()
   await expect(dialog.getByRole('alert')).toContainText('只允许内网 IP')
   await dialog.getByLabel('接口地址').fill('http://10.0.0.5:3000/v1')
   await dialog.getByLabel('API Key').fill('mock-relay-key')
+  await dialog.getByRole('button', { name: '保存接口' }).click()
+  await expect(dialog).toHaveCount(0)
+  const relay = cards.filter({ hasText: '中转备用' })
+  await expect(relay).toContainText('http://10.0.0.5:3000/v1')
+  await relay.getByRole('button', { name: '在「中转备用」下添加模型' }).click()
+  dialog = admin.getByRole('dialog', { name: '添加模型' })
+  await dialog.getByLabel('显示名称').fill('中转出图')
+  await dialog.getByLabel('模型标识').fill('gpt-image-2')
   await dialog.getByRole('button', { name: '保存模型' }).click()
   await expect(dialog).toHaveCount(0)
-  await expect(rows.filter({ hasText: '中转备用' })).toContainText(
-    'http://10.0.0.5:3000/v1',
-  )
   // ADR-20261009-Q: edit in place with the model's own parameters, then delete.
   await rows
-    .filter({ hasText: '中转备用' })
+    .filter({ hasText: '中转出图' })
     .getByRole('button', { name: '编辑' })
     .click()
-  const editor = admin.getByRole('dialog', { name: '编辑「中转备用」' })
-  await expect(editor.getByLabel('API Key')).toHaveAttribute(
-    'placeholder',
-    /留空则不修改/,
-  )
+  const editor = admin.getByRole('dialog', { name: '编辑「中转出图」' })
   await expect(editor.getByLabel('用途')).toBeDisabled()
-  await editor.getByLabel('画质档').selectOption('high')
+  await editor.getByLabel('画质').selectOption('high')
   await editor.getByLabel('显示名称').fill('中转高画质')
   await editor.getByRole('button', { name: '保存模型' }).click()
   await expect(editor).toHaveCount(0)
   const edited = rows.filter({ hasText: '中转高画质' })
-  await expect(edited.getByTestId('model-params')).toContainText('画质档：高')
+  await expect(edited.getByTestId('model-params')).toContainText('画质：高')
   await expect(
     main.getByRole('button', { name: '删除 模拟主力' }),
   ).toBeDisabled()
+  // An interface with models cannot be deleted; the new key is entered on the interface.
+  await expect(
+    relay.getByRole('button', { name: '删除接口「中转备用」' }),
+  ).toBeDisabled()
+  await relay.getByRole('button', { name: '编辑接口「中转备用」' }).click()
+  const faceEditor = admin.getByRole('dialog', { name: '编辑接口「中转备用」' })
+  await expect(faceEditor.getByLabel('API Key')).toHaveAttribute(
+    'placeholder',
+    /留空则不修改/,
+  )
+  await expect(faceEditor.getByLabel('接口类型')).toBeDisabled()
+  await faceEditor.getByRole('button', { name: '取消' }).click()
   await admin.screenshot({
     path: join(artifacts, 'models-admin.png'),
     fullPage: true,
@@ -490,6 +533,9 @@ test('V4-B6: history, works, account page and the admin model settings', async (
   await edited.getByRole('button', { name: '删除 中转高画质' }).click()
   await confirm(admin, '删除模型')
   await expect(edited).toHaveCount(0)
+  await relay.getByRole('button', { name: '删除接口「中转备用」' }).click()
+  await confirm(admin, '删除接口')
+  await expect(relay).toHaveCount(0)
   // Proxy (its own tab): no paths; credentials are masked once saved.
   await admin.getByRole('button', { name: '网络代理' }).click()
   await admin
@@ -512,7 +558,7 @@ test('V4-B6: history, works, account page and the admin model settings', async (
   await section(admin, '输出设置')
   await admin.getByRole('button', { name: /^模型：/ }).click()
   await expect(
-    admin.getByRole('option', { name: /Gemini 备用.*Gemini 官方/ }),
+    admin.getByRole('option', { name: /Gemini 出图.*Gemini 官方/ }),
   ).toBeVisible()
   await admin.keyboard.press('Escape')
   // The mock default model has no clarity setting (ADR-20261009-R).

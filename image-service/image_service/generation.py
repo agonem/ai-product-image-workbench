@@ -256,7 +256,9 @@ REWRITE_RULES = (
     "写清场景、构图与商品位置、光线、色调和氛围；只描述画面本身。"
     "提到图片时沿用用户的叫法（如“商品图”“参考图1”“参考图2”“要修改的图”），不要改名或重新编号；"
     "按用户安排每张图的用途（例如以某张参考图为底图、把商品作为赠品加入），不要擅自让商品当主角。"
-    "不要要求图中出现任何文字、字母、数字、Logo、水印、价格或标签；"
+    "图中文字只能是用户在需求里明确要求写进图里的原文（通常用引号标出），逐字写出并说明放在哪里；"
+    "用户没给的文字、字母、数字、Logo、水印、价格或标签一律不要写，也不要自己编文案；"
+    "加入的赠品可以横放、倾斜或转向来配合排版，但外形、颜色、花纹不变；"
     "不要改变商品的外形、颜色、Logo、包装文字和数量。"
     "如果用户是在已有图片上修改，只描述要改的地方，并说明其余保持不变。"
     "只输出改写后的描述，不要解释，不要加标题。"
@@ -280,7 +282,11 @@ ANALYSIS_RULES = (
     "规则：提到图片时沿用用户的叫法（如“商品图”“参考图1”“参考图2”“要修改的图”），"
     "不要改名或重新编号；按用户安排每张图的用途，不要擅自让商品当主角；"
     "不要添加用户和参考图都没有的元素或装饰（如彩带、蝴蝶结、闪光）；"
-    "不要要求在图中写新的文字、字母或数字（参考图卡片上的文字说明不画，照搬的简单符号如“+”可以）；"
+    "图中文字：只写用户在需求里明确要求写进图里的文字（通常用引号标出），在出图方案里逐字列出"
+    "这些文字、各放在哪里（如卡片上方、商品下方）和大致字号颜色；用户没要求写的文字一律不写，"
+    "也不要自己编文案，参考图卡片上的文字说明不照抄（照搬的简单符号如“+”可以）；"
+    "没有要写的文字时在出图方案里写明“不加文字”；"
+    "加入的赠品可以横放、倾斜或转向来配合卡片和文字排版，但外形、比例、颜色、花纹和印刷内容不变；"
     "不要改变商品的外形、颜色、Logo、包装文字和数量；"
     "如果是在已有图片上修改，只写要改的地方，并说明其余保持不变。"
     "只输出这份说明，不要客套，不要用 Markdown 标题。"
@@ -289,10 +295,6 @@ ANALYST = "你是严谨的电商图片分析师，也是资深母婴电商视觉
 ANALYSIS_ONLY = "只忠实分析和规划，不加入用户没要求的创意。"
 ANALYSIS_WAND = "在出图方案里按你的设定把画面写得更专业、更有质感，但不违背用户原话和以上规则。"
 ANALYSIS_SIDE = 1024  # the text model sees smaller copies; the image model gets the usual ones
-# Output budgets of the text call. A thinking model spends part of it on hidden reasoning before
-# the answer: with 1500 the chat analyses of 2026-10-12 came back cut off or empty (ADR-20261012-Y).
-ANALYSIS_TOKENS = 6000
-REWRITE_TOKENS = 4000
 
 
 def _image_names(request):
@@ -340,7 +342,8 @@ def _analysis_copy(reference):
 
 def _custom_prompt(request, brief=None, analysis=None):
     """Conversational generation (ADR-20261008-I): the user's words, plus the guard every entry
-    keeps (business rule 1): the product stays exactly as photographed and no text is drawn.
+    keeps (business rule 1): the product stays exactly as photographed, and the only text drawn
+    is what the user wrote for the picture (ADR-20261012-AA).
     With an agent its settings guide the picture; after a rewrite the brief replaces the words.
     The inputs are introduced by the names the page shows, so the user's words map onto them;
     what each image is for (base picture, added item, style example) is the user's choice."""
@@ -421,14 +424,21 @@ def _custom_prompt(request, brief=None, analysis=None):
     parts.append(
         "Wherever the product from 「商品图」 appears, keep it exactly as photographed: the same "
         "shape, proportions, colours, materials, logo, printed text, markings and number of "
-        "items. Items taken from a 参考图 keep their look as well."
+        "items. Items taken from a 参考图 keep their look as well. An item added to the picture "
+        "(such as a gift) may be laid down, tilted or turned to fit its card or the layout; its "
+        "shape, proportions, colours, pattern and printing stay the same."
     )
+    # ADR-20261012-AA (user decision): the model writes the words the user gives for the
+    # picture, and nothing it makes up itself; spelling may still go wrong, so results are
+    # reviewed by a person.
     parts.append(
-        "Do not write any new words, letters or numbers and add no watermarks; simple symbols "
-        "copied from an example, such as a plus sign in a badge, are allowed, and an added gift "
-        "card or label stays without a caption. This never means removing anything that is "
-        "already in the base picture: its text, logos, badges and icons stay exactly as they "
-        "are."
+        "Write only the words the user explicitly asks to appear in the picture (usually given "
+        "in quotes, for example 卡片文字“安抚抱枕 陪睡好眠”), character for character and where "
+        "the user says; add no other words, letters or numbers, make up no slogans and add no "
+        "watermarks. Simple symbols copied from an example, such as a plus sign in a badge, are "
+        "allowed; without words from the user an added gift card or label stays without a "
+        "caption. This never means removing anything that is already in the base picture: its "
+        "text, logos, badges and icons stay exactly as they are."
     )
     return " ".join(parts)
 
@@ -612,13 +622,9 @@ def process_generation(
         else:
             (system, user), images = _rewrite_messages(request), ()
         try:
-            written, _usage = text_models.rewrite(
-                text_config,
-                system,
-                user,
-                images=images,
-                max_tokens=ANALYSIS_TOKENS if look else REWRITE_TOKENS,
-            )
+            # Output budget, temperature and thinking are the model's own parameters
+            # (ADR-20261012-AB; the values of ADR-20261012-Y were moved there).
+            written, _usage = text_models.rewrite(text_config, system, user, images=images)
         except BackgroundError as error:
             # Tell the page it was the text step, not the picture, that failed.
             raise BackgroundError(prefix + error.code, retryable=error.retryable) from None

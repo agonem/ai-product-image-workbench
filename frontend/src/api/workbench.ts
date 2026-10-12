@@ -27,6 +27,7 @@ const messages: Record<string, string> = {
   INVALID_CONTRACT: '请求内容不符合接口要求，请检查输入。',
   MODEL_UNAVAILABLE: '所选模型已停用或不存在，请重新选择模型。',
   DEFAULT_MODEL: '默认模型不能停用或删除，请先把其他模型设为默认。',
+  INTERFACE_IN_USE: '这个接口下还有模型，请先删除接口下的模型。',
   MODEL_QUALITY_UNSUPPORTED:
     '所选模型没有“高清”画质，请把画质改回标准或换一个模型。',
   MODEL_SIZE_UNSUPPORTED:

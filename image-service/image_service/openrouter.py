@@ -14,12 +14,27 @@ from image_service.background import (
     BackgroundError,
     BackgroundRequest,
     BackgroundResult,
+    merge_parameters,
 )
 from image_service.egress import route
 
 MAX_RESPONSE = 16 * 1024 * 1024
 MAX_IMAGE = 10 * 1024 * 1024
 MAX_PIXELS = 16_000_000
+# What the system sets for each call; the model's stored parameters never replace it.
+SYSTEM_FIELDS = ("model", "prompt", "input_references", "provider", "aspect_ratio", "n", "stream")
+
+
+def _supports(descriptor, value):
+    """Whether an endpoint's published descriptor accepts this value (ADR-20261012-AB)."""
+    kind = descriptor["type"]
+    if kind == "enum":
+        return isinstance(descriptor["values"], list) and value in descriptor["values"]
+    if kind == "range":
+        number = isinstance(value, int | float) and not isinstance(value, bool)
+        return number and float(descriptor["min"]) <= value <= float(descriptor["max"])
+    # A parameter OpenRouter only marks as supported (Seedream publishes "seed" this way).
+    return kind == "boolean"
 
 
 class OpenRouterAdapter:
@@ -91,12 +106,7 @@ class OpenRouterAdapter:
             # Every routable endpoint with this tag must support the exact requested values.
             for endpoint in selected:
                 for key, value in parameters.items():
-                    descriptor = endpoint["supported_parameters"][key]
-                    if (
-                        descriptor["type"] != "enum"
-                        or not isinstance(descriptor["values"], list)
-                        or value not in descriptor["values"]
-                    ):
+                    if not _supports(endpoint["supported_parameters"][key], value):
                         raise ValueError()
                 if references:
                     limit = endpoint["supported_parameters"]["input_references"]
@@ -135,11 +145,11 @@ class OpenRouterAdapter:
     def generate(self, request: BackgroundRequest) -> BackgroundResult:
         if not isinstance(request, BackgroundRequest):
             raise BackgroundError("INVALID_INPUT")
-        parameters = {
-            "aspect_ratio": request.aspect_ratio,
-            # Quality or resolution (ADR-20261009-Q); checked against the endpoint below.
-            **dict(request.parameters),
-        }
+        # The stored official parameters and the clarity (ADR-20261012-AB); every value is
+        # checked against the endpoint below before the paid call.
+        parameters = merge_parameters(
+            {"aspect_ratio": request.aspect_ratio}, request.parameters, SYSTEM_FIELDS
+        )
         if request.resolution is not None:
             parameters.update(resolution=request.resolution, output_format=request.output_format)
         self._capabilities(parameters, len(request.references))

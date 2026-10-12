@@ -90,7 +90,7 @@ class MockModel:
         )
 
 
-def mock_rewrite(config, system, user, *, images=(), max_tokens=800):
+def mock_rewrite(config, system, user, *, images=()):
     """Deterministic stand-in for the text model: no paid call (ADR-20261008-L). With images it
     plays the look-first analysis (ADR-20261009-P) and names what it was shown."""
     need = user.splitlines()[0].removeprefix("需求：")

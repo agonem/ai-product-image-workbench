@@ -461,39 +461,61 @@ def api_checks(core, admin, alice, bob, project):
     assert run.http("POST", f"/api/v1/tasks/{legacy}/retry", alice, {"attempt": 1})[0] == 409
     assert run.sql("SELECT count(*) FROM outbox_events") == before
 
-    # A12: model catalog (ADR-20260929-C; third-party types again since ADR-20260930-E, A15).
+    # A12: model catalog in two levels (ADR-20261012-AB; ADR-20260929-C, -Q before): interfaces
+    # hold the key, address and proxy setting, models the id, purpose and official parameters;
     # several enabled models; a task binds the chosen model or the default; a disabled model is
-    # refused and the default cannot be disabled; a new key is stored in place (ADR-20261009-Q),
-    # keeping the name, the default and task bindings; the proxy is masked and only models
+    # refused and the default cannot be disabled; a new key on the interface is used in place,
+    # keeping names, the default and task bindings; the proxy is masked and only interfaces
     # marked "use proxy" receive it (the mock records the route it was given).
     configs = "/api/v1/admin/provider-configs"
-    common = {"api_key": "mock-key", "enabled": True, "use_proxy": False}
+    interfaces = "/api/v1/admin/model-interfaces"
+    common = {"api_key": "mock-key", "use_proxy": False}
     for bad in (
-        {"name": "x", "provider": "openai", "model": "gpt-image-2", "provider_tag": "x"},
-        {"name": "x", "provider": "openai-compatible", "model": "m", "base_url": "http://8.8.8.8"},
-        {"name": " ", "provider": "gemini", "model": "gemini-2.5-flash-image"},
-        {"name": "x", "provider": "unknown", "model": "m"},
+        {"name": "x", "kind": "openai", "base_url": "https://a.example"},
+        {"name": "x", "kind": "openai-compatible", "base_url": "http://8.8.8.8"},
+        {"name": " ", "kind": "gemini"},
+        {"name": "x", "kind": "unknown"},
+        # No longer offered (ADR-20261012-AB).
+        {"name": "x", "kind": "gemini-compatible", "base_url": "https://relay.example.com"},
+        {"name": "x", "kind": "openai", "model": "gpt-image-2"},
     ):
-        assert run.http("POST", configs, admin, {**bad, **common})[0] == 400, bad
+        assert run.http("POST", interfaces, admin, {**bad, **common})[0] == 400, bad
     gemini_key = "mock-" + secrets.token_urlsafe(24)
+    status, gemini_face, _ = run.http(
+        "POST",
+        interfaces,
+        admin,
+        {"name": "Gemini 测试", "kind": "gemini", "api_key": gemini_key, "use_proxy": True},
+    )
+    assert status == 201 and gemini_face["api_key_mask"].startswith("****"), gemini_face
+    under = {"interface_id": gemini_face["id"], "name": "Gemini 测试", "enabled": True}
+    for bad in (
+        {"model": "gemini-2.5-flash-image", "provider_tag": "x"},  # tags are OpenRouter's
+        {"model": "gemini-2.5-flash-image", "api_key": "k" * 20},  # the key is the interface's
+        {"model": "gemini-2.5-flash-image", "parameters": {"generationConfig.temperature": 3}},
+        {"model": "gemini-2.5-flash-image", "parameters": {"resolution": "2K"}},
+        {"model": "gemini-2.5-flash-image", "interface_id": "missing"},
+    ):
+        assert run.http("POST", configs, admin, {**under, **bad})[0] == 400, bad
     status, gemini, _ = run.http(
         "POST",
         configs,
         admin,
         {
-            "name": "Gemini 测试",
-            "provider": "gemini",
+            **under,
             "model": "gemini-2.5-flash-image",
-            "api_key": gemini_key,
-            "enabled": True,
-            "use_proxy": True,
+            "parameters": {"generationConfig.temperature": 0.4},
         },
     )
     assert status == 201 and not gemini["default"], (status, gemini)
+    assert gemini["provider"] == "gemini" and gemini["use_proxy"], gemini
+    assert gemini["parameters"] == {"generationConfig.temperature": 0.4}, gemini
     listing = run.http("GET", configs, admin)[1]
     assert gemini_key not in json.dumps(listing)
+    assert gemini_face["id"] in {face["id"] for face in listing["interfaces"]}
     default = next(item for item in listing["items"] if item["default"])
     assert run.http("GET", configs, alice)[0] == 403
+    assert run.http("POST", interfaces, alice, {**common, "name": "x", "kind": "openai"})[0] == 403
     choices = run.http("GET", "/api/v1/workbench/options", alice)[1]["models"]
     assert {m["id"] for m in choices} == {default["id"], gemini["id"]}
     assert "key" not in json.dumps(choices)
@@ -508,9 +530,10 @@ def api_checks(core, admin, alice, bob, project):
         alice, dict(scene, scene_preset="outdoor", model_id=gemini["id"]), "v4-gemini"
     )
     assert chosen["status"] == "SUCCEEDED", chosen
-    assert core.generations(chosen["id"])[1][0]["provenance"]["provider"] == (
-        "mock-acceptance-only:gemini:proxy"
-    )
+    provenance = core.generations(chosen["id"])[1][0]["provenance"]
+    assert provenance["provider"] == "mock-acceptance-only:gemini:proxy", provenance
+    # The filled-in official parameter reached the model; nothing else was added.
+    assert provenance["parameters"]["generationConfig.temperature"] == 0.4, provenance
     fallback = core.generate(alice, dict(scene, scene_preset="bedroom"), "v4-default")
     assert core.generations(fallback["id"])[1][0]["provenance"]["provider"] == (
         "mock-acceptance-only:openrouter:direct"
@@ -524,18 +547,41 @@ def api_checks(core, admin, alice, bob, project):
         "POST", f"{configs}/{default['id']}/settings", admin, {"enabled": False}
     )
     assert status == 409 and body["code"] == "DEFAULT_MODEL", (status, body)
-    status, rotated, _ = run.http(
+    # The key, address and proxy setting are no longer the model's.
+    for moved in ({"api_key": "k" * 20}, {"use_proxy": True}, {"provider": "openai"}):
+        status = run.http("POST", f"{configs}/{default['id']}/settings", admin, moved)[0]
+        assert status == 400, moved
+    status, _, _ = run.http(
         "POST",
-        f"{configs}/{default['id']}/key",
+        f"{interfaces}/{default['interface_id']}/settings",
         admin,
         {"api_key": "mock-" + secrets.token_urlsafe(20)},
     )
-    assert status == 201 and rotated["default"] and rotated["name"] == default["name"], rotated
-    assert rotated["id"] == default["id"] and rotated["api_key_mask"] != default["api_key_mask"]
+    assert status == 204
+    rotated = next(
+        item for item in run.http("GET", configs, admin)[1]["items"] if item["id"] == default["id"]
+    )
+    assert rotated["default"] and rotated["name"] == default["name"], rotated
+    assert rotated["api_key_mask"] != default["api_key_mask"], rotated
+    assert run.http("POST", f"{configs}/{default['id']}/key", admin, common)[0] >= 400
+    retyped = f"{interfaces}/{default['interface_id']}/settings"
+    assert run.http("POST", retyped, admin, {"kind": "x"})[0] == 400
     frozen = run.sql(
         f"SELECT provider_config_version FROM generation_tasks WHERE id='{fallback['id']}'"
     )
     assert frozen == default["id"]
+    # An interface with models cannot be deleted; DeepSeek serves text models only.
+    status, body, _ = run.http("DELETE", f"{interfaces}/{gemini_face['id']}", admin)
+    assert status == 409 and body["code"] == "INTERFACE_IN_USE", (status, body)
+    status, spare, _ = run.http(
+        "POST", interfaces, admin, {**common, "name": "DeepSeek 测试", "kind": "deepseek"}
+    )
+    assert status == 201, (status, spare)
+    picture = {"interface_id": spare["id"], "name": "x", "model": "deepseek-flash"}
+    picture["enabled"] = False
+    assert run.http("POST", configs, admin, picture)[0] == 400
+    assert run.http("DELETE", f"{interfaces}/{spare['id']}", admin)[0] == 204
+    assert run.http("DELETE", f"{interfaces}/{spare['id']}", admin)[0] == 404
     assert run.http("DELETE", proxy, admin)[0] == 204
     assert run.http("GET", proxy, admin)[1] == {"configured": False}
     evidence["models"] = {"chosen": chosen["id"], "default": fallback["id"]}
@@ -651,16 +697,27 @@ def api_checks(core, admin, alice, bob, project):
     assert "Do not remove, move" in prompt and "white background" not in prompt, prompt
     relay = {
         "name": "内网中转",
-        "provider": "openai-compatible",
-        "model": "gpt-image-2",
+        "kind": "openai-compatible",
         "base_url": "http://10.2.2.110:3000/v1",
         "api_key": "mock-relay-key",
-        "enabled": True,
         "use_proxy": False,
     }
     configs = "/api/v1/admin/provider-configs"
-    assert run.http("POST", configs, admin, dict(relay, base_url="http://8.8.8.8/v1"))[0] == 400
-    status, relay_model, _ = run.http("POST", configs, admin, relay)
+    interfaces = "/api/v1/admin/model-interfaces"
+    assert run.http("POST", interfaces, admin, dict(relay, base_url="http://8.8.8.8/v1"))[0] == 400
+    status, relay_face, _ = run.http("POST", interfaces, admin, relay)
+    assert status == 201 and relay_face["base_url"] == relay["base_url"], relay_face
+    status, relay_model, _ = run.http(
+        "POST",
+        configs,
+        admin,
+        {
+            "interface_id": relay_face["id"],
+            "name": "内网中转",
+            "model": "gpt-image-2",
+            "enabled": True,
+        },
+    )
     assert status == 201 and relay_model["base_url"] == relay["base_url"], relay_model
     routed = core.generate(
         alice, dict(scene, product_asset_id=asset["id"], model_id=relay_model["id"]), "v4-relay"
@@ -1164,15 +1221,19 @@ def api_checks(core, admin, alice, bob, project):
     wand = dict(guided, rewrite=True)
     status, problem = core.post(alice, "/api/v4/generation-tasks", wand)
     assert status == 422 and problem["code"] == "TEXT_MODEL_UNAVAILABLE", (status, problem)
+    openrouter = next(
+        face
+        for face in run.http("GET", "/api/v1/admin/provider-configs", admin)[1]["interfaces"]
+        if face["kind"] == "openrouter"
+    )
     writer = {
+        "interface_id": openrouter["id"],
         "name": "改写模型",
-        "provider": "openrouter",
         "model": "test/mock-writer",
         "provider_tag": "mock",
-        "api_key": "mock-" + secrets.token_urlsafe(24),
         "enabled": True,
-        "use_proxy": False,
         "purpose": "TEXT",
+        "vision": True,
     }
     status, text_model, _ = run.http("POST", "/api/v1/admin/provider-configs", admin, writer)
     assert status == 201 and text_model["purpose"] == "TEXT" and text_model["default"], text_model
@@ -1235,24 +1296,43 @@ def api_checks(core, admin, alice, bob, project):
     # An OpenRouter text model may leave routing to OpenRouter; an image model may not.
     untagged = {k: v for k, v in writer.items() if k != "provider_tag"}
     assert run.http("POST", "/api/v1/admin/provider-configs", admin, untagged)[0] == 201
-    image = dict(untagged, purpose="IMAGE")
+    image = {k: v for k, v in untagged.items() if k != "vision"} | {"purpose": "IMAGE"}
     assert run.http("POST", "/api/v1/admin/provider-configs", admin, image)[0] == 400
+    # ADR-20261012-AB: when the default text model cannot look at images, a chat message is
+    # drawn without the analysis and its details say so; the wand rewrites from the words only.
+    blind = f"/api/v1/admin/provider-configs/{text_model['id']}/settings"
+    assert run.http("POST", blind, admin, {"vision": False})[0] == 204
+    state = core.generate(alice, dict(looked, prompt="不能看图时直接出图"), "v4-no-vision")
+    assert state["status"] == "SUCCEEDED", state
+    attempt, gens = core.generations(state["id"])
+    assert "analysis" not in gens[0]["provenance"], gens[0]["provenance"]
+    assert "Image analysis and plan" not in gens[0]["provenance"]["prompt"]
+    assert core.get(alice, state["id"])[1]["analysis"] == {"skipped": "NO_VISION"}
+    unbound = f"SELECT text_config_version IS NULL FROM generation_tasks WHERE id='{state['id']}'"
+    assert run.sql(unbound) == "t"
+    assert core.fences(attempt) == "1"
+    state = core.generate(alice, dict(wand, prompt="不能看图时只改写文字"), "v4-no-vision-wand")
+    assert state["status"] == "SUCCEEDED", state
+    agent = core.generations(state["id"])[1][0]["provenance"]["agent"]
+    assert agent["rewritten"].startswith("[Gloria改写] 不能看图时只改写文字"), agent
+    assert core.get(alice, state["id"])[1]["analysis"] == {"skipped": "NO_VISION"}
+    assert run.http("POST", blind, admin, {"vision": True})[0] == 204
     evidence["agents"] = {"guided": state["id"], "text_model": text_model["id"]}
 
-    # A27 (ADR-20261009-Q): model parameters, clarity, editing in place and deleting.
+    # A27 (ADR-20261009-Q, ADR-20261012-AB): official parameters, clarity per task, editing in
+    # place and deleting.
     sharp = {
+        "interface_id": openrouter["id"],
         "name": "高清测试",
-        "provider": "openrouter",
         "model": "bytedance-seed/seedream-5-0-pro",
         "provider_tag": "mock",
-        "api_key": "mock-" + secrets.token_urlsafe(24),
         "enabled": True,
-        "use_proxy": False,
     }
-    for bad in ({"resolution": "4K"}, {"quality": "high"}, {"resolution": 2}):
+    # Clarity is no longer a model setting; only Seedream's listed parameters, in range.
+    for bad in ({"resolution": "1K"}, {"quality": "high"}, {"seed": "x"}, {"seed": 1.5}):
         assert run.http("POST", configs, admin, dict(sharp, parameters=bad))[0] == 400, bad
-    status, seed, _ = run.http("POST", configs, admin, dict(sharp, parameters={"resolution": "1K"}))
-    assert status == 201 and seed["parameters"] == {"resolution": "1K"}, (status, seed)
+    status, seed, _ = run.http("POST", configs, admin, dict(sharp, parameters={"seed": 42}))
+    assert status == 201 and seed["parameters"] == {"seed": 42}, (status, seed)
     offered = {m["id"]: m for m in run.http("GET", "/api/v1/workbench/options", alice)[1]["models"]}
     # ADR-20261009-R: clarity is the model's 1K / 2K output, separate from the output size.
     assert offered[seed["id"]]["resolutions"] == ["1K", "2K"], offered[seed["id"]]
@@ -1273,18 +1353,21 @@ def api_checks(core, admin, alice, bob, project):
     # A large size alone is allowed with any model (it is enlarged); the page warns.
     enlarged = core.generate(alice, dict(sharp_scene, model_id=default_id), "v4-enlarged")
     assert enlarged["status"] == "SUCCEEDED" and enlarged["artifacts"][0]["width"] == 1600
-    # An edit applies to tasks already submitted: queued at 1K, run after the switch to 2K.
+    # An edit applies to tasks already submitted: queued with seed 42, run after the change.
     standard = dict(scene, product_asset_id=fresh["id"], model_id=seed["id"])
     status, queued = core.post(alice, "/api/v4/generation-tasks", standard, "v4-edit-queued")
     assert status == 202, (status, queued)
-    edit = {"name": "高清测试 2K", "parameters": {"resolution": "2K"}}
+    edit = {"name": "高清测试 7", "parameters": {"seed": 7}}
     assert run.http("POST", f"{configs}/{seed['id']}/settings", admin, edit)[0] == 204
     assert run.http("POST", f"{configs}/{seed['id']}/settings", admin, {"model": "a"})[0] == 400
+    clarity = {"parameters": {"resolution": "2K"}}
+    assert run.http("POST", f"{configs}/{seed['id']}/settings", admin, clarity)[0] == 400
     core.worker()
     _, gens = core.generations(queued["id"])
-    assert gens[0]["provenance"]["parameters"]["resolution"] == "2K", gens[0]["provenance"]
+    assert gens[0]["provenance"]["parameters"]["seed"] == 7, gens[0]["provenance"]
+    assert "resolution" not in gens[0]["provenance"]["parameters"], gens[0]["provenance"]
     listed = {m["id"]: m for m in run.http("GET", configs, admin)[1]["items"]}
-    assert listed[seed["id"]]["name"] == "高清测试 2K"
+    assert listed[seed["id"]]["name"] == "高清测试 7"
     # Deleting: never the default; unfinished tasks move to the default, finished ones unlink.
     status, body, _ = run.http("DELETE", f"{configs}/{default_id}", admin)
     assert status == 409 and body["code"] == "DEFAULT_MODEL", (status, body)
@@ -1450,14 +1533,17 @@ def run_core_checks(env, work):
             assert run.http("POST", "/api/v1/admin/accounts", admin, body)[0] == 201
         # A frozen admin binding proves the lease-delivered configuration reaches the model.
         mock_key = "mock-" + secrets.token_urlsafe(24)
+        face = {"name": "模拟 OpenRouter", "kind": "openrouter", "api_key": mock_key}
+        status, face, _ = run.http(
+            "POST", "/api/v1/admin/model-interfaces", admin, dict(face, use_proxy=False)
+        )
+        assert status == 201, (status, face)
         config = {
+            "interface_id": face["id"],
             "name": "模拟主力",
-            "provider": "openrouter",
             "model": "test/mock-model",
             "provider_tag": "mock",
-            "api_key": mock_key,
             "enabled": True,
-            "use_proxy": False,
         }
         assert run.http("POST", "/api/v1/admin/provider-configs", admin, config)[0] == 201
         alice, bob = run.login("alice"), run.login("bob")

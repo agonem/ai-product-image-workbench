@@ -90,7 +90,10 @@ public class RuntimeConfiguration {
   @Bean
   ProviderConfigService providerConfigService(
       JdbcTemplate jdbc, PlatformTransactionManager manager, Environment env) {
-    return new ProviderConfigService(jdbc, new TransactionTemplate(manager), env);
+    var configs = new ProviderConfigService(jdbc, new TransactionTemplate(manager), env);
+    // ADR-20261012-AB: interfaces V21 made one per model are merged once keys can be compared.
+    configs.mergeMigratedInterfaces();
+    return configs;
   }
 
   @Bean

@@ -11,12 +11,13 @@ older tasks sends text only.
 
 - OpenRouter: POST https://openrouter.ai/api/v1/chat/completions. The routing tag is only a
   preference (other providers of the model are used when that one does not serve it); without
-  a tag OpenRouter chooses. Thinking is asked to stay light (``reasoning.effort`` "low";
-  models without it ignore the field), since it uses the same output budget as the answer.
-- OpenAI format (official or third-party): POST {root}/chat/completions.
+  a tag OpenRouter chooses.
+- OpenAI format (official, DeepSeek official or third-party): POST {root}/chat/completions.
 - Gemini format (official or third-party): POST {root}/models/{model}:generateContent.
 
-A thinking model can still use up ``max_tokens`` before writing anything (OpenRouter then
+Only the official parameters the admin filled in for the model are sent (ADR-20261012-AB):
+temperature, output budget, thinking and so on are otherwise left to the vendor's defaults.
+A thinking model can still use up its output budget before writing anything (OpenRouter then
 answers ``finish_reason`` "length" with no content; Gemini ``MAX_TOKENS``). That is
 ``OUTPUT_LIMIT`` and may be retried (ADR-20261012-Y, the chat failures of 2026-10-12).
 """
@@ -27,7 +28,7 @@ import re
 
 import httpx
 
-from image_service.background import BackgroundError
+from image_service.background import BackgroundError, merge_parameters
 from image_service.egress import route
 from image_service.providers import endpoint_root
 
@@ -40,12 +41,12 @@ def _mime(content):
     return "image/png" if content[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
 
 
-def _temperature(config):
-    """The model's stored "创意程度" (ADR-20261009-Q), 0.7 when not set."""
-    return float(dict(config.parameters).get("temperature", "0.7"))
+# What the system sets for each call; the model's stored parameters never replace it.
+CHAT_FIELDS = ("model", "messages", "stream", "provider")
+GEMINI_FIELDS = ("contents", "systemInstruction")
 
 
-def _request(config, system, user, images=(), max_tokens=800):
+def _request(config, system, user, images=()):
     """``images`` are (name, bytes) pairs; each is introduced by its name before the picture."""
     if images:
         parts = [{"type": "text", "text": user}]
@@ -60,13 +61,9 @@ def _request(config, system, user, images=(), max_tokens=800):
         content = user
     messages = [{"role": "system", "content": system}, {"role": "user", "content": content}]
     if config.provider == "openrouter":
-        body = {
-            "model": config.model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": _temperature(config),
-            "reasoning": {"effort": "low"},
-        }
+        body = merge_parameters(
+            {"model": config.model, "messages": messages}, config.parameters, CHAT_FIELDS
+        )
         if config.provider_tag:
             body["provider"] = {"order": [config.provider_tag], "allow_fallbacks": True}
         return (
@@ -74,16 +71,13 @@ def _request(config, system, user, images=(), max_tokens=800):
             {"Authorization": "Bearer " + config.api_key},
             body,
         )
-    if config.provider in ("openai", "openai-compatible"):
+    if config.provider in ("openai", "deepseek", "openai-compatible"):
         return (
             endpoint_root(config) + "/chat/completions",
             {"Authorization": "Bearer " + config.api_key},
-            {
-                "model": config.model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": _temperature(config),
-            },
+            merge_parameters(
+                {"model": config.model, "messages": messages}, config.parameters, CHAT_FIELDS
+            ),
         )
     if config.provider in ("gemini", "gemini-compatible"):
         parts = [{"text": user}]
@@ -100,14 +94,14 @@ def _request(config, system, user, images=(), max_tokens=800):
         return (
             endpoint_root(config) + f"/models/{config.model}:generateContent",
             {"x-goog-api-key": config.api_key},
-            {
-                "systemInstruction": {"parts": [{"text": system}]},
-                "contents": [{"role": "user", "parts": parts}],
-                "generationConfig": {
-                    "maxOutputTokens": max_tokens,
-                    "temperature": _temperature(config),
+            merge_parameters(
+                {
+                    "systemInstruction": {"parts": [{"text": system}]},
+                    "contents": [{"role": "user", "parts": parts}],
                 },
-            },
+                config.parameters,
+                GEMINI_FIELDS,
+            ),
         )
     raise BackgroundError("CONFIGURATION")
 
@@ -141,9 +135,9 @@ def clean(text):
     return text[:MAX_OUTPUT].strip()
 
 
-def rewrite(config, system, user, *, images=(), max_tokens=800, transport=None):
+def rewrite(config, system, user, *, images=(), transport=None):
     """Returns (brief, usage) from one text-model call; ``images`` are (name, bytes) pairs."""
-    url, headers, body = _request(config, system, user, images, max_tokens)
+    url, headers, body = _request(config, system, user, images)
     try:
         with (
             httpx.Client(

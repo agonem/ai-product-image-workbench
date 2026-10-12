@@ -6,10 +6,18 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from image_service.background import BackgroundError
+from image_service.background import BackgroundError, valid_parameter
 from image_service.egress import private_http_host, valid_proxy
 
-PROVIDERS = ("openrouter", "openai", "gemini", "openai-compatible", "gemini-compatible")
+# Interface types (ADR-20261012-AB); DeepSeek serves text models only.
+PROVIDERS = (
+    "openrouter",
+    "openai",
+    "deepseek",
+    "gemini",
+    "openai-compatible",
+    "gemini-compatible",
+)
 
 
 @dataclass(frozen=True)
@@ -24,8 +32,8 @@ class ModelConfig:
     # None: environment configuration (MODEL_PROXY_URL applies); "": leased model, direct;
     # otherwise the leased model's proxy URL (may contain credentials, never logged).
     proxy: str | None = field(default=None, repr=False)
-    # Stored model parameters as sorted (name, value) pairs, e.g. (("quality", "high"),) or
-    # (("temperature", "0.7"),) (ADR-20261009-Q).
+    # Stored official parameters as sorted (name, value) pairs, e.g. (("quality", "high"),) or
+    # (("reasoning.effort", "low"), ("temperature", 0.7)); blank ones are absent (ADR-20261012-AB).
     parameters: tuple = ()
 
 
@@ -88,13 +96,8 @@ def config_from_mapping(mapping):
         parameters = mapping.get("parameters") or {}
         if (
             not isinstance(parameters, dict)
-            or len(parameters) > 10
-            or any(
-                not re.fullmatch(r"[a-z_]{1,40}", str(name))
-                or not isinstance(value, str)
-                or not re.fullmatch(r"[\w.-]{1,20}", value)
-                for name, value in parameters.items()
-            )
+            or len(parameters) > 20
+            or any(not valid_parameter(name, value) for name, value in parameters.items())
         ):
             raise ValueError()
         if (

@@ -19,7 +19,12 @@ import {
   widestPoint,
 } from './generation.ts'
 import { Submission } from './model.ts'
-import { paramSpecs, paramSummary } from './modelParameters.ts'
+import {
+  offeredKinds,
+  paramSpecs,
+  paramSummary,
+  parseParam,
+} from './modelParameters.ts'
 
 const ready = () => ({ ...newDraft(), product: 'product', gift: 'gift' })
 
@@ -325,23 +330,44 @@ test('ADR-20261009-R: sizes and the 1K/2K clarity are chosen separately', () => 
   assert.equal('resolution' in kept, false)
 })
 
-test('ADR-20261009-Q: model parameters follow the same families as the server', () => {
-  assert.deepEqual(Object.keys(paramSpecs('openai/gpt-image-2', 'IMAGE')), [
+test('ADR-20261012-AB: official parameters follow the same sets as the server', () => {
+  const names = (kind: string, model: string, purpose: 'IMAGE' | 'TEXT') =>
+    paramSpecs(kind, model, purpose).map((spec) => spec.name)
+  assert.deepEqual(names('openrouter', 'openai/gpt-image-2', 'IMAGE'), [
     'quality',
+    'background',
   ])
+  // Clarity is chosen per task, not stored with the model.
   assert.deepEqual(
-    paramSpecs(
-      'bytedance-seed/seedream-5-0-pro',
-      'IMAGE',
-    ).resolution!.values.map((item) => item.value),
-    ['1K', '2K'],
+    names('openrouter', 'bytedance-seed/seedream-5-0-pro', 'IMAGE'),
+    ['seed'],
   )
-  assert.deepEqual(paramSpecs('google/gemini-2.5-flash-image', 'IMAGE'), {})
-  assert.deepEqual(Object.keys(paramSpecs('vendor/text', 'TEXT')), [
-    'temperature',
-  ])
+  assert.deepEqual(
+    names('openrouter', 'google/gemini-2.5-flash-image', 'IMAGE'),
+    [],
+  )
+  assert.ok(
+    names('deepseek', 'deepseek-flash', 'TEXT').includes('thinking.type'),
+  )
+  assert.deepEqual(names('deepseek', 'deepseek-flash', 'IMAGE'), [])
+  assert.deepEqual(
+    offeredKinds.map((kind) => kind.id),
+    ['openrouter', 'openai', 'deepseek', 'gemini', 'openai-compatible'],
+  )
   assert.equal(
-    paramSummary('openai/gpt-image-2', 'IMAGE', { quality: 'high' }),
-    '画质档：高',
+    paramSummary('openrouter', 'openai/gpt-image-2', 'IMAGE', {
+      quality: 'high',
+    }),
+    '画质：高',
   )
+  // A blank field is not sent; numbers are typed and kept in range.
+  const [temperature] = paramSpecs('openrouter', 'x/y', 'TEXT')
+  assert.equal(parseParam(temperature!, ''), undefined)
+  assert.equal(parseParam(temperature!, '0.7'), 0.7)
+  assert.equal(parseParam(temperature!, '3'), null)
+  const tokens = paramSpecs('openrouter', 'x/y', 'TEXT').find(
+    (spec) => spec.name === 'max_tokens',
+  )!
+  assert.equal(parseParam(tokens, '6000'), 6000)
+  assert.equal(parseParam(tokens, '10.5'), null)
 })
