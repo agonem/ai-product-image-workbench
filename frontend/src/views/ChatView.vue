@@ -17,6 +17,7 @@ import DropSelect from '../components/DropSelect.vue'
 import EmptyState from '../components/EmptyState.vue'
 import AgentAvatar from '../components/AgentAvatar.vue'
 import AgentDialog from '../components/AgentDialog.vue'
+import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue'
 import ImageViewer from '../components/ImageViewer.vue'
 import ModalDialog from '../components/ModalDialog.vue'
 import InfiniteCanvas, {
@@ -413,6 +414,68 @@ function command(name: CanvasCommand) {
   else if (name === 'paste') duplicateSelection(clipboard.value)
   else if (name === 'undo') undoCanvas()
   else redoCanvas()
+}
+// Right-click menu (ADR-20261012-Z): copy, take off the canvas and download live here. A
+// picture outside the selection is selected first; the commands act on the whole selection.
+const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
+async function downloadPictures(ids: string[]) {
+  for (const id of ids) await w.download(id, `chat-${id}`)
+}
+function openMenu(event: MouseEvent, entry: Entry) {
+  if (!onCanvas(entry.key)) return
+  event.preventDefault()
+  if (!selection.value.includes(entry.key)) selection.value = [entry.key]
+  const pictures = selectedPictures.value
+  const artifacts = [
+    ...new Set(
+      pictures.map((key) => onCanvas(key)!.artifact_id!).filter(Boolean),
+    ),
+  ]
+  const many = (label: string, count: number) =>
+    count > 1 ? `${label}所选 ${count} 张` : label
+  const items: MenuItem[] = []
+  if (entry.artifact) {
+    const artifact = entry.artifact
+    const name = `第 ${entry.turn + 1} 条 · 图 ${entry.index + 1}`
+    items.push(
+      {
+        label: '继续修改',
+        icon: 'edit',
+        run: () => chooseEdit(artifact.id, name),
+      },
+      {
+        label: '放大查看',
+        icon: 'zoomin',
+        run: () => previewImage(entry.key),
+      },
+      {
+        label: many('下载', artifacts.length),
+        icon: 'dl',
+        run: () => downloadPictures(artifacts),
+      },
+      {
+        label: many('复制', pictures.length),
+        icon: 'copy',
+        hint: 'Ctrl+D',
+        run: () => duplicateSelection(),
+      },
+    )
+  } else if (entry.task.status === 'FAILED')
+    items.push({ label: '重试', icon: 'redo', run: () => retry(entry.task) })
+  items.push({
+    label: many('从画布移除', removable.value.length),
+    icon: 'close',
+    hint: 'Delete',
+    run: removeSelection,
+  })
+  // From the keyboard (context-menu key) there is no pointer: open under the picture.
+  let { clientX: x, clientY: y } = event
+  if (!x && !y) {
+    const box = (event.target as HTMLElement).getBoundingClientRect()
+    x = box.left + 12
+    y = box.top + 12
+  }
+  menu.value = { x, y, items }
 }
 // New results join a saved layout and are saved with it (no undo step).
 watch([pieces, saved], () => {
@@ -875,6 +938,7 @@ onUnmounted(() => {
                 :data-artifact="entry.artifact?.id"
                 :data-copy="entry.copy || undefined"
                 :data-selected="selection.includes(entry.key)"
+                @contextmenu="openMenu($event, entry)"
               >
                 <button
                   type="button"
@@ -882,7 +946,7 @@ onUnmounted(() => {
                   :aria-label="`选中第 ${entry.turn + 1} 条图 ${entry.index + 1}${entry.copy ? '（副本）' : ''}`"
                   :title="
                     entry.artifact
-                      ? '单击选中，拖动移动，双击全屏查看'
+                      ? '单击选中，拖动移动，双击全屏查看，右键更多操作'
                       : undefined
                   "
                   @click="$event.detail === 0 && (selection = [entry.key])"
@@ -935,16 +999,6 @@ onUnmounted(() => {
                     @click="previewImage(entry.artifact.id)"
                   >
                     <LineIcon name="zoomin" :size="13" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="下载"
-                    title="下载"
-                    @click="
-                      w.download(entry.artifact.id, `chat-${entry.artifact.id}`)
-                    "
-                  >
-                    <LineIcon name="dl" :size="13" />
                   </button>
                 </div>
                 <div
@@ -1006,26 +1060,6 @@ onUnmounted(() => {
               <button
                 type="button"
                 class="tool"
-                aria-label="复制"
-                title="复制所选图片（Ctrl+D）"
-                :disabled="!selectedPictures.length"
-                @click="duplicateSelection()"
-              >
-                <LineIcon name="copy" /><span class="label">复制</span>
-              </button>
-              <button
-                type="button"
-                class="tool"
-                aria-label="从画布移除"
-                title="从画布移除（Delete）：图片仍在“我的作品”里"
-                :disabled="!removable.length"
-                @click="removeSelection"
-              >
-                <LineIcon name="close" /><span class="label">移除</span>
-              </button>
-              <button
-                type="button"
-                class="tool"
                 aria-label="整理"
                 title="按消息先后重新排列"
                 :disabled="!pieces.length"
@@ -1073,6 +1107,14 @@ onUnmounted(() => {
             </div>
           </template>
         </InfiniteCanvas>
+        <ContextMenu
+          v-if="menu"
+          :x="menu.x"
+          :y="menu.y"
+          :items="menu.items"
+          label="图片操作"
+          @close="menu = null"
+        />
       </div>
 
       <form class="composer" @submit.prevent="send">

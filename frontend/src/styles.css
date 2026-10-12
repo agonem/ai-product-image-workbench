@@ -3410,3 +3410,8 @@ td small.params {
     max-width: 120px;
   }
 }
+
+/* Wraps the studio editor for its right-click menu without changing the layout (ADR-20261012-Z). */
+.editor-menu-area {
+  display: contents;
+}

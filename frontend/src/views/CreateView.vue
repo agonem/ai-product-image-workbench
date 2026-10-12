@@ -13,6 +13,7 @@ import AssetSlot from '../components/AssetSlot.vue'
 import DropSelect from '../components/DropSelect.vue'
 import ImageViewer from '../components/ImageViewer.vue'
 import InfiniteCanvas from '../components/InfiniteCanvas.vue'
+import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue'
 import LineIcon from '../components/LineIcon.vue'
 import ParamSection from '../components/ParamSection.vue'
 import SceneArt from '../components/SceneArt.vue'
@@ -405,6 +406,66 @@ const viewerItems = computed(() =>
       w.download(tile.artifact!.id, `${meta.value.route}-${tile.artifact!.id}`),
   })),
 )
+// Right-click menu (ADR-20261012-Z) on a result, or on the editor while it shows one.
+const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
+function showMenu(event: MouseEvent, items: MenuItem[]) {
+  event.preventDefault()
+  // From the keyboard (context-menu key) there is no pointer: open under the element.
+  let { clientX: x, clientY: y } = event
+  if (!x && !y) {
+    const box = (event.target as HTMLElement).getBoundingClientRect()
+    x = box.left + 12
+    y = box.top + 12
+  }
+  menu.value = { x, y, items }
+}
+function resultItems(tile: Tile, onEditor = false): MenuItem[] {
+  const artifact = tile.artifact!
+  const items: MenuItem[] = [
+    {
+      label: '放大查看',
+      icon: 'zoomin',
+      run: () => (viewing.value = finished.value.indexOf(tile)),
+    },
+    {
+      label: '对照原图',
+      icon: 'cmp',
+      run: () => compareWith(tile.task.id, tile.ordinal),
+    },
+    {
+      label: '下载',
+      icon: 'dl',
+      run: () => w.download(artifact.id, `${meta.value.route}-${artifact.id}`),
+    },
+  ]
+  if (!onEditor)
+    items.push({
+      label: '删除',
+      icon: 'del',
+      danger: true,
+      run: () => remove(artifact.id),
+    })
+  return items
+}
+function tileMenu(event: MouseEvent, tile: Tile) {
+  if (w.busy) return
+  if (tile.artifact) showMenu(event, resultItems(tile))
+  else if (tile.task.status === 'FAILED')
+    showMenu(event, [
+      { label: '重试', icon: 'redo', run: () => retry(tile.task.id) },
+    ])
+}
+function editorMenu(event: MouseEvent) {
+  const tile = finished.value.find(
+    (item) =>
+      item.task.id === view.value?.task && item.ordinal === view.value.ordinal,
+  )
+  // Text boxes keep the browser's own menu (copy, paste).
+  if ((event.target as Element).closest('input, textarea, [contenteditable]'))
+    return
+  if (mode.value !== 'result' || !tile || w.busy) return
+  showMenu(event, resultItems(tile, true))
+}
 async function open(task: string, ordinal: number) {
   // A double-click (preview) clicks twice; the task is already on screen the second time.
   if (w.selected?.id !== task) await w.select(task)
@@ -1087,44 +1148,49 @@ onMounted(() => {
         @preview="previewResult"
       >
         <template #default="{ item, near }">
-          <StudioCanvas
+          <div
             v-if="item.key === 'editor'"
-            v-model:mode="mode"
-            v-model:compare="compare"
-            v-model:box="draft.textBox"
-            :feature="feature"
-            :width="outputSize.width"
-            :height="outputSize.height"
-            :image="stageImage"
-            :backdrop="backdrop"
-            :gift-card="giftCard"
-            :product-position="productPosition"
-            :image-alt="`${meta.name}生成结果`"
-            :text="preview"
-            :text-align="draft.textAlign"
-            :palette="palette"
-            :product="originals.product"
-            :gift="originals.gift"
-            :gift-position="
-              String(shown?.request?.gift_position ?? draft.giftPosition)
-            "
-            :has-result="!!shown"
-            :generating="generating"
-            :failure="failure"
-            :can-apply="shown?.status === 'SUCCEEDED' && !!preview"
-            :disabled="locked"
-            :api="w.api"
-            :can-undo="canUndo"
-            :can-redo="canRedo"
-            tools-to="#studio-tools"
-            notes-to="#studio-notes"
-            @moved="draft.textPosition = ''"
-            @apply="applyText"
-            @overflow="textOverflow = $event"
-            @undo="undo"
-            @redo="redo"
-            @retry="shown && retry(shown.id)"
-          />
+            class="editor-menu-area"
+            @contextmenu="editorMenu"
+          >
+            <StudioCanvas
+              v-model:mode="mode"
+              v-model:compare="compare"
+              v-model:box="draft.textBox"
+              :feature="feature"
+              :width="outputSize.width"
+              :height="outputSize.height"
+              :image="stageImage"
+              :backdrop="backdrop"
+              :gift-card="giftCard"
+              :product-position="productPosition"
+              :image-alt="`${meta.name}生成结果`"
+              :text="preview"
+              :text-align="draft.textAlign"
+              :palette="palette"
+              :product="originals.product"
+              :gift="originals.gift"
+              :gift-position="
+                String(shown?.request?.gift_position ?? draft.giftPosition)
+              "
+              :has-result="!!shown"
+              :generating="generating"
+              :failure="failure"
+              :can-apply="shown?.status === 'SUCCEEDED' && !!preview"
+              :disabled="locked"
+              :api="w.api"
+              :can-undo="canUndo"
+              :can-redo="canRedo"
+              tools-to="#studio-tools"
+              notes-to="#studio-notes"
+              @moved="draft.textPosition = ''"
+              @apply="applyText"
+              @overflow="textOverflow = $event"
+              @undo="undo"
+              @redo="redo"
+              @retry="shown && retry(shown.id)"
+            />
+          </div>
           <div v-else-if="item.key === 'results-label'" class="canvas-label">
             <b>本次结果</b><span class="count num">{{ tiles.length }}</span>
             <router-link class="link-btn" to="/works">全部作品</router-link>
@@ -1144,11 +1210,12 @@ onMounted(() => {
               :data-selected="
                 view?.task === tile.task.id && view.ordinal === tile.ordinal
               "
+              @contextmenu="tileMenu($event, tile)"
               :title="
                 tile.task.error
                   ? `${tile.task.error.message}（${tile.task.error.code}）`
                   : tile.artifact
-                    ? '单击在编辑区打开，双击全屏查看'
+                    ? '单击在编辑区打开，双击全屏查看，右键更多操作'
                     : undefined
               "
             >
@@ -1248,6 +1315,14 @@ onMounted(() => {
         <template #footer><div id="studio-notes"></div></template>
       </InfiniteCanvas>
     </section>
+    <ContextMenu
+      v-if="menu"
+      :x="menu.x"
+      :y="menu.y"
+      :items="menu.items"
+      label="结果操作"
+      @close="menu = null"
+    />
     <ImageViewer
       v-if="viewing !== null && viewerItems.length"
       :items="viewerItems"

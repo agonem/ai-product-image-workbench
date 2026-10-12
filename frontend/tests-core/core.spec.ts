@@ -176,6 +176,32 @@ test('V4-B2: scene - upload, preset, model and size, compare, download', async (
   const download = page.waitForEvent('download')
   await tile.getByRole('button', { name: '下载' }).click()
   expect((await download).suggestedFilename()).toMatch(/^scene-.+\.png$/)
+  // ADR-20261012-Z: right-click a result for its menu; Esc closes it.
+  await tile.click({ button: 'right' })
+  const menu = page.getByRole('menu', { name: '结果操作' })
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    '放大查看',
+    '对照原图',
+    '下载',
+    '删除',
+  ])
+  await page.screenshot({ path: join(artifacts, 'scene-context-menu.png') })
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await tile.click({ button: 'right' })
+  const viaMenu = page.waitForEvent('download')
+  await menu.getByRole('menuitem', { name: '下载' }).click()
+  expect((await viaMenu).suggestedFilename()).toMatch(/^scene-.+\.png$/)
+  await expect(menu).toHaveCount(0)
+  // The editor showing the result has the same menu, without deleting.
+  await stage.click({ button: 'right' })
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    '放大查看',
+    '对照原图',
+    '下载',
+  ])
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
@@ -1334,14 +1360,40 @@ test('V4-B22: arranging the conversation canvas - move, copy, remove and put bac
   const reloaded = await apart()
   expect(reloaded[0]).toBeCloseTo(movedGap[0], 1)
   expect(reloaded[1]).toBeCloseTo(movedGap[1], 1)
-  // A copy of the selected picture, marked as such.
-  await first.getByRole('button', { name: /^选中第 1 条图 1/ }).click()
-  await tools.getByRole('button', { name: '复制' }).click()
+  // ADR-20261012-Z: copy, take off and download are in the right-click menu, not the toolbar.
+  await expect(tools.getByRole('button', { name: '复制' })).toHaveCount(0)
+  await expect(tools.getByRole('button', { name: '从画布移除' })).toHaveCount(0)
+  await expect(first.getByRole('button', { name: '下载' })).toHaveCount(0)
+  const menu = page.getByRole('menu', { name: '图片操作' })
+  await first.click({ button: 'right' })
+  await expect(first).toHaveAttribute('data-selected', 'true')
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    '继续修改',
+    '放大查看',
+    /^下载/,
+    /^复制/,
+    /^从画布移除/,
+  ])
+  await page.screenshot({ path: join(artifacts, 'chat-context-menu.png') })
+  const download = page.waitForEvent('download')
+  await menu.getByRole('menuitem', { name: '下载' }).click()
+  expect((await download).suggestedFilename()).toMatch(/^chat-.+\.(png|jpg)$/)
+  await expect(menu).toHaveCount(0)
+  // A copy of the picture, marked as such.
+  await first.click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: /^复制/ }).click()
   await expect(images).toHaveCount(3)
   await expect(
     page.locator('[data-testid="canvas-image"][data-copy]'),
   ).toHaveCount(1)
   await expect(page.getByText('副本')).toBeVisible()
+  // Taking the copy off from its menu; undo brings it back.
+  const copy = page.locator('[data-testid="canvas-image"][data-copy]')
+  await copy.click({ button: 'right' })
+  await menu.getByRole('menuitem', { name: /^从画布移除/ }).click()
+  await expect(images).toHaveCount(2)
+  await tools.getByRole('button', { name: '撤销' }).click()
+  await expect(images).toHaveCount(3)
   // A box drawn over empty space selects everything it touches; Delete takes it off the canvas.
   await page.getByRole('button', { name: '显示全部' }).click()
   const area = (await page.getByTestId('canvas').boundingBox())!
