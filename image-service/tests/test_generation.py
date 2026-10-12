@@ -1085,6 +1085,10 @@ def test_text_models_speak_each_format(provider, extra, payload, url):
     if provider == "openrouter":
         # The tag is a preference: other providers serve the model when that one does not.
         assert body["provider"] == {"order": ["openai"], "allow_fallbacks": True}
+        # Light thinking, so the answer fits the budget (ADR-20261012-Y).
+        assert body["reasoning"] == {"effort": "low"}
+    else:
+        assert "reasoning" not in body
 
 
 def test_text_model_errors_are_fixed_codes():
@@ -1101,8 +1105,51 @@ def test_text_model_errors_are_fixed_codes():
     empty = httpx.MockTransport(
         lambda request: httpx.Response(200, json={"choices": [{"message": {"content": "  "}}]})
     )
-    with pytest.raises(BackgroundError, match="INVALID_RESPONSE"):
+    with pytest.raises(BackgroundError, match="INVALID_RESPONSE") as error:
         text_models.rewrite(config, "s", "u", transport=empty)
+    assert not error.value.retryable
+
+
+@pytest.mark.parametrize(
+    ("provider", "payload"),
+    [
+        # The chat analyses of 2026-10-12 (maojk): DeepSeek V4.1 Flash thought until the
+        # 1500-token budget was gone and answered nothing.
+        (
+            "openrouter",
+            {"choices": [{"finish_reason": "length", "message": {"content": ""}}]},
+        ),
+        (
+            "openrouter",
+            {"choices": [{"finish_reason": "length", "message": {"content": None}}]},
+        ),
+        (
+            "gemini",
+            {"candidates": [{"finishReason": "MAX_TOKENS", "content": {"role": "model"}}]},
+        ),
+    ],
+)
+def test_a_text_model_that_thinks_past_its_budget_can_be_retried(provider, payload):
+    """ADR-20261012-Y: no answer because the output budget ran out is OUTPUT_LIMIT, retryable."""
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    model = "vendor/vision" if provider == "openrouter" else "vision"
+    config = ModelConfig("k" * 20, model, provider=provider, proxy="")
+    with pytest.raises(BackgroundError) as error:
+        text_models.rewrite(config, "s", "u", transport=text_reply(provider, payload, []))
+    assert error.value.code == "OUTPUT_LIMIT" and error.value.retryable
+
+
+def test_an_answer_cut_off_by_the_budget_is_still_used():
+    """Something written before the budget ran out is kept, as before (ADR-20261012-Y)."""
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+
+    config = ModelConfig("k" * 20, "vendor/vision", provider="openrouter", proxy="")
+    payload = {"choices": [{"finish_reason": "length", "message": {"content": "【看图】商品图"}}]}
+    brief, _ = text_models.rewrite(config, "s", "u", transport=text_reply("x", payload, []))
+    assert brief == "【看图】商品图"
 
 
 def test_text_model_without_a_tag_lets_openrouter_route(monkeypatch):
@@ -1189,7 +1236,8 @@ def test_chat_looks_at_every_image_before_drawing(font, monkeypatch):
     assert "【看图】" in system and "【出图方案】" in system and "只忠实分析和规划" in system
     assert "不要添加用户和参考图都没有的元素或装饰" in system
     assert user.startswith("需求：在参考图1的基础上") and "下面依次是图片" in user
-    assert max_tokens == 1500 and local.posts[0] == "heartbeat"
+    # Room for a thinking model's hidden reasoning plus the answer (ADR-20261012-Y).
+    assert max_tokens == 6000 and local.posts[0] == "heartbeat"
     prompt = adapter.requests[0].prompt
     assert "Instruction from the user: 在参考图1的基础上" in prompt
     assert "Image analysis and plan, written after looking at every input image" in prompt
@@ -1242,6 +1290,37 @@ def test_a_failed_analysis_says_so_and_draws_nothing(font, monkeypatch):
     assert adapter.requests == []
     with pytest.raises(BackgroundError, match="VISION_CONFIGURATION"):
         process_generation(local, chat_with_references(local), "lease", adapter)
+
+
+def test_an_analysis_that_ran_out_of_budget_fails_retryably(font, monkeypatch):
+    """ADR-20261012-Y: the page says the analysis thought too long, and 重试 is allowed."""
+    from image_service import text_models
+    from image_service.background_config import ModelConfig
+    from image_service.worker import provider_failure
+
+    def thinking(config, system, user, **_):
+        raise BackgroundError("OUTPUT_LIMIT", retryable=True)
+
+    monkeypatch.setattr(text_models, "rewrite", thinking)
+    local, adapter = api(), Adapter()
+    value = chat_with_references(local)
+    text = ModelConfig("k" * 20, "vendor/vision")  # OpenRouter
+    with pytest.raises(BackgroundError) as error:
+        process_generation(local, value, "lease", adapter, text_config=text)
+    assert error.value.code == "VISION_OUTPUT_LIMIT" and adapter.requests == []
+    receipt = provider_failure(value, error.value)
+    assert not validate_contract("generation-v4-failed", receipt)
+    assert receipt["error"] == {
+        "code": "PROVIDER_UNAVAILABLE",
+        "safe_message": "VISION_OUTPUT_LIMIT",
+        "retryable": True,
+    }
+    # An unusable answer is still final, and provider text never becomes the message.
+    final = provider_failure(value, BackgroundError("VISION_INVALID_RESPONSE"))
+    assert final["error"]["retryable"] is False
+    assert final["error"]["safe_message"] == "VISION_INVALID_RESPONSE"
+    hidden = provider_failure(value, BackgroundError("secret provider words"))
+    assert hidden["error"]["safe_message"] == "Worker operation unavailable"
 
 
 @pytest.mark.parametrize("provider", ["openrouter", "gemini"])

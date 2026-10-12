@@ -289,6 +289,10 @@ ANALYST = "你是严谨的电商图片分析师，也是资深母婴电商视觉
 ANALYSIS_ONLY = "只忠实分析和规划，不加入用户没要求的创意。"
 ANALYSIS_WAND = "在出图方案里按你的设定把画面写得更专业、更有质感，但不违背用户原话和以上规则。"
 ANALYSIS_SIDE = 1024  # the text model sees smaller copies; the image model gets the usual ones
+# Output budgets of the text call. A thinking model spends part of it on hidden reasoning before
+# the answer: with 1500 the chat analyses of 2026-10-12 came back cut off or empty (ADR-20261012-Y).
+ANALYSIS_TOKENS = 6000
+REWRITE_TOKENS = 4000
 
 
 def _image_names(request):
@@ -609,7 +613,11 @@ def process_generation(
             (system, user), images = _rewrite_messages(request), ()
         try:
             written, _usage = text_models.rewrite(
-                text_config, system, user, images=images, max_tokens=1500 if look else 800
+                text_config,
+                system,
+                user,
+                images=images,
+                max_tokens=ANALYSIS_TOKENS if look else REWRITE_TOKENS,
             )
         except BackgroundError as error:
             # Tell the page it was the text step, not the picture, that failed.

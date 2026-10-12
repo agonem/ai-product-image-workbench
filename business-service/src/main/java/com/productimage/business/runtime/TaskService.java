@@ -474,6 +474,8 @@ public final class TaskService {
           case "PROVIDER_NETWORK" -> "连接失败，请检查网络或代理设置";
           case "CONFIGURATION" -> "未配置或配置不完整";
           case "INVALID_RESPONSE", "RESPONSE_BUDGET" -> "返回的内容无法使用";
+          // ADR-20261012-Y: a thinking model used the whole output budget before answering.
+          case "OUTPUT_LIMIT" -> "思考过长，没有给出结果，请点重试";
           default ->
               cause.startsWith("PROVIDER_HTTP_")
                   ? "调用失败（HTTP " + cause.substring(14) + "）"

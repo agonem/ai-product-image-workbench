@@ -15,6 +15,10 @@ class FailureMessageTest {
     assertEquals(
         "看图分析失败：文本模型不存在或路由标签不匹配（HTTP 404），请检查模型标识和路由标签",
         TaskService.safeMessage("PROVIDER_UNAVAILABLE", "VISION_PROVIDER_HTTP_404"));
+    // ADR-20261012-Y: the analyses of 2026-10-12 that thought until the output budget ran out.
+    assertEquals(
+        "看图分析失败：文本模型思考过长，没有给出结果，请点重试",
+        TaskService.safeMessage("PROVIDER_UNAVAILABLE", "VISION_OUTPUT_LIMIT"));
     assertEquals(
         "出图模型的 API Key 无效或无权限（401）",
         TaskService.safeMessage("PROVIDER_UNAVAILABLE", "PROVIDER_HTTP_401"));

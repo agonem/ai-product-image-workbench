@@ -84,6 +84,32 @@ def failure(request, code, retryable=True):
     }
 
 
+# Stable allowlisted diagnostics only; never provider bodies, URLs or credentials.
+SAFE_CODES = {
+    "CONFIGURATION",
+    "UNSUPPORTED_CAPABILITY",
+    "INVALID_INPUT",
+    "INVALID_OUTPUT",
+    "INVALID_RESPONSE",
+    "RESPONSE_BUDGET",
+    "OUTPUT_LIMIT",
+    "PROVIDER_NETWORK",
+} | {f"PROVIDER_HTTP_{status}" for status in range(400, 600)}
+# The magic-wand rewrite reports the same codes with a TEXT_ prefix (ADR-20261008-L), the
+# look-first analysis with VISION_ (ADR-20261009-P).
+SAFE_CODES |= {prefix + code for code in SAFE_CODES for prefix in ("TEXT_", "VISION_")}
+
+
+def provider_failure(request, error):
+    """The failed receipt of a model call: retryable unless the outcome is ambiguous."""
+    receipt = failure(request, "PROVIDER_UNAVAILABLE", error.retryable and not error.ambiguous)
+    if error.code in SAFE_CODES:
+        receipt["error"]["safe_message"] = error.code
+    if error.code in {"INVALID_OUTPUT", "INVALID_RESPONSE", "RESPONSE_BUDGET"}:
+        receipt["error"]["code"] = "OUTPUT_VALIDATION_FAILED"
+    return receipt
+
+
 def process(
     api: Api,
     request: dict,
@@ -251,28 +277,7 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
                 text_provider_config=claim.get("text_provider_config"),
             )
         except BackgroundError as error:
-            receipt = failure(
-                request, "PROVIDER_UNAVAILABLE", error.retryable and not error.ambiguous
-            )
-            # Stable allowlisted diagnostics only; never provider bodies, URLs or credentials.
-            safe_codes = {
-                "CONFIGURATION",
-                "UNSUPPORTED_CAPABILITY",
-                "INVALID_INPUT",
-                "INVALID_OUTPUT",
-                "INVALID_RESPONSE",
-                "RESPONSE_BUDGET",
-                "PROVIDER_NETWORK",
-            }
-            safe_codes.update(f"PROVIDER_HTTP_{status}" for status in range(400, 600))
-            # The magic-wand rewrite reports the same codes with a TEXT_ prefix (ADR-20261008-L),
-            # the look-first analysis with VISION_ (ADR-20261009-P).
-            base = list(safe_codes)
-            safe_codes.update({prefix + code for code in base for prefix in ("TEXT_", "VISION_")})
-            if error.code in safe_codes:
-                receipt["error"]["safe_message"] = error.code
-            if error.code in {"INVALID_OUTPUT", "INVALID_RESPONSE", "RESPONSE_BUDGET"}:
-                receipt["error"]["code"] = "OUTPUT_VALIDATION_FAILED"
+            receipt = provider_failure(request, error)
         except (httpx.HTTPError, ValueError, KeyError):
             receipt = failure(request, "GENERATION_FAILED")
         receipt["duration_ms"] = int((time.monotonic() - started) * 1000)

@@ -11,9 +11,14 @@ older tasks sends text only.
 
 - OpenRouter: POST https://openrouter.ai/api/v1/chat/completions. The routing tag is only a
   preference (other providers of the model are used when that one does not serve it); without
-  a tag OpenRouter chooses.
+  a tag OpenRouter chooses. Thinking is asked to stay light (``reasoning.effort`` "low";
+  models without it ignore the field), since it uses the same output budget as the answer.
 - OpenAI format (official or third-party): POST {root}/chat/completions.
 - Gemini format (official or third-party): POST {root}/models/{model}:generateContent.
+
+A thinking model can still use up ``max_tokens`` before writing anything (OpenRouter then
+answers ``finish_reason`` "length" with no content; Gemini ``MAX_TOKENS``). That is
+``OUTPUT_LIMIT`` and may be retried (ADR-20261012-Y, the chat failures of 2026-10-12).
 """
 
 import base64
@@ -60,6 +65,7 @@ def _request(config, system, user, images=(), max_tokens=800):
             "messages": messages,
             "max_tokens": max_tokens,
             "temperature": _temperature(config),
+            "reasoning": {"effort": "low"},
         }
         if config.provider_tag:
             body["provider"] = {"order": [config.provider_tag], "allow_fallbacks": True}
@@ -116,6 +122,16 @@ def _text(config, response):
     return content
 
 
+def _cut_off(config, response):
+    """Whether the model stopped because the output budget ran out."""
+    try:
+        if config.provider in ("gemini", "gemini-compatible"):
+            return response["candidates"][0].get("finishReason") == "MAX_TOKENS"
+        return response["choices"][0].get("finish_reason") == "length"
+    except (KeyError, IndexError, TypeError, AttributeError):
+        return False
+
+
 def clean(text):
     """One plain brief: no code fences or wrapping quotes, tidy spacing, bounded length."""
     text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", text.strip())
@@ -155,10 +171,13 @@ def rewrite(config, system, user, *, images=(), max_tokens=800, transport=None):
     except (ValueError, UnicodeError):
         raise BackgroundError("INVALID_RESPONSE") from None
     try:
-        brief = clean(_text(config, payload))
+        text = _text(config, payload)
     except (KeyError, IndexError, TypeError, AttributeError):
-        raise BackgroundError("INVALID_RESPONSE") from None
+        text = None
+    brief = clean(text) if isinstance(text, str) else ""
     if not brief:
+        if _cut_off(config, payload):
+            raise BackgroundError("OUTPUT_LIMIT", retryable=True)
         raise BackgroundError("INVALID_RESPONSE")
     usage = payload.get("usage") or payload.get("usageMetadata") or {}
     numbers = {k: v for k, v in usage.items() if isinstance(v, int | float)}

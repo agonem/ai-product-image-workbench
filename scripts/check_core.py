@@ -1219,6 +1219,19 @@ def api_checks(core, admin, alice, bob, project):
     assert state["error"]["message"].startswith("看图分析失败：文本模型不存在或路由标签不匹配")
     attempt = run.sql(f"SELECT current_attempt_id FROM generation_tasks WHERE id='{state['id']}'")
     assert core.fences(attempt) == "0"
+    # ADR-20261012-Y: a thinking model that used its whole budget before answering (the chat
+    # failures of 2026-10-12). The page says so, nothing is paid for and 重试 runs it again.
+    state = core.generate(alice, dict(looked, prompt="模拟思考过长"), "v4-look-thinking")
+    assert state["status"] == "FAILED" and state["artifacts"] == [], state
+    assert state["error"]["message"] == "看图分析失败：文本模型思考过长，没有给出结果，请点重试"
+    attempt = run.sql(f"SELECT current_attempt_id FROM generation_tasks WHERE id='{state['id']}'")
+    assert core.fences(attempt) == "0"
+    status, retried, _ = run.http(
+        "POST", f"/api/v1/tasks/{state['id']}/retry", alice, {"attempt": 1}
+    )
+    assert status == 202 and retried["attempt"] == 2, (status, retried)
+    core.worker(extra={"MOCK_THINKING_DONE": "1"})
+    assert core.get(alice, state["id"])[1]["status"] == "SUCCEEDED"
     # An OpenRouter text model may leave routing to OpenRouter; an image model may not.
     untagged = {k: v for k, v in writer.items() if k != "provider_tag"}
     assert run.http("POST", "/api/v1/admin/provider-configs", admin, untagged)[0] == 201

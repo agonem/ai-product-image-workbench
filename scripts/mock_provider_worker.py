@@ -97,6 +97,9 @@ def mock_rewrite(config, system, user, *, images=(), max_tokens=800):
     if "模拟改写失败" in need or "模拟分析失败" in need:
         # A text model that the provider does not serve (the 2026-10-08 404).
         raise BackgroundError("PROVIDER_HTTP_404")
+    if "模拟思考过长" in need and not os.getenv("MOCK_THINKING_DONE"):
+        # A thinking model that used its whole output budget before answering (2026-10-12).
+        raise BackgroundError("OUTPUT_LIMIT", retryable=True)
     persona = system.split("。")[0].removeprefix("你是")
     if images:
         names = "、".join(name for name, _ in images)
