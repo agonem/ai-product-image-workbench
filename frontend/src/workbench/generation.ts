@@ -73,6 +73,7 @@ export const canvasSizes = [
   { label: '2048 × 1152', ratio: '16:9', width: 2048, height: 1152 },
   { label: '1360 × 2040', ratio: '2:3', width: 1360, height: 2040 },
   { label: '2040 × 1360', ratio: '3:2', width: 2040, height: 1360 },
+  { label: '1440 × 1440', ratio: '1:1', width: 1440, height: 1440 },
 ]
 /** The model's output clarity (ADR-20261009-R); the output size is chosen separately. */
 export type Resolution = '1K' | '2K'

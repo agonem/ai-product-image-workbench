@@ -281,7 +281,7 @@ test('ADR-20261008-H: product position travels only with an AI style', () => {
 
 test('ADR-20261009-R: sizes and the 1K/2K clarity are chosen separately', () => {
   // The larger sizes are appended (saved templates keep their index) and keep their ratio.
-  assert.equal(canvasSizes.length, 14)
+  assert.equal(canvasSizes.length, 15)
   for (const size of canvasSizes.slice(7)) {
     const [w, h] = size.ratio.split(':').map(Number) as [number, number]
     assert.equal(size.width * h, size.height * w)
@@ -328,6 +328,28 @@ test('ADR-20261009-R: sizes and the 1K/2K clarity are chosen separately', () => 
     points: '卖点',
   })
   assert.equal('resolution' in kept, false)
+})
+
+test('1440 square output keeps saved size indexes and submits exact dimensions', () => {
+  const size = canvasSizes.findIndex(
+    (item) => item.width === 1440 && item.height === 1440,
+  )
+  // Existing personal templates store a numeric size index.
+  assert.equal(size, 14)
+  for (const feature of ['GIFT', 'SCENE', 'SELLING_POINT'] as const) {
+    const request = buildGeneration(feature, 'p', {
+      ...ready(),
+      size,
+      points: '安全材质',
+    })
+    assert.deepEqual(request.output, {
+      aspect_ratio: '1:1',
+      width: 1440,
+      height: 1440,
+      format: 'png',
+      count: 1,
+    })
+  }
 })
 
 test('ADR-20261012-AB: official parameters follow the same sets as the server', () => {
