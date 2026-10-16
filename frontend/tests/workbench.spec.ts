@@ -51,13 +51,13 @@ test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failur
   await expect(rows).toHaveCount(22)
 
   await page.getByRole('link', { name: '素材管理' }).click()
-  await page.getByLabel('上传商品图').setInputFiles({
+  await page.getByLabel('上传素材').setInputFiles({
     name: 'invalid.png',
     mimeType: 'image/png',
     buffer: Buffer.from('not an image'),
   })
   await expect(page.getByRole('alert')).toContainText('无法读取这张图片')
-  await page.getByLabel('上传商品图').setInputFiles({
+  await page.getByLabel('上传素材').setInputFiles({
     name: 'synthetic.jpg',
     mimeType: 'image/jpeg',
     buffer: Buffer.from(

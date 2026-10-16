@@ -2,15 +2,18 @@
 import { computed, inject, onUnmounted, ref } from 'vue'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import { workbenchKey } from '../workbench/useWorkbench'
-import { assetKinds, kindName, type AssetKind } from '../workbench/model'
+import type { AssetKind } from '../workbench/model'
+import { useFileDrop } from '../workbench/fileDrop'
 import LineIcon from './LineIcon.vue'
 import ModalDialog from './ModalDialog.vue'
 import EmptyState from './EmptyState.vue'
 
-// A material slot: click to pick from the library or upload a new original. The library
-// opens on this slot's own category, and every other category and the finished works can be
-// picked too (ADR-20261009-R); uploads are filed under the slot's category.
-const props = defineProps<{ label: string; kind: AssetKind }>()
+// Unified originals (UPLOAD-AC); kind remains the API-compatible upload role.
+const props = defineProps<{
+  label: string
+  kind: AssetKind
+  disabled?: boolean
+}>()
 const model = defineModel<string>({ required: true })
 const w = inject(workbenchKey)!
 // Finished results can be reused as material too (ADR-20260930-E); picking one copies it.
@@ -23,21 +26,34 @@ const works = computed(() =>
 )
 const menu = ref(false),
   picking = ref(false),
-  source = ref<AssetKind | 'works'>(props.kind)
-const choices = computed(() =>
-  source.value === 'works' ? [] : w.assetsOf(source.value),
-)
-const sourceName = computed(() =>
-  source.value === 'works' ? '我的作品' : kindName(source.value),
-)
+  source = ref<'uploads' | 'works'>('uploads')
+const choices = computed(() => w.assets)
 const root = ref<HTMLElement>(),
   file = ref<HTMLInputElement>()
-const locked = computed(() => w.busy || w.uncertain)
+const locked = computed(() => !!props.disabled || w.busy || w.uncertain)
+let mounted = true
+const { dragging, handlers: dropEvents } = useFileDrop(
+  () => locked.value,
+  async (files) => {
+    if (files.length !== 1) {
+      w.error = `${props.label}一次只能上传一张图片，请逐张拖入。`
+      return
+    }
+    await uploadFile(files[0]!)
+  },
+)
+
+function clear() {
+  if (locked.value) return
+  hide()
+  model.value = ''
+}
 
 function outside(event: PointerEvent) {
   if (!root.value?.contains(event.target as Node)) hide()
 }
 function toggle() {
+  if (locked.value) return
   if (menu.value) return hide()
   menu.value = true
   document.addEventListener('pointerdown', outside, true)
@@ -48,7 +64,7 @@ function hide() {
 }
 function library() {
   hide()
-  source.value = props.kind
+  source.value = 'uploads'
   picking.value = true
 }
 function upload() {
@@ -59,14 +75,19 @@ async function pick(event: Event) {
   const input = event.target as HTMLInputElement
   const chosen = input.files?.[0]
   input.value = ''
-  if (!chosen) return
+  if (chosen) await uploadFile(chosen)
+}
+async function uploadFile(chosen: File) {
+  if (locked.value) return
+  hide()
   const created = await w.upload(chosen, props.kind)
-  if (created) {
+  if (created && mounted) {
     model.value = created.id
     picking.value = false
   }
 }
 function select(id: string) {
+  if (locked.value) return
   model.value = id
   picking.value = false
 }
@@ -74,11 +95,20 @@ async function reuse(artifact: string) {
   const copied = await w.reuseWork(artifact, props.kind)
   if (copied) select(copied.id)
 }
-onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
+onUnmounted(() => {
+  mounted = false
+  document.removeEventListener('pointerdown', outside, true)
+})
 </script>
 
 <template>
-  <div ref="root" class="slot" @keydown.esc="hide">
+  <div
+    ref="root"
+    class="slot"
+    :class="{ 'file-dragging': dragging }"
+    v-on="dropEvents"
+    @keydown.esc="hide"
+  >
     <button
       type="button"
       class="slot-button"
@@ -86,6 +116,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
       aria-haspopup="menu"
       :aria-expanded="menu"
       :aria-label="model ? `${label}（已选择，点击更换）` : label"
+      :title="`${label}：点击选择或拖入一张图片`"
       :disabled="locked"
       @click="toggle"
     >
@@ -96,6 +127,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
           :alt="label"
           :api="w.api"
           missing="原图已删除"
+          draggable="false"
         />
         <span class="slot-label">{{ label }}</span>
       </template>
@@ -104,6 +136,18 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
         <span>{{ label }}</span>
       </template>
     </button>
+    <button
+      v-if="model"
+      type="button"
+      class="slot-clear"
+      :aria-label="`清除${label}`"
+      :title="`清除${label}选择，原图仍保留在素材库`"
+      :disabled="locked"
+      @click.stop="clear"
+    >
+      <LineIcon name="close" :size="14" />
+    </button>
+    <span v-if="dragging" class="drop-hint">松开上传图片</span>
     <div v-if="menu" class="menu" role="menu" :aria-label="label">
       <button type="button" role="menuitem" class="menu-item" @click="library">
         <LineIcon name="lib" :size="15" />从素材库选择
@@ -130,13 +174,11 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
     >
       <div class="tabs" role="group" aria-label="图片来源">
         <button
-          v-for="item in assetKinds"
-          :key="item.id"
           type="button"
-          :aria-pressed="source === item.id"
-          @click="source = item.id"
+          :aria-pressed="source === 'uploads'"
+          @click="source = 'uploads'"
         >
-          {{ item.name }}
+          已上传的素材
         </button>
         <button
           type="button"
@@ -180,22 +222,20 @@ onUnmounted(() => document.removeEventListener('pointerdown', outside, true))
           type="button"
           :aria-pressed="asset.id === model"
           :aria-label="`选择${label} ${asset.width}×${asset.height}`"
+          :disabled="locked"
           @click="select(asset.id)"
         >
           <figure>
             <PrivateImage
               :path="`/assets/${asset.id}/content`"
-              :alt="`${sourceName} ${asset.width}×${asset.height}`"
+              :alt="`素材 ${asset.width}×${asset.height}`"
               :api="w.api"
             />
           </figure>
           <small class="num">{{ asset.width }} × {{ asset.height }}</small>
         </button>
       </div>
-      <EmptyState v-else art="box">素材库里还没有{{ sourceName }}</EmptyState>
-      <p v-if="source !== 'works' && source !== kind" class="hint">
-        {{ sourceName }}也可以用作{{ label }}；选中后不改变它在素材库里的分类。
-      </p>
+      <EmptyState v-else art="box">还没有已上传的素材</EmptyState>
       <button
         v-if="source !== 'works' && w.assetNext !== null"
         type="button"

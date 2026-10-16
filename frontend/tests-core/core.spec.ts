@@ -132,7 +132,7 @@ test('V4-B2: scene - upload, preset, model and size, compare, download', async (
   await page
     .getByLabel('上传商品图')
     .setInputFiles(process.env.CORE_PRODUCT_FILE!)
-  await expect(toast(page)).toContainText('商品原图已保存')
+  await expect(toast(page)).toContainText('原图已保存')
   await expect(
     page.getByRole('button', { name: /^商品图（已选择/ }).locator('img'),
   ).toBeVisible()
@@ -221,7 +221,7 @@ test('V4-B3: gift - position and background only, no text', async ({
     .click()
   await expect(picker).toHaveCount(0)
   await page.getByLabel('上传赠品图').setInputFiles(process.env.CORE_GIFT_FILE!)
-  await expect(toast(page)).toContainText('赠品原图已保存')
+  await expect(toast(page)).toContainText('原图已保存')
   await section(page, '赠品位置')
   await page.getByRole('button', { name: '左下' }).click()
   await section(page, '背景')
@@ -648,7 +648,7 @@ test('V4-B10: an image the browser can open is accepted whatever its name or for
   await expect(cards.first()).toBeVisible()
   const before = await cards.count()
   // WebP content under a ".jpg" name: stored as a PNG copy of its pixels.
-  await page.getByLabel('上传商品图').setInputFiles(process.env.CORE_WEBP_FILE!)
+  await page.getByLabel('上传素材').setInputFiles(process.env.CORE_WEBP_FILE!)
   await expect(toast(page)).toContainText('已转为 PNG 保存')
   await expect(cards).toHaveCount(before + 1)
   await expect(cards.first().locator('img')).toBeVisible()
@@ -902,7 +902,7 @@ test('V4-B17: the gift in a card on the original background, re-shot on white', 
     .click()
   await expect(picker).toHaveCount(0)
   await page.getByLabel('上传赠品图').setInputFiles(process.env.CORE_GIFT_FILE!)
-  await expect(toast(page)).toContainText('赠品原图已保存')
+  await expect(toast(page)).toContainText('原图已保存')
   await section(page, '背景')
   await page.getByRole('button', { name: '保持原图' }).click()
   await expect(page.getByText('原图里的人物或物品可能被改动')).toBeVisible()
@@ -1152,37 +1152,34 @@ test('V4-B15: image management, dashboard and operation log for admins', async (
   })
 })
 
-test('V4-B20: material categories and picking across them', async ({
+test('V4-B20: unified uploaded materials and picking across roles', async ({
   page,
 }) => {
   const errors = watchErrors(page)
   await login(page)
   await page.getByRole('link', { name: '素材管理' }).click()
   const kinds = page.getByRole('group', { name: '素材类型' })
-  for (const name of ['商品图', '赠品图', '参考图', '作品图'])
+  for (const name of ['已上传的素材', '作品图'])
     await expect(kinds.getByRole('button', { name })).toBeVisible()
-  await kinds.getByRole('button', { name: '参考图' }).click()
+  await expect(kinds.getByRole('button')).toHaveCount(2)
   const before = await page.getByTestId('asset-card').count()
-  await page.getByLabel('上传参考图').setInputFiles(process.env.CORE_GIFT_FILE!)
-  await expect(toast(page)).toContainText('参考原图已保存')
+  await page.getByLabel('上传素材').setInputFiles(process.env.CORE_GIFT_FILE!)
+  await expect(toast(page)).toContainText('原图已保存')
   await expect(page.getByTestId('asset-card')).toHaveCount(before + 1)
   await kinds.getByRole('button', { name: '作品图' }).click()
   await expect(page.getByTestId('work-asset-card').first()).toBeVisible()
   await page.screenshot({ path: join(artifacts, 'assets-categories.png') })
-  // The product slot opens on 商品图 but can take a 参考图.
+  // Every slot opens on the same originals list; works remain separate (UPLOAD-AC).
   await page.getByRole('link', { name: '场景主图' }).click()
   await page.getByRole('button', { name: /^商品图/ }).click()
   await page.getByRole('menuitem', { name: '从素材库选择' }).click()
   const picker = page.getByRole('dialog', { name: '选择商品图' })
   const sources = picker.getByRole('group', { name: '图片来源' })
-  await expect(sources.getByRole('button', { name: '商品图' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
-  for (const name of ['赠品图', '参考图', '我的作品'])
-    await expect(sources.getByRole('button', { name })).toBeVisible()
-  await sources.getByRole('button', { name: '参考图' }).click()
-  await expect(picker.getByText('参考图也可以用作商品图')).toBeVisible()
+  await expect(
+    sources.getByRole('button', { name: '已上传的素材' }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await expect(sources.getByRole('button')).toHaveCount(2)
+  await expect(sources.getByRole('button', { name: '我的作品' })).toBeVisible()
   await picker
     .getByRole('button', { name: /^选择商品图/ })
     .first()
@@ -1196,7 +1193,7 @@ test('V4-B20: material categories and picking across them', async ({
   )
   expect(typeof body.product_asset_id).toBe('string')
   await expect(done(page, id)).toHaveCount(1, { timeout: 60000 })
-  // The chat page's reference slot opens on 参考图.
+  // The reference slot uses the same list and retains its role name.
   await page.getByRole('link', { name: '对话生图' }).click()
   await page.getByRole('button', { name: /^参考图1/ }).click()
   await page.getByRole('menuitem', { name: '从素材库选择' }).click()
@@ -1204,7 +1201,7 @@ test('V4-B20: material categories and picking across them', async ({
   await expect(
     refs
       .getByRole('group', { name: '图片来源' })
-      .getByRole('button', { name: '参考图' }),
+      .getByRole('button', { name: '已上传的素材' }),
   ).toHaveAttribute('aria-pressed', 'true')
   await refs.getByRole('button', { name: '关闭' }).click()
   expect(errors).toEqual([])

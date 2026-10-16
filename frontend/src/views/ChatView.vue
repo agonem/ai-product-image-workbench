@@ -52,6 +52,7 @@ import type { Agent, Generation } from '../workbench/model'
 import { providerNames, statusLabels } from '../workbench/model'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import { workbenchKey } from '../workbench/useWorkbench'
+import { useFileDrop } from '../workbench/fileDrop'
 
 // Conversational generation (ADR-20261008-I): every message is one CUSTOM v4 task.
 type Conversation = {
@@ -81,6 +82,59 @@ const composer = reactive({
   count: 1,
   resolution: '' as Resolution | '',
 })
+const uploading = ref(false)
+let mounted = true
+const uploadLocked = computed(
+  () =>
+    uploading.value ||
+    sending.value ||
+    loading.value ||
+    !!pending.value ||
+    w.busy ||
+    w.uncertain,
+)
+const { dragging, handlers: dropEvents } = useFileDrop(
+  () => uploadLocked.value,
+  async (files) => {
+    const slots = (['product', 'ref1', 'ref2'] as const).filter(
+      (key) => !composer[key],
+    )
+    if (files.length > slots.length) {
+      error.value = `还有 ${slots.length} 个图片空位，请减少拖入的图片或先清除已有选择。`
+      return
+    }
+    uploading.value = true
+    error.value = ''
+    const conversation = current.value?.id
+    const project = w.project
+    try {
+      for (const [index, file] of files.entries()) {
+        if (
+          !mounted ||
+          !w.signedIn ||
+          current.value?.id !== conversation ||
+          w.project !== project
+        )
+          break
+        const key = slots[index]!
+        const asset = await w.upload(
+          file,
+          key === 'product' ? 'PRODUCT' : 'REFERENCE',
+        )
+        if (
+          !asset ||
+          !mounted ||
+          current.value?.id !== conversation ||
+          w.project !== project
+        )
+          break
+        composer[key] = asset.id
+      }
+    } finally {
+      uploading.value = false
+    }
+  },
+)
 // The picture the next message changes; after each result the newest one is chosen unless the
 // user picked or cleared it.
 const edit = ref<{ id: string; label: string } | null>(null)
@@ -709,7 +763,13 @@ const blocked = computed(() =>
         : '',
 )
 async function send() {
-  if (sending.value || (blocked.value && !pending.value)) return
+  if (
+    sending.value ||
+    uploading.value ||
+    w.busy ||
+    (blocked.value && !pending.value)
+  )
+    return
   sending.value = true
   await run(async () => {
     try {
@@ -807,6 +867,7 @@ onMounted(() => {
   void openFromQuery()
 })
 onUnmounted(() => {
+  mounted = false
   clearTimeout(timer)
   void flushCanvas()
   document.removeEventListener('pointerdown', outsidePicker, true)
@@ -1126,23 +1187,31 @@ onUnmounted(() => {
         <p v-if="pending" class="banner warn">
           上次发送结果不确定，再点“发送”会用原请求重发，不会重复生成。
         </p>
-        <div class="composer-box">
+        <div
+          class="composer-box"
+          :class="{ 'file-dragging': dragging }"
+          v-on="dropEvents"
+        >
+          <span v-if="dragging" class="drop-hint">松开上传图片</span>
           <div class="composer-assets">
             <AssetSlot
               v-model="composer.product"
               label="商品图"
               kind="PRODUCT"
+              :disabled="uploadLocked"
             />
             <AssetSlot
               v-model="composer.ref1"
               label="参考图1"
               kind="REFERENCE"
+              :disabled="uploadLocked"
             />
             <AssetSlot
               v-if="composer.ref1"
               v-model="composer.ref2"
               label="参考图2"
               kind="REFERENCE"
+              :disabled="uploadLocked"
             />
             <div v-if="edit" class="edit-chip" data-testid="edit-target">
               <PrivateImage
@@ -1177,6 +1246,9 @@ onUnmounted(() => {
             @keydown="keydown"
           ></textarea>
         </div>
+        <p class="hint">
+          可将图片拖入输入框，按商品图、参考图1、参考图2的空位顺序添加。
+        </p>
         <p
           v-if="composer.ref1 || edit"
           class="hint names"
@@ -1299,7 +1371,9 @@ onUnmounted(() => {
             type="submit"
             class="btn primary"
             data-testid="chat-send"
-            :disabled="sending || (!!blocked && !pending)"
+            :disabled="
+              sending || uploading || w.busy || (!!blocked && !pending)
+            "
             :title="blocked || 'Ctrl+Enter 发送'"
           >
             <span v-if="sending" class="spinner"></span>

@@ -95,22 +95,6 @@ export function useWorkbench() {
   const defaultModel = computed(
     () => models.value.find((item) => item.default)?.id ?? '',
   )
-  const products = computed(() =>
-    assets.value.filter((item) => item.kind === 'PRODUCT'),
-  )
-  const gifts = computed(() =>
-    assets.value.filter((item) => item.kind === 'GIFT'),
-  )
-  const references = computed(() =>
-    assets.value.filter((item) => item.kind === 'REFERENCE'),
-  )
-  /** The originals of one material category (ADR-20261009-R). */
-  const assetsOf = (kind: AssetKind) =>
-    kind === 'PRODUCT'
-      ? products.value
-      : kind === 'GIFT'
-        ? gifts.value
-        : references.value
   const submission = new Submission()
   let epoch = 0,
     projectEpoch = 0,
@@ -465,8 +449,7 @@ export function useWorkbench() {
       assets.value.unshift(item)
       created = item
       notice.value =
-        `${kindName(kind).replace('图', '')}原图已保存` +
-        (prepared.converted ? '（已转为 PNG 保存）。' : '。')
+        '原图已保存' + (prepared.converted ? '（已转为 PNG 保存）。' : '。')
     })
     return created
   }
@@ -666,10 +649,6 @@ export function useWorkbench() {
     refreshOptions,
     dismissError: () => (error.value = ''),
     assets,
-    products,
-    gifts,
-    references,
-    assetsOf,
     assetNext,
     history,
     historyNext,

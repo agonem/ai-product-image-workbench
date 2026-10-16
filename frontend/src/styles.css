@@ -1180,6 +1180,41 @@ dialog.modal::backdrop {
 .slot {
   position: relative;
 }
+.slot-clear {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-2);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--ink);
+}
+.slot-clear:hover:enabled {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.slot.file-dragging .slot-button,
+.composer-box.file-dragging {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  border-radius: var(--r);
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-size: 12px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 1;
+}
 .slot-button {
   width: 100%;
   aspect-ratio: 1.35;
@@ -2812,6 +2847,9 @@ dialog.viewer::backdrop {
 }
 .composer-box:focus-within {
   border-color: var(--accent);
+}
+.composer-box {
+  position: relative;
 }
 .composer-assets {
   flex: none;

@@ -635,7 +635,7 @@ onMounted(() => {
             @apply="Object.assign(draft, $event)"
           />
         </div>
-        <div class="slots" :class="{ one: feature !== 'GIFT' }">
+        <div :key="feature" class="slots" :class="{ one: feature !== 'GIFT' }">
           <AssetSlot v-model="draft.product" label="商品图" kind="PRODUCT" />
           <AssetSlot
             v-if="feature === 'GIFT'"

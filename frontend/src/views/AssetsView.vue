@@ -5,17 +5,14 @@ import ImageViewer from '../components/ImageViewer.vue'
 import LineIcon from '../components/LineIcon.vue'
 import PrivateImage from '../workbench/PrivateImage.vue'
 import { confirmAction } from '../workbench/confirm'
-import { assetKinds, kindName, type AssetKind } from '../workbench/model'
 import { workbenchKey } from '../workbench/useWorkbench'
 
-// Material categories (ADR-20261009-R): 商品图, 赠品图, 参考图 and the finished 作品图.
+// UPLOAD-AC combines all original categories; completed works remain separate.
 const w = inject(workbenchKey)!
-const kind = ref<AssetKind | 'WORK'>('PRODUCT')
-const items = computed(() =>
-  kind.value === 'WORK' ? [] : w.assetsOf(kind.value),
-)
+const kind = ref<'UPLOAD' | 'WORK'>('UPLOAD')
+const items = computed(() => w.assets)
 const label = computed(() =>
-  kind.value === 'WORK' ? '作品图' : kindName(kind.value),
+  kind.value === 'WORK' ? '作品图' : '已上传的素材',
 )
 const works = computed(() =>
   w.history
@@ -23,6 +20,10 @@ const works = computed(() =>
     .flatMap((item) => item.task.artifacts),
 )
 const viewing = ref<number | null>(null)
+function show(source: 'UPLOAD' | 'WORK') {
+  kind.value = source
+  viewing.value = null
+}
 const viewerItems = computed(() =>
   kind.value === 'WORK'
     ? works.value.map((artifact) => ({
@@ -65,7 +66,7 @@ async function pick(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
-  if (file && kind.value !== 'WORK') await w.upload(file, kind.value)
+  if (file && kind.value !== 'WORK') await w.upload(file, 'PRODUCT')
 }
 </script>
 
@@ -75,24 +76,22 @@ async function pick(event: Event) {
       <div class="intro">
         <h1>素材管理</h1>
         <p>
-          按商品图、赠品图、参考图和作品图分类；任何一类都能在生成页的任一位置选用。点击图片放大查看。
+          商品图、赠品图和参考图统一保存在已上传的素材中，可在任一图片位置选用。点击图片放大查看。
         </p>
       </div>
       <span class="spacer"></span>
       <div class="tabs" role="group" aria-label="素材类型">
         <button
-          v-for="item in assetKinds"
-          :key="item.id"
           type="button"
-          :aria-pressed="kind === item.id"
-          @click="kind = item.id"
+          :aria-pressed="kind === 'UPLOAD'"
+          @click="show('UPLOAD')"
         >
-          {{ item.name }}
+          已上传的素材
         </button>
         <button
           type="button"
           :aria-pressed="kind === 'WORK'"
-          @click="kind = 'WORK'"
+          @click="show('WORK')"
         >
           作品图
         </button>
@@ -101,12 +100,11 @@ async function pick(event: Event) {
         >打开我的作品</router-link
       >
       <label v-else class="btn primary" :aria-disabled="w.busy"
-        ><LineIcon name="up" :size="14" />上传{{ label
-        }}<input
+        ><LineIcon name="up" :size="14" />上传图片<input
           class="sr-only"
           type="file"
           accept="image/*"
-          :aria-label="`上传${label}`"
+          aria-label="上传素材"
           :disabled="w.busy"
           @change="pick"
       /></label>
