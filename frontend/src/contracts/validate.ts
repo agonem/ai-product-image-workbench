@@ -1,37 +1,25 @@
 import { Ajv2020 } from 'ajv/dist/2020.js'
 import addFormats from 'ajv-formats'
-import schema0 from '../../../contracts/common.schema.json' with { type: 'json' }
-import schema1 from '../../../contracts/task-create.schema.json' with { type: 'json' }
-import schema2 from '../../../contracts/idempotency-key.schema.json' with { type: 'json' }
-import schema3 from '../../../contracts/task.schema.json' with { type: 'json' }
-import schema4 from '../../../contracts/task-completed.schema.json' with { type: 'json' }
-import schema5 from '../../../contracts/task-failed.schema.json' with { type: 'json' }
-import schema6 from '../../../contracts/task-response.schema.json' with { type: 'json' }
-import schema7 from '../../../contracts/scene-create.schema.json' with { type: 'json' }
-import schema8 from '../../../contracts/scene-v3-create.schema.json' with { type: 'json' }
-import schema9 from '../../../contracts/generation-v4-create.schema.json' with { type: 'json' }
-import schema10 from '../../../contracts/generation-v4-retypeset.schema.json' with { type: 'json' }
-import schema11 from '../../../contracts/preset-catalog.schema.json' with { type: 'json' }
-import schema12 from '../../../contracts/user-template.schema.json' with { type: 'json' }
-import schema13 from '../../../contracts/canvas-layout.schema.json' with { type: 'json' }
+import common from '../../../contracts/common.schema.json' with { type: 'json' }
+import idempotencyKey from '../../../contracts/idempotency-key.schema.json' with { type: 'json' }
+import taskResponse from '../../../contracts/task-response.schema.json' with { type: 'json' }
+import generationCreate from '../../../contracts/generation-v4-create.schema.json' with { type: 'json' }
+import generationRetypeset from '../../../contracts/generation-v4-retypeset.schema.json' with { type: 'json' }
+import presetCatalog from '../../../contracts/preset-catalog.schema.json' with { type: 'json' }
+import userTemplate from '../../../contracts/user-template.schema.json' with { type: 'json' }
+import canvasLayout from '../../../contracts/canvas-layout.schema.json' with { type: 'json' }
 
 const ajv = new Ajv2020({ strict: true, allErrors: true })
 addFormats(ajv, { mode: 'full' })
 for (const schema of [
-  schema0,
-  schema1,
-  schema2,
-  schema3,
-  schema4,
-  schema5,
-  schema6,
-  schema7,
-  schema8,
-  schema9,
-  schema10,
-  schema11,
-  schema12,
-  schema13,
+  common,
+  idempotencyKey,
+  taskResponse,
+  generationCreate,
+  generationRetypeset,
+  presetCatalog,
+  userTemplate,
+  canvasLayout,
 ])
   ajv.addSchema(schema)
 const contracts: Record<string, string> = {
@@ -45,20 +33,8 @@ const contracts: Record<string, string> = {
     'https://schemas.product-image-workbench.invalid/v4/generation-create.json',
   'generation-v4-retypeset':
     'https://schemas.product-image-workbench.invalid/v4/generation-retypeset.json',
-  'scene-v3-create':
-    'https://schemas.product-image-workbench.invalid/v3/scene-create.json',
-  'scene-create':
-    'https://schemas.product-image-workbench.invalid/v2/scene-create.json',
-  'task-create':
-    'https://schemas.product-image-workbench.invalid/v1/task-create.json',
   'idempotency-key':
     'https://schemas.product-image-workbench.invalid/v1/idempotency-key.json',
-  'task-request':
-    'https://schemas.product-image-workbench.invalid/v1/task-request.json',
-  'task-completed':
-    'https://schemas.product-image-workbench.invalid/v1/task-completed.json',
-  'task-failed':
-    'https://schemas.product-image-workbench.invalid/v1/task-failed.json',
   'task-response':
     'https://schemas.product-image-workbench.invalid/v1/task-response.json',
 }

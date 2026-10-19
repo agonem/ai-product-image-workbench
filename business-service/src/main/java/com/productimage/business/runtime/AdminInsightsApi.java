@@ -126,7 +126,7 @@ public class AdminInsightsApi {
         days);
     group(
         result.putArray("by_model"),
-        "SELECT coalesce(v.name,'未调用模型或已删除') AS name,count(*) AS tasks,count(*) FILTER (WHERE t.status='FAILED') AS failed FROM generation_tasks t LEFT JOIN provider_config_versions v ON v.id=t.provider_config_version WHERE "
+        "SELECT coalesce(v.name,'未调用模型或已删除') AS name,count(*) AS tasks,count(*) FILTER (WHERE t.status='FAILED') AS failed FROM generation_tasks t LEFT JOIN models v ON v.id=t.image_model_id WHERE "
             + V4
             + " AND t.created_at>="
             + since

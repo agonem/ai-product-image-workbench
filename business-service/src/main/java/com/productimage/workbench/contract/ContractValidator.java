@@ -23,20 +23,8 @@ public final class ContractValidator {
     for (String name :
         List.of(
             "common",
-            "task-create",
             "idempotency-key",
-            "task",
-            "task-completed",
-            "task-failed",
             "task-response",
-            "scene-create",
-            "scene-request",
-            "scene-completed",
-            "scene-failed",
-            "scene-v3-create",
-            "scene-v3-request",
-            "scene-v3-completed",
-            "scene-v3-failed",
             "generation-v4-create",
             "generation-v4-retypeset",
             "generation-v4-request",
@@ -51,7 +39,7 @@ public final class ContractValidator {
         String document = new String(input.readAllBytes(), StandardCharsets.UTF_8);
         String id = mapper.readTree(document).get("$id").asText();
         documents.put(id, document);
-        if (!name.equals("common")) ids.put(name.equals("task") ? "task-request" : name, id);
+        if (!name.equals("common")) ids.put(name, id);
       } catch (IOException ex) {
         throw new IllegalStateException("Cannot load bundled contracts", ex);
       }

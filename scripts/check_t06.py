@@ -27,28 +27,22 @@ def verify_api(run):
         for query in ("?offset=-1", "?offset=10001", "?offset=0&offset=1", "?offset=no"):
             assert run.call("GET", path + query)[0] == 400
     status, options = run.call("GET", paths[0])
-    assert status == 200 and options["generation_available"] is False
-    assert options["mode"] == "development-only"
-    assert options["output_presets"] == [{"id": "t05_transport_fixture", "test_fixture": True}]
-    assert options["templates"][0]["id"] == "layout_v1"
-    assert "config" not in json.dumps(options)
-    run.sql("UPDATE templates SET state='DISABLED' WHERE id='layout'")
-    assert run.call("GET", paths[0])[1]["templates"] == []
-    run.sql("UPDATE templates SET state='PUBLISHED' WHERE id='layout'")
+    assert status == 200 and options["mode"] == "development-only"
+    assert options["generation"]["enabled"] and "scene_presets" in options["generation"]
+    # ADR-20261019-AD: no v1 templates, output presets or availability flag any more.
+    for gone in ("templates", "output_presets", "generation_available"):
+        assert gone not in options, gone
+    assert "prompt" not in json.dumps(options) and "config" not in json.dumps(options)
     status, page, headers = run.http("GET", paths[1], token=run.user_token)
     assert status == 200 and headers["Cache-Control"] == "no-store"
     assert {a["id"] for a in page["items"]} == {"product", "gift"}
-    assert next(a for a in page["items"] if a["id"] == "product")["cutout_ready"]
-    assert "object_key" not in json.dumps(page)
+    assert "object_key" not in json.dumps(page) and "cutout_ready" not in json.dumps(page)
     status, uploaded, _ = run.http(
         "POST", paths[1] + "?kind=PRODUCT", token=run.user_token, data=png(), mime="image/png"
     )
     assert status == 201
     page = run.call("GET", paths[1])[1]
-    assert not next(a for a in page["items"] if a["id"] == uploaded["id"])["cutout_ready"]
-    pending = run.request()
-    pending["product_asset_id"] = uploaded["id"]
-    assert run.call("POST", "/api/v1/tasks", pending, key="unapproved")[0] == 422
+    assert uploaded["id"] in {a["id"] for a in page["items"]}
     # Upper pagination boundary must never return an unusable next_offset.
     run.sql("""INSERT INTO assets(id,project_id,kind,object_key,sha256,width,height)
         SELECT 'page_'||n,'p','GIFT','fixtures/page_'||n||'.png',repeat('0',64),4,3
@@ -57,13 +51,11 @@ def verify_api(run):
         boundary = run.call("GET", paths[1] + f"?offset={offset}")[1]
         assert boundary["next_offset"] is None
     run.sql("DELETE FROM assets WHERE id LIKE 'page_%'")
-    print(
-        "PASS ACC-T06 A2/A3/A6: scoped lists, no-store, configuration and pending alpha", flush=True
-    )
+    print("PASS ACC-T06 A2/A3/A6: scoped lists, no-store and configuration", flush=True)
     tasks = []
-    for feature in ("GIFT", "SCENE", "SELLING_POINT"):
-        task = run.create("t06-" + feature, feature)
-        assert run.create("t06-" + feature, feature)["id"] == task["id"]
+    for position in ("BOTTOM_RIGHT", "BOTTOM_LEFT", "RIGHT"):
+        task = run.create("t06-" + position, position=position)
+        assert run.create("t06-" + position, position=position)["id"] == task["id"]
         run.worker()
         assert run.state(task)["status"] == "SUCCEEDED"
         tasks.append(task)
@@ -77,14 +69,13 @@ def verify_api(run):
     assert not (
         {v["task"]["id"] for v in page["items"]} & {v["task"]["id"] for v in older["items"]}
     )
-    assert all(v["test_fixture"] for v in page["items"] + older["items"])
+    assert all(set(v) == {"task"} for v in page["items"] + older["items"])
     run.close()
     run.start()
     run.user_token = run.login("alice")
     assert len(run.call("GET", paths[2])[1]["items"]) == 20
     print(
-        "PASS ACC-T06 A1/A4/A6/A7: three entries, idempotency, "
-        "history paging/restart and fixture labels",
+        "PASS ACC-T06 A1/A4/A6/A7: v4 tasks, idempotency and history paging/restart",
         flush=True,
     )
 
@@ -93,6 +84,8 @@ def run_workbench(env, work):
     work.mkdir(parents=True, exist_ok=True)
     run = LocalCheck(env, work)
     run.env["DEV_SESSION_SECONDS"] = "900"
+    # v4 tasks make 800 x 800 pictures, beyond T04's tiny upload limits.
+    run.env.update({"OBJECT_MAX_BYTES": "20000000", "OBJECT_MAX_PIXELS": "40000000"})
     with ExitStack() as stack:
         stack.callback(run.close)
         run.start()

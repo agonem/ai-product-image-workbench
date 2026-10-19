@@ -123,7 +123,6 @@ def test_worker_prefers_leased_config_over_environment(worker_stubs, monkeypatch
         LocalApi(),
         generation_request(),
         "lease",
-        False,
         provider_config={
             "provider": "openrouter",
             "api_key": "sk-test-1234567890",
@@ -144,7 +143,7 @@ def test_worker_without_lease_config_uses_environment(worker_stubs, monkeypatch)
 
     sentinel = OpenRouterConfig(api_key="k", model="vendor/env", provider_tag="openai")
     monkeypatch.setattr("image_service.background_config.load_config", lambda: sentinel)
-    process(LocalApi(), generation_request(), "lease", False)
+    process(LocalApi(), generation_request(), "lease")
     assert worker_stubs["config"] is sentinel
 
 
@@ -156,7 +155,6 @@ def test_worker_rejects_invalid_leased_config(worker_stubs):
             LocalApi(),
             generation_request(),
             "lease",
-            False,
             provider_config={"api_key": "k", "model": "no-slash", "provider_tag": "openai"},
         )
     assert error.value.code == "CONFIGURATION"

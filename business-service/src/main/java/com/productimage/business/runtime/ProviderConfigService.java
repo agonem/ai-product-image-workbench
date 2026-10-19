@@ -5,9 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.sql.Timestamp;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -66,15 +64,12 @@ public final class ProviderConfigService {
     return defaultId("IMAGE");
   }
 
-  /** The default per purpose: state row 'active' for pictures, 'text' for text models. */
+  /** The default model of a purpose (IMAGE or TEXT). */
   private String defaultId(String purpose) {
-    var rows =
-        jdbc.queryForList(
-            "SELECT active_version_id FROM provider_config_state WHERE provider=?",
-            purpose.equals("TEXT") ? "text" : "active");
-    return rows.isEmpty() || rows.getFirst().get("active_version_id") == null
+    var rows = jdbc.queryForList("SELECT model_id FROM default_models WHERE purpose=?", purpose);
+    return rows.isEmpty() || rows.getFirst().get("model_id") == null
         ? null
-        : rows.getFirst().get("active_version_id").toString();
+        : rows.getFirst().get("model_id").toString();
   }
 
   /**
@@ -86,18 +81,17 @@ public final class ProviderConfigService {
     if (requested != null && requested.isTextual()) {
       var chosen =
           jdbc.queryForList(
-              "SELECT id FROM provider_config_versions WHERE id=? AND enabled AND NOT retired AND purpose='IMAGE'",
+              "SELECT id FROM models WHERE id=? AND enabled AND purpose='IMAGE'",
               requested.asText());
       if (chosen.isEmpty()) throw new Problem(422, "MODEL_UNAVAILABLE");
       return requested.asText();
     }
-    if (jdbc.queryForObject(
-            "SELECT count(*) FROM provider_config_versions WHERE purpose='IMAGE'", Long.class)
-        == 0) return null;
+    if (jdbc.queryForObject("SELECT count(*) FROM models WHERE purpose='IMAGE'", Long.class) == 0)
+      return null;
     var fallback =
         jdbc.queryForList(
-            "SELECT v.id FROM provider_config_state s JOIN provider_config_versions v ON v.id=s.active_version_id "
-                + "WHERE s.provider='active' AND v.enabled AND NOT v.retired");
+            "SELECT v.id FROM default_models s JOIN models v ON v.id=s.model_id "
+                + "WHERE s.purpose='IMAGE' AND v.enabled");
     if (fallback.isEmpty()) throw new Problem(503, "PROVIDER_DISABLED");
     return fallback.getFirst().get("id").toString();
   }
@@ -110,7 +104,7 @@ public final class ProviderConfigService {
     String chosen = defaultId("TEXT");
     var rows =
         jdbc.queryForList(
-            "SELECT id FROM provider_config_versions WHERE enabled AND NOT retired AND purpose='TEXT' ORDER BY (id=?) DESC,created_at,id LIMIT 1",
+            "SELECT id FROM models WHERE enabled AND purpose='TEXT' ORDER BY (id=?) DESC,created_at,id LIMIT 1",
             chosen == null ? "" : chosen);
     return rows.isEmpty() ? null : rows.getFirst().get("id").toString();
   }
@@ -118,8 +112,7 @@ public final class ProviderConfigService {
   /** Whether a text model can look at images (ADR-20261012-AB). */
   boolean vision(String versionId) {
     return Boolean.TRUE.equals(
-        jdbc.queryForObject(
-            "SELECT vision FROM provider_config_versions WHERE id=?", Boolean.class, versionId));
+        jdbc.queryForObject("SELECT vision FROM models WHERE id=?", Boolean.class, versionId));
   }
 
   /** Leased workers receive the decrypted binding; failures must not fall back silently. */
@@ -128,7 +121,7 @@ public final class ProviderConfigService {
     var rows =
         jdbc.queryForList(
             "SELECT i.kind,v.model,v.provider_tag,i.base_url,i.api_key_cipher,i.use_proxy,v.parameters "
-                + "FROM provider_config_versions v JOIN model_interfaces i ON i.id=v.interface_id WHERE v.id=?",
+                + "FROM models v JOIN model_interfaces i ON i.id=v.interface_id WHERE v.id=?",
             versionId);
     if (rows.isEmpty()) throw new Problem(503, "PROVIDER_UNAVAILABLE");
     var row = rows.getFirst();
@@ -334,7 +327,7 @@ public final class ProviderConfigService {
   private static final String MODEL_COLUMNS =
       "v.id,v.interface_id,v.name,i.kind,v.model,v.provider_tag,i.base_url,i.api_key_mask,v.enabled,i.use_proxy,v.created_at,v.purpose,v.vision,v.parameters";
   private static final String MODEL_FROM =
-      " FROM provider_config_versions v JOIN model_interfaces i ON i.id=v.interface_id";
+      " FROM models v JOIN model_interfaces i ON i.id=v.interface_id";
   private static final String INTERFACE_COLUMNS =
       "id,name,kind,base_url,api_key_mask,use_proxy,created_at";
 
@@ -357,11 +350,8 @@ public final class ProviderConfigService {
       interfaces.add(interfaceItem(row));
     var items = result.putArray("items");
     for (var row :
-        jdbc.queryForList(
-            "SELECT "
-                + MODEL_COLUMNS
-                + MODEL_FROM
-                + " WHERE NOT v.retired ORDER BY v.created_at,v.id")) items.add(item(row));
+        jdbc.queryForList("SELECT " + MODEL_COLUMNS + MODEL_FROM + " ORDER BY v.created_at,v.id"))
+      items.add(item(row));
     result.set("proxy", proxy());
     return result;
   }
@@ -378,7 +368,7 @@ public final class ProviderConfigService {
         jdbc.queryForList(
             "SELECT v.id,v.name,i.kind,v.model"
                 + MODEL_FROM
-                + " WHERE v.enabled AND NOT v.retired AND v.purpose='IMAGE' ORDER BY v.created_at,v.id")) {
+                + " WHERE v.enabled AND v.purpose='IMAGE' ORDER BY v.created_at,v.id")) {
       String kind = row.get("kind").toString();
       String model = row.get("model").toString();
       var item =
@@ -415,10 +405,7 @@ public final class ProviderConfigService {
   private Map<String, Object> live(String id, boolean lock) {
     var rows =
         jdbc.queryForList(
-            "SELECT v.*,i.kind"
-                + MODEL_FROM
-                + " WHERE v.id=? AND NOT v.retired"
-                + (lock ? " FOR UPDATE OF v" : ""),
+            "SELECT v.*,i.kind" + MODEL_FROM + " WHERE v.id=?" + (lock ? " FOR UPDATE OF v" : ""),
             id);
     if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
     return rows.getFirst();
@@ -433,13 +420,11 @@ public final class ProviderConfigService {
   }
 
   private void pointDefault(String id) {
-    String purpose =
-        jdbc.queryForObject(
-            "SELECT purpose FROM provider_config_versions WHERE id=?", String.class, id);
+    String purpose = jdbc.queryForObject("SELECT purpose FROM models WHERE id=?", String.class, id);
     jdbc.update(
-        "INSERT INTO provider_config_state(provider,active_version_id) VALUES (?,?) "
-            + "ON CONFLICT(provider) DO UPDATE SET active_version_id=EXCLUDED.active_version_id,updated_at=now()",
-        "TEXT".equals(purpose) ? "text" : "active",
+        "INSERT INTO default_models(purpose,model_id) VALUES (?,?) "
+            + "ON CONFLICT(purpose) DO UPDATE SET model_id=EXCLUDED.model_id,updated_at=now()",
+        purpose,
         id);
   }
 
@@ -511,9 +496,7 @@ public final class ProviderConfigService {
         status -> {
           liveInterface(id, true);
           if (jdbc.queryForObject(
-                  "SELECT count(*) FROM provider_config_versions WHERE interface_id=?",
-                  Long.class,
-                  id)
+                  "SELECT count(*) FROM models WHERE interface_id=?", Long.class, id)
               > 0) throw new Problem(409, "INTERFACE_IN_USE");
           jdbc.update("DELETE FROM model_interfaces WHERE id=?", id);
           audit(actor, "MODEL_INTERFACE_DELETED", id);
@@ -537,7 +520,7 @@ public final class ProviderConfigService {
           String id = UUID.randomUUID().toString();
           String purpose = body.path("purpose").asText("IMAGE");
           jdbc.update(
-              "INSERT INTO provider_config_versions(id,interface_id,name,model,provider_tag,enabled,created_by,purpose,vision,parameters) VALUES (?,?,?,?,?,?,?,?,?,?::jsonb)",
+              "INSERT INTO models(id,interface_id,name,model,provider_tag,enabled,created_by,purpose,vision,parameters) VALUES (?,?,?,?,?,?,?,?,?,?::jsonb)",
               id,
               body.path("interface_id").asText(),
               body.path("name").asText().strip(),
@@ -554,7 +537,7 @@ public final class ProviderConfigService {
             boolean usable =
                 current != null
                     && jdbc.queryForObject(
-                            "SELECT count(*) FROM provider_config_versions WHERE id=? AND enabled AND NOT retired",
+                            "SELECT count(*) FROM models WHERE id=? AND enabled",
                             Long.class,
                             current)
                         > 0;
@@ -608,7 +591,7 @@ public final class ProviderConfigService {
           if (!merged.path("enabled").asBoolean() && id.equals(defaultId(purpose)))
             throw new Problem(409, "DEFAULT_MODEL");
           jdbc.update(
-              "UPDATE provider_config_versions SET name=?,model=?,provider_tag=?,enabled=?,vision=?,parameters=?::jsonb WHERE id=?",
+              "UPDATE models SET name=?,model=?,provider_tag=?,enabled=?,vision=?,parameters=?::jsonb WHERE id=?",
               merged.path("name").asText().strip(),
               merged.path("model").asText(),
               merged.has("provider_tag") ? merged.path("provider_tag").asText() : null,
@@ -633,14 +616,13 @@ public final class ProviderConfigService {
           if (id.equals(defaultId(purpose))) throw new Problem(409, "DEFAULT_MODEL");
           var replacements =
               jdbc.queryForList(
-                  "SELECT id FROM provider_config_versions WHERE enabled AND NOT retired AND purpose=? AND id<>? ORDER BY (id=?) DESC,created_at,id LIMIT 1",
+                  "SELECT id FROM models WHERE enabled AND purpose=? AND id<>? ORDER BY (id=?) DESC,created_at,id LIMIT 1",
                   purpose,
                   id,
                   String.valueOf(defaultId(purpose)));
           String replacement =
               replacements.isEmpty() ? null : replacements.getFirst().get("id").toString();
-          String column =
-              purpose.equals("TEXT") ? "text_config_version" : "provider_config_version";
+          String column = purpose.equals("TEXT") ? "text_model_id" : "image_model_id";
           jdbc.update(
               "UPDATE generation_tasks SET "
                   + column
@@ -649,7 +631,7 @@ public final class ProviderConfigService {
                   + "=? AND status IN ('QUEUED','RUNNING','FAILED')",
               replacement,
               id);
-          jdbc.update("DELETE FROM provider_config_versions WHERE id=?", id);
+          jdbc.update("DELETE FROM models WHERE id=?", id);
           audit(actor, "PROVIDER_CONFIG_DELETED", id);
         });
   }
@@ -661,75 +643,6 @@ public final class ProviderConfigService {
             throw new Problem(409, "MODEL_UNAVAILABLE");
           pointDefault(id);
           audit(actor, "PROVIDER_CONFIG_DEFAULT", id);
-        });
-  }
-
-  private static final Map<String, String> KIND_LABELS =
-      Map.of(
-          "openrouter", "OpenRouter",
-          "openai", "OpenAI 官方",
-          "deepseek", "DeepSeek 官方",
-          "gemini", "Gemini 官方",
-          "openai-compatible", "OpenAI 协议第三方",
-          "gemini-compatible", "Gemini 格式第三方");
-
-  /** Runs once the service exists: see {@link #mergeMigratedInterfaces(JdbcTemplate, ...)}. */
-  void mergeMigratedInterfaces() {
-    mergeMigratedInterfaces(jdbc, tx, master);
-  }
-
-  /**
-   * V21 gave every existing model its own interface, because keys only compare decrypted. With the
-   * master key, the interfaces it made are merged when type, address, proxy setting and key are the
-   * same - as if the admin had entered the key once - and one left alone for its type is named
-   * after the type (ADR-20261012-AB). Without the master key nothing changes; models work either
-   * way. Runs once: the marks are cleared.
-   */
-  static void mergeMigratedInterfaces(JdbcTemplate jdbc, TransactionTemplate tx, byte[] master) {
-    if (master == null) return;
-    tx.executeWithoutResult(
-        status -> {
-          var rows =
-              jdbc.queryForList(
-                  "SELECT id,kind,base_url,use_proxy,api_key_cipher FROM model_interfaces WHERE merge_pending ORDER BY created_at,id FOR UPDATE");
-          if (rows.isEmpty()) return;
-          var kept = new LinkedHashMap<String, String>();
-          for (var row : rows) {
-            String key;
-            try {
-              key = ProviderCrypto.decrypt(master, row.get("api_key_cipher").toString());
-            } catch (IllegalStateException ex) {
-              continue; // left as it is: its own interface still works with its own key
-            }
-            String group =
-                String.join(
-                    "\n",
-                    row.get("kind").toString(),
-                    String.valueOf(row.get("base_url")),
-                    String.valueOf(row.get("use_proxy")),
-                    key);
-            String into = kept.putIfAbsent(group, row.get("id").toString());
-            if (into != null) {
-              jdbc.update(
-                  "UPDATE provider_config_versions SET interface_id=? WHERE interface_id=?",
-                  into,
-                  row.get("id"));
-              jdbc.update("DELETE FROM model_interfaces WHERE id=?", row.get("id"));
-            }
-          }
-          var perKind = new HashMap<String, Integer>();
-          for (var row :
-              jdbc.queryForList("SELECT kind,count(*) AS n FROM model_interfaces GROUP BY kind"))
-            perKind.put(row.get("kind").toString(), ((Number) row.get("n")).intValue());
-          for (String id : kept.values()) {
-            String kind =
-                jdbc.queryForObject(
-                    "SELECT kind FROM model_interfaces WHERE id=?", String.class, id);
-            if (perKind.getOrDefault(kind, 0) == 1)
-              jdbc.update(
-                  "UPDATE model_interfaces SET name=? WHERE id=?", KIND_LABELS.get(kind), id);
-          }
-          jdbc.update("UPDATE model_interfaces SET merge_pending=false WHERE merge_pending");
         });
   }
 

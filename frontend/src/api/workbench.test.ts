@@ -7,7 +7,7 @@ test('ACC-T06 A2/A4: API uses Java prefix, same-origin session cookie, no cache'
     globalThis,
     'fetch',
     async (path: string, init: RequestInit) => {
-      assert.equal(path, '/api/v1/tasks')
+      assert.equal(path, '/api/v4/generation-tasks')
       assert.equal(init.credentials, 'same-origin')
       assert.equal(init.cache, 'no-store')
       assert.equal(new Headers(init.headers).get('Authorization'), null)
@@ -17,7 +17,7 @@ test('ACC-T06 A2/A4: API uses Java prefix, same-origin session cookie, no cache'
     },
   )
   assert.deepEqual(
-    await request('/tasks', {
+    await request('/v4/generation-tasks', {
       ...json({ feature_type: 'SCENE' }),
       headers: {
         'Content-Type': 'application/json',

@@ -70,34 +70,6 @@
         "height"
       ]
     },
-    "product_layout": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "product": {
-          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/box"
-        }
-      },
-      "required": [
-        "product"
-      ]
-    },
-    "gift_layout": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "product": {
-          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/box"
-        },
-        "gift": {
-          "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/box"
-        }
-      },
-      "required": [
-        "product",
-        "gift"
-      ]
-    },
     "asset": {
       "type": "object",
       "additionalProperties": false,
@@ -117,13 +89,6 @@
         "object_key",
         "sha256"
       ]
-    },
-    "selling_points": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/text"
-      }
     },
     "template_version": {
       "type": "object",
@@ -224,45 +189,6 @@
         "correlation_id"
       ]
     },
-    "background_generation": {
-      "anyOf": [
-        {
-          "type": "null"
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "provider": {
-              "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/text"
-            },
-            "model": {
-              "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/text"
-            },
-            "prompt": {
-              "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/text"
-            },
-            "parameters": {
-              "type": "object"
-            },
-            "request_id": {
-              "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/id"
-            },
-            "output_object_key": {
-              "$ref": "https://schemas.product-image-workbench.invalid/v1/common.json#/$defs/object_key"
-            }
-          },
-          "required": [
-            "provider",
-            "model",
-            "prompt",
-            "parameters",
-            "request_id",
-            "output_object_key"
-          ]
-        }
-      ]
-    },
     "artifact": {
       "type": "object",
       "additionalProperties": false,
@@ -274,8 +200,7 @@
         "kind": {
           "enum": [
             "COMPOSITE",
-            "BACKGROUND",
-            "ALPHA"
+            "BACKGROUND"
           ]
         },
         "object_key": {
@@ -312,8 +237,7 @@
         "kind": {
           "enum": [
             "COMPOSITE",
-            "BACKGROUND",
-            "ALPHA"
+            "BACKGROUND"
           ]
         },
         "width": {

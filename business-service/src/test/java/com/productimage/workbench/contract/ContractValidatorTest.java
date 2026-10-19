@@ -36,7 +36,7 @@ class ContractValidatorTest {
     org.junit.jupiter.api.Assertions.assertThrows(
         IllegalArgumentException.class,
         () -> validator.validate("https://example.invalid/unregistered", value));
-    var errors = validator.validate("task-create", value);
+    var errors = validator.validate("generation-v4-create", value);
     org.junit.jupiter.api.Assertions.assertFalse(errors.isEmpty());
     org.junit.jupiter.api.Assertions.assertFalse(
         errors.toString().contains("dummy-sensitive-value"));

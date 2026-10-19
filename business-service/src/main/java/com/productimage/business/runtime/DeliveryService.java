@@ -2,7 +2,6 @@ package com.productimage.business.runtime;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.productimage.workbench.contract.RequestFingerprint;
-import java.util.HashSet;
 import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -50,20 +49,19 @@ public final class DeliveryService {
         status -> {
           var rows =
               jdbc.queryForList(
-                  "SELECT o.*,t.provider_config_version,t.text_config_version FROM outbox_events o JOIN generation_tasks t ON t.current_attempt_id=o.attempt_id WHERE o.completed_at IS NULL AND o.available_at<=now() AND (o.lease_until IS NULL OR o.lease_until<=now()) AND o.publish_attempts<? AND t.status IN ('QUEUED','RUNNING') ORDER BY o.created_at,o.id FOR UPDATE OF o SKIP LOCKED LIMIT 1",
+                  "SELECT o.*,t.image_model_id,t.text_model_id FROM outbox_events o JOIN generation_tasks t ON t.current_attempt_id=o.attempt_id WHERE o.completed_at IS NULL AND o.available_at<=now() AND (o.lease_until IS NULL OR o.lease_until<=now()) AND o.publish_attempts<? AND t.status IN ('QUEUED','RUNNING') ORDER BY o.created_at,o.id FOR UPDATE OF o SKIP LOCKED LIMIT 1",
                   settings.maxDeliveries());
           if (rows.isEmpty()) return null;
           var row = rows.getFirst();
           // A frozen binding must be deliverable or the attempt fails visibly; silently
           // dropping it would switch the task to worker environment credentials.
           JsonNode providerConfig = null, textConfig = null;
-          if (row.get("provider_config_version") != null
-              || row.get("text_config_version") != null) {
+          if (row.get("image_model_id") != null || row.get("text_model_id") != null) {
             try {
-              if (row.get("provider_config_version") != null)
-                providerConfig = configs.claimConfig(row.get("provider_config_version").toString());
-              if (row.get("text_config_version") != null)
-                textConfig = configs.claimConfig(row.get("text_config_version").toString());
+              if (row.get("image_model_id") != null)
+                providerConfig = configs.claimConfig(row.get("image_model_id").toString());
+              if (row.get("text_model_id") != null)
+                textConfig = configs.claimConfig(row.get("text_model_id").toString());
             } catch (Problem ex) {
               fail(row, "PROVIDER_UNAVAILABLE", true);
               finish(row);
@@ -134,14 +132,13 @@ public final class DeliveryService {
           var row = row(attempt);
           requireLease(row, token);
           var request = Json.parse(row.get("payload").toString());
-          int version = request.path("schema_version").asInt();
           int count = request.path("output").path("count").asInt();
           // Images 0..count-1 call the model unless the picture is kept; a white gift card's
           // own call (the gift re-shot on white, ADR-20261009-N) is ordinal count.
           boolean image =
               !request.path("keep_original").asBoolean() && ordinal >= 0 && ordinal < count;
           boolean gift = request.path("gift_reshoot").asBoolean() && ordinal == count;
-          if (version != 4 || request.has("base_image") || !(image || gift))
+          if (request.has("base_image") || !(image || gift))
             throw new Problem(400, "INVALID_CONTRACT");
           if (jdbc.update(
                   "INSERT INTO generation_call_fences(attempt_id,ordinal) VALUES (?,?) ON CONFLICT DO NOTHING",
@@ -160,9 +157,8 @@ public final class DeliveryService {
           // Only references frozen into this attempt's snapshot are readable.
           var frozen = new java.util.ArrayList<JsonNode>();
           for (String field :
-              new String[] {
-                "product_asset", "product_alpha_asset", "gift_asset", "base_image", "edit_image"
-              }) frozen.add(request.path(field));
+              new String[] {"product_asset", "gift_asset", "base_image", "edit_image"})
+            frozen.add(request.path(field));
           request.path("references").forEach(frozen::add);
           for (var asset : frozen) {
             if (asset.path("asset_id").asText().equals(assetId)) {
@@ -201,19 +197,11 @@ public final class DeliveryService {
   public JsonNode receipt(String attempt, String token, String raw) {
     JsonNode receipt = Json.parse(raw);
     String type = receipt.path("event_type").asText();
-    // Scene v2/v3 were replaced by v4: legacy attempts may still report failure, never success.
-    if (!type.matches("image\\.task\\.(completed\\.v[14]|failed\\.v[1234])")) {
+    // Every attempt is a v4 attempt since ADR-20261019-AD.
+    if (!type.matches("image\\.task\\.(completed|failed)\\.v4"))
       throw new Problem(400, "INVALID_CONTRACT");
-    }
     boolean completed = type.contains(".completed.");
-    boolean scene = !type.endsWith(".v1");
-    boolean generation = type.endsWith(".v4");
-    Json.validate(
-        (generation
-                ? "generation-v4-"
-                : type.endsWith(".v3") ? "scene-v3-" : scene ? "scene-" : "task-")
-            + (completed ? "completed" : "failed"),
-        receipt);
+    Json.validate("generation-v4-" + (completed ? "completed" : "failed"), receipt);
     String hash = RequestFingerprint.sha256(raw);
     return tx.execute(
         status -> {
@@ -258,9 +246,7 @@ public final class DeliveryService {
           String disposition = "APPLIED";
           if (completed) {
             try {
-              if (generation)
-                GenerationOutputs.validate(store, prefix(row, token), workerRequest, receipt);
-              else validateArtifacts(row, token, receipt);
+              GenerationOutputs.validate(store, prefix(row, token), workerRequest, receipt);
             } catch (Problem ex) {
               if (ex.status == 503) throw ex;
               disposition = "REJECTED";
@@ -268,10 +254,9 @@ public final class DeliveryService {
             if (disposition.equals("APPLIED")) {
               var registered = new java.util.ArrayList<JsonNode>();
               receipt.path("artifacts").forEach(registered::add);
-              // v4 model outputs are registered too so text can be re-rendered later without
+              // Model outputs are registered too so text can be re-rendered later without
               // another model call; task results still list only COMPOSITE images.
-              if (generation)
-                receipt.path("generations").forEach(item -> registered.add(item.path("base")));
+              receipt.path("generations").forEach(item -> registered.add(item.path("base")));
               for (var artifact : registered) {
                 jdbc.update(
                     "INSERT INTO artifacts(id,task_id,attempt_id,ordinal,kind,object_key,sha256,width,height) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -287,11 +272,7 @@ public final class DeliveryService {
               }
               jdbc.update(
                   "UPDATE task_attempts SET status='SUCCEEDED',ended_at=now(),provider_info=?::jsonb WHERE id=?",
-                  generation
-                      ? Json.object().set("generations", receipt.path("generations")).toString()
-                      : receipt.path("background_generation").isNull()
-                          ? null
-                          : receipt.path("background_generation").toString(),
+                  Json.object().set("generations", receipt.path("generations")).toString(),
                   attempt);
               jdbc.update("UPDATE generation_tasks SET status='SUCCEEDED' WHERE id=?", task);
             } else fail(row, "OUTPUT_VALIDATION_FAILED", true);
@@ -314,33 +295,6 @@ public final class DeliveryService {
           finish(row);
           return Json.object().put("disposition", disposition);
         });
-  }
-
-  private void validateArtifacts(Map<String, Object> row, String token, JsonNode receipt) {
-    var ordinals = new HashSet<Integer>();
-    var keys = new HashSet<String>();
-    for (var artifact : receipt.path("artifacts")) {
-      if (!artifact.path("ordinal").canConvertToInt()
-          || !artifact.path("width").canConvertToInt()
-          || !artifact.path("height").canConvertToInt())
-        throw new Problem(422, "OUTPUT_VALIDATION_FAILED");
-      int ordinal = artifact.path("ordinal").intValue();
-      String key = artifact.path("object_key").asText();
-      if (!ordinals.add(ordinal)
-          || !keys.add(key)
-          || !key.equals(prefix(row, token) + ordinal + ".image")) {
-        throw new Problem(422, "OUTPUT_VALIDATION_FAILED");
-      }
-      var info = store.inspect(key, store.read(key));
-      if (!info.sha256().equals(artifact.path("sha256").asText())
-          || info.width() != artifact.path("width").intValue()
-          || info.height() != artifact.path("height").intValue())
-        throw new Problem(422, "OUTPUT_VALIDATION_FAILED");
-    }
-    var background = receipt.path("background_generation");
-    if (!background.isNull() && !keys.contains(background.path("output_object_key").asText())) {
-      throw new Problem(422, "OUTPUT_VALIDATION_FAILED");
-    }
   }
 
   private void fail(Map<String, Object> row, String code, boolean retryable) {

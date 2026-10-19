@@ -114,7 +114,6 @@ public final class ProjectAssets {
             .put("sha256", row.get("sha256").toString())
             .put("width", ((Number) row.get("width")).intValue())
             .put("height", ((Number) row.get("height")).intValue())
-            .put("review_status", row.get("review_status").toString())
             .put("content_url", "/api/v1/assets/" + id + "/content");
     if (row.get("source_artifact_id") != null)
       result.put("source_artifact_id", row.get("source_artifact_id").toString());
@@ -217,17 +216,6 @@ public final class ProjectAssets {
     byte[] bytes = store.read(row.get("object_key").toString());
     if (!Json.hash(bytes).equals(row.get("sha256"))) throw new Problem(422, "INVALID_ASSET");
     return bytes;
-  }
-
-  byte[] approvedAlpha(String actor, String id) {
-    var product = owned(actor, id);
-    var rows =
-        jdbc.queryForList(
-            "SELECT id FROM assets WHERE project_id=? AND source_asset_id=? AND kind='ALPHA' AND review_status='APPROVED' ORDER BY created_at DESC,id DESC LIMIT 1",
-            product.get("project_id"),
-            id);
-    if (rows.isEmpty()) throw new Problem(404, "NOT_FOUND");
-    return content(actor, rows.getFirst().get("id").toString());
   }
 
   private void audit(String actor, String action, String id) {

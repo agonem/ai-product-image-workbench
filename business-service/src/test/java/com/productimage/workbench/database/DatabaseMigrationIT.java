@@ -32,7 +32,7 @@ class DatabaseMigrationIT {
     password = required("DB_TEST_PASSWORD");
     schema = "test_" + UUID.randomUUID().toString().replace("-", "");
     flyway = Flyway.configure().dataSource(url, user, password).schemas(schema).load();
-    assertEquals(21, flyway.migrate().migrationsExecuted);
+    assertEquals(22, flyway.migrate().migrationsExecuted);
     sql("INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE')");
     sql("INSERT INTO projects(id,owner_id,name) VALUES ('p','u','fixture'),('q','v','fixture')");
     sql(
@@ -108,8 +108,6 @@ class DatabaseMigrationIT {
             "users",
             "projects",
             "assets",
-            "templates",
-            "template_versions",
             "generation_tasks",
             "task_attempts",
             "artifacts",
@@ -119,9 +117,9 @@ class DatabaseMigrationIT {
             "local_credentials",
             "local_sessions",
             "local_auth_throttle",
-            "provider_config_versions",
+            "models",
             "model_interfaces",
-            "provider_config_state")) {
+            "default_models")) {
       assertEquals(List.of("users", "projects", "assets").contains(table) ? 2 : 0, count(table));
     }
   }
@@ -142,7 +140,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('existing','ACTIVE')");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(20, upgrade.migrate().migrationsExecuted);
+      assertEquals(21, upgrade.migrate().migrationsExecuted);
       assertEquals(0, upgrade.migrate().migrationsExecuted);
       try (var rows = query.executeQuery("SELECT status FROM users WHERE id='existing'")) {
         assertTrue(rows.next());
@@ -188,7 +186,7 @@ class DatabaseMigrationIT {
       query.execute("INSERT INTO users(id,status) VALUES ('legacy','DISABLED')");
       var current =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(19, current.migrate().migrationsExecuted);
+      assertEquals(20, current.migrate().migrationsExecuted);
       assertEquals(0, current.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
@@ -258,22 +256,15 @@ class DatabaseMigrationIT {
   }
 
   @Test
-  void immutableSourcesSnapshotsAndPublishedVersions() throws SQLException {
+  void immutableSourcesAndSnapshots() throws SQLException {
     seedTaskAndAttempt();
     rejects("23514", "UPDATE assets SET object_key='replacement' WHERE id='product'");
     rejects(
         "23514",
         "UPDATE generation_tasks SET request_snapshot_json='{\"changed\":true}' WHERE id='t'");
-    sql("INSERT INTO templates(id,type,name) VALUES ('template','scene','fixture')");
-    sql(
-        "INSERT INTO template_versions(id,template_id,version,config_json,created_by) VALUES ('version','template',1,'{}','u')");
-    sql("UPDATE template_versions SET config_json='{\"draft\":true}' WHERE id='version'");
-    sql("UPDATE template_versions SET published_by='u',published_at=now() WHERE id='version'");
-    rejects("23514", "UPDATE template_versions SET config_json='{}' WHERE id='version'");
-    rejects("23514", "DELETE FROM template_versions WHERE id='version'");
-    rejects(
-        "23514",
-        "UPDATE template_versions SET published_at=null,published_by=null WHERE id='version'");
+    // V22: the v1 template tables are gone.
+    rejects("42P01", "SELECT 1 FROM templates");
+    rejects("42P01", "SELECT 1 FROM output_presets");
   }
 
   @Test
@@ -356,14 +347,10 @@ class DatabaseMigrationIT {
   }
 
   @Test
-  void anyMaterialCategoryFillsAnySlotButNeverAMask() throws SQLException {
+  void anyMaterialCategoryFillsAnySlot() throws SQLException {
     sql(
         "INSERT INTO assets(id,project_id,kind,object_key,sha256,width,height) VALUES ('gift','p','GIFT','fixtures/gift','"
             + "c".repeat(64)
-            + "',64,64)");
-    sql(
-        "INSERT INTO assets(id,project_id,kind,source_asset_id,object_key,sha256,width,height) VALUES ('alpha','p','ALPHA','product','fixtures/alpha','"
-            + "d".repeat(64)
             + "',64,64)");
     sql(
         "INSERT INTO assets(id,project_id,kind,object_key,sha256,width,height) VALUES ('ref','p','REFERENCE','fixtures/ref','"
@@ -377,8 +364,6 @@ class DatabaseMigrationIT {
     // ADR-20261009-R: a 赠品图 or 参考图 may be the product and the product image the gift.
     sql(task("g", "u", "SCENE", "k1", "a".repeat(64)).replace("'product'", "'gift'"));
     sql(task("r", "u", "SCENE", "k2", "a".repeat(64)).replace("'product'", "'ref'"));
-    rejects(
-        "23514", task("bad", "u", "SCENE", "k3", "a".repeat(64)).replace("'product'", "'alpha'"));
     String giftTask =
         task("t", "u", "GIFT", "key", "a".repeat(64))
             .replace("request_snapshot_json)", "request_snapshot_json,gift_asset_id)")
@@ -388,16 +373,11 @@ class DatabaseMigrationIT {
             .replace("'t'", "'swapped'")
             .replace("'key'", "'k4'")
             .replace("'gift')", "'product')"));
-    rejects(
-        "23514",
-        giftTask
-            .replace("'t'", "'masked'")
-            .replace("'key'", "'k5'")
-            .replace("'gift')", "'alpha')"));
     sql(giftTask);
+    // V22: cutout masks are gone.
     rejects(
         "23514",
-        "INSERT INTO assets(id,project_id,kind,source_asset_id,object_key,sha256,width,height) VALUES ('nested','p','ALPHA','alpha','fixtures/nested','"
+        "INSERT INTO assets(id,project_id,kind,object_key,sha256,width,height) VALUES ('mask','p','ALPHA','fixtures/mask','"
             + "e".repeat(64)
             + "',64,64)");
   }
@@ -409,48 +389,42 @@ class DatabaseMigrationIT {
   void providerConfigsAreEditedInPlaceAndDeletionUnbindsTasks() throws SQLException {
     sql(INTERFACE + "('i','OpenRouter','openrouter',NULL,'cipher','****st','u')");
     sql(
-        "INSERT INTO provider_config_versions(id,interface_id,name,model,provider_tag,created_by) VALUES ('cfg','i','主力','test/model','openai','u')");
+        "INSERT INTO models(id,interface_id,name,model,provider_tag,created_by) VALUES ('cfg','i','主力','test/model','openai','u')");
     // ADR-20261009-Q: model and parameters change in place; identity and purpose do not.
-    sql(
-        "UPDATE provider_config_versions SET model='other/model',parameters='{\"quality\":\"high\"}' WHERE id='cfg'");
-    rejects("23514", "UPDATE provider_config_versions SET purpose='TEXT' WHERE id='cfg'");
-    rejects("23514", "UPDATE provider_config_versions SET created_by='x' WHERE id='cfg'");
-    rejects("23514", "UPDATE provider_config_versions SET parameters='[]' WHERE id='cfg'");
-    rejects(
-        "23503",
-        "INSERT INTO provider_config_state(provider,active_version_id) VALUES ('active','missing')");
-    sql("INSERT INTO provider_config_state(provider,active_version_id) VALUES ('active','cfg')");
+    sql("UPDATE models SET model='other/model',parameters='{\"quality\":\"high\"}' WHERE id='cfg'");
+    rejects("23514", "UPDATE models SET purpose='TEXT' WHERE id='cfg'");
+    rejects("23514", "UPDATE models SET created_by='x' WHERE id='cfg'");
+    rejects("23514", "UPDATE models SET parameters='[]' WHERE id='cfg'");
+    rejects("23503", "INSERT INTO default_models(purpose,model_id) VALUES ('IMAGE','missing')");
+    sql("INSERT INTO default_models(purpose,model_id) VALUES ('IMAGE','cfg')");
     // One default pointer for the deployment: no second state row.
-    rejects(
-        "23514",
-        "INSERT INTO provider_config_state(provider,active_version_id) VALUES ('openrouter','cfg')");
-    // Name and enabled are editable (the proxy setting is the interface's); a retired row can
+    rejects("23514", "INSERT INTO default_models(purpose,model_id) VALUES ('openrouter','cfg')");
+    // Name and enabled are editable (the proxy setting is the interface's); there is no retired
     // never be enabled; only text models say whether they can look at images (V21).
-    sql("UPDATE provider_config_versions SET name='备用',enabled=true WHERE id='cfg'");
+    sql("UPDATE models SET name='备用',enabled=true WHERE id='cfg'");
     sql("UPDATE model_interfaces SET use_proxy=true,api_key_cipher='c2' WHERE id='i'");
-    rejects("23514", "UPDATE provider_config_versions SET vision=true WHERE id='cfg'");
-    rejects("23514", "UPDATE provider_config_versions SET retired=true WHERE id='cfg'");
-    rejects("23514", "UPDATE provider_config_versions SET name=' ' WHERE id='cfg'");
+    rejects("23514", "UPDATE models SET vision=true WHERE id='cfg'");
+    rejects("42703", "UPDATE models SET retired=true WHERE id='cfg'");
+    rejects("23514", "UPDATE models SET name=' ' WHERE id='cfg'");
     seedTaskAndAttempt();
     rejects(
         "23503",
         task("bound", "u", "SCENE", "cfgkey", "a".repeat(64))
-            .replace("request_snapshot_json)", "request_snapshot_json,provider_config_version)")
+            .replace("request_snapshot_json)", "request_snapshot_json,image_model_id)")
             .replace("'{}')", "'{}','missing')"));
     sql(
         task("bound", "u", "SCENE", "cfgkey", "a".repeat(64))
-            .replace("request_snapshot_json)", "request_snapshot_json,provider_config_version)")
+            .replace("request_snapshot_json)", "request_snapshot_json,image_model_id)")
             .replace("'{}')", "'{}','cfg')"));
     // A task can move to another model, and deleting a model unbinds the tasks still on it.
     sql(
-        "INSERT INTO provider_config_versions(id,interface_id,name,model,provider_tag,created_by) VALUES ('spare','i','备用','test/spare','openai','u')");
-    sql("UPDATE generation_tasks SET provider_config_version='spare' WHERE id='bound'");
-    sql("DELETE FROM provider_config_versions WHERE id='spare'");
+        "INSERT INTO models(id,interface_id,name,model,provider_tag,created_by) VALUES ('spare','i','备用','test/spare','openai','u')");
+    sql("UPDATE generation_tasks SET image_model_id='spare' WHERE id='bound'");
+    sql("DELETE FROM models WHERE id='spare'");
     try (var connection = connection();
         var query = connection.createStatement();
         var rows =
-            query.executeQuery(
-                "SELECT provider_config_version FROM generation_tasks WHERE id='bound'")) {
+            query.executeQuery("SELECT image_model_id FROM generation_tasks WHERE id='bound'")) {
       assertTrue(rows.next());
       assertNull(rows.getString(1));
     }
@@ -478,8 +452,7 @@ class DatabaseMigrationIT {
     sql("UPDATE model_interfaces SET base_url='https://b.example' WHERE id='oc'");
     rejects("23514", "UPDATE model_interfaces SET base_url='ftp://b.example' WHERE id='oc'");
     // A model needs an interface; ids and tags keep their shapes.
-    String model =
-        "INSERT INTO provider_config_versions(id,interface_id,name,model,provider_tag,created_by) VALUES ";
+    String model = "INSERT INTO models(id,interface_id,name,model,provider_tag,created_by) VALUES ";
     sql(model + "('m','o','n','gpt-image-2',NULL,'u')");
     rejects("23503", model + "('m2','missing','n','gpt-image-2',NULL,'u')");
     rejects("23514", model + "('m3','o','n','gpt image',NULL,'u')");
@@ -514,7 +487,7 @@ class DatabaseMigrationIT {
               + "('c2','{\"items\":[{\"id\":\"a:r3\",\"artifact_id\":\"r3\",\"x\":0,\"y\":0,\"width\":9,\"height\":9}],\"removed\":[]}',2)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(2, upgrade.migrate().migrationsExecuted);
+      assertEquals(3, upgrade.migrate().migrationsExecuted);
       try (var rows =
           query.executeQuery(
               "SELECT conversation_id,layout->'items',layout->'removed',version FROM conversation_canvases ORDER BY conversation_id")) {
@@ -553,11 +526,10 @@ class DatabaseMigrationIT {
           "INSERT INTO provider_config_state(provider,active_version_id,enabled) VALUES ('openrouter','cfg',true)");
       var upgrade =
           Flyway.configure().dataSource(url, user, password).schemas(upgradeSchema).load();
-      assertEquals(14, upgrade.migrate().migrationsExecuted);
-      try (var rows =
-          query.executeQuery("SELECT provider,active_version_id FROM provider_config_state")) {
+      assertEquals(15, upgrade.migrate().migrationsExecuted);
+      try (var rows = query.executeQuery("SELECT purpose,model_id FROM default_models")) {
         assertTrue(rows.next());
-        assertEquals("active", rows.getString(1));
+        assertEquals("IMAGE", rows.getString(1));
         assertEquals("cfg", rows.getString(2));
         assertFalse(rows.next());
       }
@@ -565,7 +537,7 @@ class DatabaseMigrationIT {
       // moves its type, address and proxy setting to its own interface.
       try (var rows =
           query.executeQuery(
-              "SELECT i.kind,v.provider_tag,i.base_url,v.name,v.enabled,v.retired,i.use_proxy FROM provider_config_versions v JOIN model_interfaces i ON i.id=v.interface_id")) {
+              "SELECT i.kind,v.provider_tag,i.base_url,v.name,v.enabled,false,i.use_proxy FROM models v JOIN model_interfaces i ON i.id=v.interface_id")) {
         assertTrue(rows.next());
         assertEquals("openrouter", rows.getString(1));
         assertEquals("openai", rows.getString(2));
@@ -679,8 +651,8 @@ class DatabaseMigrationIT {
     rejects(
         "23503", "INSERT INTO agents(id,owner_id,name,instructions) VALUES ('x','nobody','n','i')");
     // Picture and text models each have their own default row.
-    rejects("23514", "INSERT INTO provider_config_state(provider) VALUES ('other')");
-    sql("INSERT INTO provider_config_state(provider) VALUES ('text')");
+    rejects("23514", "INSERT INTO default_models(purpose) VALUES ('other')");
+    sql("INSERT INTO default_models(purpose) VALUES ('TEXT')");
   }
 
   @Test
@@ -691,20 +663,5 @@ class DatabaseMigrationIT {
         "23514",
         "INSERT INTO network_settings(id,proxy_cipher,proxy_mask,updated_by) VALUES ('other','c','m','u')");
     rejects("23503", "UPDATE network_settings SET updated_by='nobody' WHERE id='proxy'");
-  }
-
-  @Test
-  void publishedPointerRequiresPublishedVersion() throws SQLException {
-    sql("INSERT INTO templates(id,type,name) VALUES ('template','scene','fixture')");
-    rejects("23514", "UPDATE templates SET state='PUBLISHED' WHERE id='template'");
-    sql(
-        "INSERT INTO template_versions(id,template_id,version,config_json,created_by) VALUES ('version','template',1,'{}','u')");
-    rejects(
-        "23514",
-        "UPDATE templates SET published_version_id='version',state='PUBLISHED' WHERE id='template'");
-    sql("UPDATE template_versions SET published_by='u',published_at=now() WHERE id='version'");
-    sql(
-        "UPDATE templates SET published_version_id='version',state='PUBLISHED' WHERE id='template'");
-    sql("UPDATE templates SET state='DISABLED' WHERE id='template'");
   }
 }

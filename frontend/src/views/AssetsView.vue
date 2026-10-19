@@ -16,7 +16,7 @@ const label = computed(() =>
 )
 const works = computed(() =>
   w.history
-    .filter((item) => item.generation_v4 && item.task.status === 'SUCCEEDED')
+    .filter((item) => item.task.status === 'SUCCEEDED')
     .flatMap((item) => item.task.artifacts),
 )
 const viewing = ref<number | null>(null)

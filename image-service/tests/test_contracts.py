@@ -30,7 +30,7 @@ def test_schemas_and_fixture_names():
 def test_unknown_contract_and_safe_errors():
     with pytest.raises(ValueError, match="Unknown contract"):
         validate_contract("https://example.invalid/unregistered", {})
-    errors = validate_contract("task-create", {"api_key": "dummy-sensitive-value"})
+    errors = validate_contract("generation-v4-create", {"api_key": "dummy-sensitive-value"})
     assert errors
     assert "dummy-sensitive-value" not in str(errors)
-    assert validate_contract("task-create", {"x": float("inf")})
+    assert validate_contract("generation-v4-create", {"x": float("inf")})

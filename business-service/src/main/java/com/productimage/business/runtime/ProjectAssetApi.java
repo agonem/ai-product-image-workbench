@@ -104,13 +104,4 @@ public class ProjectAssetApi {
         .header("Content-Disposition", "attachment")
         .body(data);
   }
-
-  @GetMapping("/api/v1/assets/{id}/approved-alpha")
-  ResponseEntity<byte[]> approvedAlpha(@PathVariable String id, HttpServletRequest request) {
-    return ResponseEntity.ok()
-        .header("Content-Type", "application/octet-stream")
-        .header("Cache-Control", "no-store")
-        .header("X-Content-Type-Options", "nosniff")
-        .body(assets.approvedAlpha(actor(request), id));
-  }
 }

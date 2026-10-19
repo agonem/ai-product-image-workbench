@@ -35,7 +35,6 @@ const works = computed(() =>
   w.history
     .filter(
       (item) =>
-        item.generation_v4 &&
         item.task.status === 'SUCCEEDED' &&
         (!filter.value || item.task.feature_type === filter.value),
     )

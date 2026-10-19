@@ -11,7 +11,6 @@ SCHEMAS = {
     path.name.removesuffix(".schema.json"): json.loads(path.read_text(encoding="utf-8"))
     for path in ROOT.glob("*.schema.json")
 }
-SCHEMAS["task-request"] = SCHEMAS.pop("task")
 REGISTRY = Registry().with_resources(
     (schema["$id"], Resource.from_contents(schema)) for schema in SCHEMAS.values()
 )

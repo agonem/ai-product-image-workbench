@@ -179,7 +179,7 @@ def verify(run):
     assert images[0]["id"] != images[1]["id"]
     for asset in images:
         assert asset["sha256"] == hashlib.sha256(png()).hexdigest()
-        assert asset["review_status"] == "PENDING" and "object_key" not in asset
+        assert "review_status" not in asset and "object_key" not in asset
         path = f"/api/v1/assets/{asset['id']}"
         assert run.http("GET", path, token=bob)[0] == 404
         assert run.http("GET", path + "/content", token=bob)[0] == 404
@@ -264,18 +264,19 @@ def verify(run):
         "PASS ACC-T04-DEV A4/A5/A6: JPEG bytes, chunked input and bounded concurrency", flush=True
     )
 
-    # T05 fixtures are SQL-generated synthetic data; reassign only the fixture project owner.
+    # The v4 carrier task makes an 800 x 800 picture, beyond the tiny upload limits above.
+    run.close()
+    run.env.update({"OBJECT_MAX_BYTES": "20000000", "OBJECT_MAX_PIXELS": "40000000"})
+    run.start()
+    alice, bob = run.login("alice"), run.login("bob")
+    # T05 data are SQL-generated synthetic rows; reassign only the synthetic project's owner.
     run.seed()
     run.sql("UPDATE projects SET owner_id='alice_id' WHERE id='p'")
-    request = run.request()
-    # A freshly uploaded original must not bypass required alpha review.
-    request["project_id"], request["product_asset_id"] = project, images[0]["id"]
     saved_token = run.user_token
     run.user_token = alice
-    assert run.call("POST", "/api/v1/tasks", request, key="pending-alpha")[0] == 422
     task = run.create("local-task")
     for path, method, body in (
-        (f"/api/v1/tasks/{task['id']}", "GET", None),
+        (f"/api/v4/generation-tasks/{task['id']}", "GET", None),
         (f"/api/v1/tasks/{task['id']}/retry", "POST", {"attempt": 1}),
     ):
         assert run.http(method, path, token=bob, body=body)[0] == 404

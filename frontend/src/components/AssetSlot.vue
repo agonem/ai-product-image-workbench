@@ -19,7 +19,7 @@ const w = inject(workbenchKey)!
 // Finished results can be reused as material too (ADR-20260930-E); picking one copies it.
 const works = computed(() =>
   w.history
-    .filter((item) => item.generation_v4 && item.task.status === 'SUCCEEDED')
+    .filter((item) => item.task.status === 'SUCCEEDED')
     .flatMap((item) =>
       item.task.artifacts.map((artifact) => ({ task: item.task, artifact })),
     ),

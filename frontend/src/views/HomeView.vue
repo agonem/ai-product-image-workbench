@@ -30,7 +30,7 @@ const entries = [
     to: '/chat',
   },
 ]
-const v4 = computed(() => w.history.filter((item) => item.generation_v4))
+const v4 = computed(() => w.history)
 const recent = computed(() =>
   v4.value
     .filter((item) => item.task.status === 'SUCCEEDED')

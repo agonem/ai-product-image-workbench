@@ -23,7 +23,7 @@ test('unknown contracts fail closed and errors omit input values', () => {
     () => validateContract('https://example.invalid/unregistered', {}),
     /Unknown contract/,
   )
-  const errors = validateContract('task-create', {
+  const errors = validateContract('generation-v4-create', {
     api_key: 'dummy-sensitive-value',
   })
   assert.ok(errors.length > 0)

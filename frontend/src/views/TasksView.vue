@@ -69,8 +69,7 @@ function open(item: HistoryItem) {
                         ?.tone ??
                       (item.task.feature_type === 'CUSTOM' ? 'chat' : 'grid')
                     "
-                  />{{ featureName(item.task.feature_type)
-                  }}<small v-if="!item.generation_v4">（旧版任务）</small></span
+                  />{{ featureName(item.task.feature_type) }}</span
                 >
                 <small v-if="item.task.error"
                   >{{ item.task.error.message }}（{{
@@ -82,25 +81,14 @@ function open(item: HistoryItem) {
               <td class="num">第 {{ item.task.attempt }} 次</td>
               <td class="num">{{ item.task.artifacts.length }} 张</td>
               <td>
-                <span
-                  class="tag"
-                  :class="item.test_fixture ? '' : tone[item.task.status]"
+                <span class="tag" :class="tone[item.task.status]"
                   ><span class="dot"></span
-                  >{{
-                    item.test_fixture
-                      ? '开发/测试任务'
-                      : statusLabels[item.task.status]
-                  }}</span
+                  >{{ statusLabels[item.task.status] }}</span
                 >
               </td>
               <td>
                 <div class="actions">
-                  <button
-                    v-if="item.generation_v4"
-                    type="button"
-                    class="link-btn"
-                    @click="open(item)"
-                  >
+                  <button type="button" class="link-btn" @click="open(item)">
                     查看
                   </button>
                 </div>

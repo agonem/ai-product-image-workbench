@@ -1,10 +1,8 @@
 """Independent HTTP-polling Worker with lease heartbeats and durable receipt replay."""
 
 import argparse
-import hashlib
 import os
 import ssl
-import struct
 import threading
 import time
 import uuid
@@ -61,16 +59,16 @@ class Api:
         self.client.close()
 
 
-def crash(point: str, fixture: bool):
-    if fixture and os.getenv("T05_TEST_CRASH_AT") == point:
+def crash(point: str, hooks: bool):
+    """Test hooks only (--test-hooks): stop at a named point to check crash recovery."""
+    if hooks and os.getenv("T05_TEST_CRASH_AT") == point:
         os._exit(91)
 
 
 def failure(request, code, retryable=True):
-    version = request.get("schema_version", 1)
     return {
-        "schema_version": version,
-        "event_type": f"image.task.failed.v{version}",
+        "schema_version": 4,
+        "event_type": "image.task.failed.v4",
         "event_id": uuid.uuid4().hex,
         "task_id": request["task_id"],
         "attempt_id": request["attempt_id"],
@@ -114,101 +112,49 @@ def process(
     api: Api,
     request: dict,
     lease: str,
-    fixture: bool,
     *,
     cancelled=None,
     provider_config=None,
     text_provider_config=None,
 ) -> dict:
-    if request.get("schema_version") == 4:
-        if fixture:
-            return failure(request, "INVALID_CONTRACT", False)
-        from image_service import generation, providers, typeset
-        from image_service.background_config import config_from_mapping, load_config
+    """One v4 task (the only format since ADR-20261019-AD)."""
+    from image_service import generation, providers, typeset
+    from image_service.background_config import config_from_mapping, load_config
 
-        try:
-            if "base_image" in request or (
-                request.get("keep_original") and not request.get("gift_reshoot")
-            ):
-                # Text-only re-render of a stored model output, or text on the product image
-                # itself (ADR-20261008-G): no provider is contacted. A white gift card on the
-                # original picture still has its gift re-shot by the model (ADR-20261009-N).
-                return generation.process_generation(api, request, lease, None)
-            config = (
-                config_from_mapping(provider_config)
-                if provider_config is not None
-                else load_config()
-            )
-            # Agent rewrites use the separately bound text model (ADR-20261008-L).
-            text_config = (
-                config_from_mapping(text_provider_config) if text_provider_config else None
-            )
-            # The admin-chosen provider type selects OpenRouter, OpenAI or Gemini formats.
-            with providers.model_adapter(config) as adapter:
-                return generation.process_generation(
-                    api,
-                    request,
-                    lease,
-                    adapter,
-                    cancelled=cancelled,
-                    text_config=text_config,
-                    image_config=config,
-                )
-        except typeset.TextOverflow:
-            return failure(request, "TEXT_OVERFLOW", False)
-        except typeset.FontUnavailable:
-            # A deployment problem, not the user's input: retry works once it is fixed.
-            receipt = failure(request, "GENERATION_FAILED", True)
-            receipt["error"]["safe_message"] = "TEXT_FONT_UNAVAILABLE"
-            return receipt
-    if request.get("schema_version") in (2, 3):
-        # Scene v2/v3 were replaced by v4: a legacy batch fails visibly, never spends a call.
-        return failure(request, "INVALID_CONTRACT", False)
-    if not fixture:
-        code = "PROVIDER_UNAVAILABLE" if request["feature_type"] == "SCENE" else "GENERATION_FAILED"
-        return failure(request, code)
-    if request["template_snapshot"]["output_preset"]["id"] != "t05_transport_fixture":
-        return failure(request, "INVALID_CONTRACT", False)
-    blobs = {}
-    for field in ("product_asset", "product_alpha_asset", "gift_asset"):
-        if field not in request:
-            continue
-        asset = request[field]
-        if not asset["object_key"].startswith("fixtures/"):
-            return failure(request, "INVALID_ASSET", False)
-        blobs[field] = api.call(
-            "GET",
-            f"/internal/v1/work/{request['attempt_id']}/assets/{asset['asset_id']}",
-            lease=lease,
-            binary=True,
+    try:
+        if "base_image" in request or (
+            request.get("keep_original") and not request.get("gift_reshoot")
+        ):
+            # Text-only re-render of a stored model output, or text on the product image itself
+            # (ADR-20261008-G): no provider is contacted. A white gift card on the original
+            # picture still has its gift re-shot by the model (ADR-20261009-N).
+            return generation.process_generation(api, request, lease, None)
+        config = (
+            config_from_mapping(provider_config) if provider_config is not None else load_config()
         )
-        if hashlib.sha256(blobs[field]).hexdigest() != asset["sha256"]:
-            return failure(request, "INVALID_ASSET", False)
-    # Explicit transport fixture only: no compositing, AI, or product-image promise.
-    image = blobs["product_asset"]
-    if image[:8] != b"\x89PNG\r\n\x1a\n" or len(image) < 24:
-        return failure(request, "INVALID_ASSET", False)
-    width, height = struct.unpack(">II", image[16:24])
-    result = api.call(
-        "PUT", f"/internal/v1/work/{request['attempt_id']}/outputs/0", lease=lease, data=image
-    )
-    if (result["width"], result["height"]) != (width, height):
-        return failure(request, "OUTPUT_VALIDATION_FAILED")
-    crash("after-output", fixture)
-    return {
-        "schema_version": 1,
-        "event_type": "image.task.completed.v1",
-        "event_id": uuid.uuid4().hex,
-        "task_id": request["task_id"],
-        "attempt_id": request["attempt_id"],
-        "correlation_id": request["correlation_id"],
-        "artifacts": [{"ordinal": 0, "kind": "COMPOSITE", **result}],
-        "duration_ms": 0,
-        "background_generation": None,
-    }
+        # Agent rewrites and the look-first analysis use the separately bound text model.
+        text_config = config_from_mapping(text_provider_config) if text_provider_config else None
+        # The admin-chosen interface type selects OpenRouter, OpenAI or Gemini formats.
+        with providers.model_adapter(config) as adapter:
+            return generation.process_generation(
+                api,
+                request,
+                lease,
+                adapter,
+                cancelled=cancelled,
+                text_config=text_config,
+                image_config=config,
+            )
+    except typeset.TextOverflow:
+        return failure(request, "TEXT_OVERFLOW", False)
+    except typeset.FontUnavailable:
+        # A deployment problem, not the user's input: retry works once it is fixed.
+        receipt = failure(request, "GENERATION_FAILED", True)
+        receipt["error"]["safe_message"] = "TEXT_FONT_UNAVAILABLE"
+        return receipt
 
 
-def flush(api: Api, journal: Journal, fixture: bool) -> bool:
+def flush(api: Api, journal: Journal, hooks: bool) -> bool:
     found = False
     for path, entry in journal.pending():
         found = True
@@ -220,31 +166,22 @@ def flush(api: Api, journal: Journal, fixture: bool) -> bool:
         )
         if result.get("disposition") not in {"APPLIED", "IGNORED", "REJECTED"}:
             raise ValueError("Invalid receipt acknowledgement")
-        crash("after-ack", fixture)
+        crash("after-ack", hooks)
         journal.acknowledge(path)
     return found
 
 
-def run_once(api: Api, journal: Journal, fixture=False) -> bool:
-    if flush(api, journal, fixture):
+def run_once(api: Api, journal: Journal, hooks=False) -> bool:
+    if flush(api, journal, hooks):
         return True
     claim = api.call("POST", "/internal/v1/work/claim")
     if claim is None:
         return False
     request = claim["request"]
     lease = claim["lease_token"]
-    if validate_contract(
-        "generation-v4-request"
-        if request.get("schema_version") == 4
-        else "scene-v3-request"
-        if request.get("schema_version") == 3
-        else "scene-request"
-        if request.get("schema_version") == 2
-        else "task-request",
-        request,
-    ):
+    if validate_contract("generation-v4-request", request):
         raise ValueError("Invalid claimed task contract")
-    crash("after-claim", fixture)
+    crash("after-claim", hooks)
     stopped = threading.Event()
     lost = threading.Event()
     started = time.monotonic()
@@ -271,7 +208,6 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
                 api,
                 request,
                 lease,
-                fixture,
                 cancelled=lost.is_set,
                 provider_config=claim.get("provider_config"),
                 text_provider_config=claim.get("text_provider_config"),
@@ -283,20 +219,16 @@ def run_once(api: Api, journal: Journal, fixture=False) -> bool:
         receipt["duration_ms"] = int((time.monotonic() - started) * 1000)
         if lost.is_set():
             raise RuntimeError("Lease lost; output cannot be confirmed")
-        contract = (
-            "generation-v4-"
-            if request.get("schema_version") == 4
-            else "scene-v3-"
-            if request.get("schema_version") == 3
-            else "scene-"
-            if request.get("schema_version") == 2
-            else "task-"
-        ) + ("completed" if ".completed." in receipt["event_type"] else "failed")
+        # Outputs are stored; the receipt is not yet journaled.
+        crash("after-output", hooks)
+        contract = "generation-v4-" + (
+            "completed" if ".completed." in receipt["event_type"] else "failed"
+        )
         if validate_contract(contract, receipt):
             raise ValueError("Invalid generated receipt")
         journal.save(request["attempt_id"], lease, receipt)
-        crash("after-journal", fixture)
-        flush(api, journal, fixture)
+        crash("after-journal", hooks)
+        flush(api, journal, hooks)
     finally:
         stopped.set()
         thread.join(timeout=12)
@@ -331,7 +263,7 @@ def connect() -> Api:
     )
 
 
-def serve(slot: int, fixture: bool, stop: threading.Event, failures: list):
+def serve(slot: int, hooks: bool, stop: threading.Event, failures: list):
     """One claim loop of a multi-slot Worker; a corrupt journal stops every slot."""
     try:
         api = connect()
@@ -340,7 +272,7 @@ def serve(slot: int, fixture: bool, stop: threading.Event, failures: list):
                 delay = 1
                 while not stop.is_set():
                     try:
-                        worked = run_once(api, journal, fixture)
+                        worked = run_once(api, journal, hooks)
                         delay = 1
                         if not worked:
                             stop.wait(1)
@@ -366,14 +298,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true")
     parser.add_argument(
-        "--fixture", action="store_true", help="Synthetic transport acceptance only"
+        "--test-hooks", action="store_true", help="Crash-recovery checks only (T05_TEST_CRASH_AT)"
     )
     args = parser.parse_args()
     slots = 1 if args.once else concurrency()
     if slots > 1:
         stop, failures = threading.Event(), []
         threads = [
-            threading.Thread(target=serve, args=(slot, args.fixture, stop, failures), daemon=True)
+            threading.Thread(
+                target=serve, args=(slot, args.test_hooks, stop, failures), daemon=True
+            )
             for slot in range(slots)
         ]
         for thread in threads:
@@ -395,7 +329,7 @@ def main():
             delay = 1
             while True:
                 try:
-                    worked = run_once(api, journal, args.fixture)
+                    worked = run_once(api, journal, args.test_hooks)
                     delay = 1
                     if args.once:
                         return

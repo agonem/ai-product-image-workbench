@@ -25,7 +25,6 @@ export interface Asset {
   kind: AssetKind
   width: number
   height: number
-  review_status: string
   /** Set when the original is a copy of a generated result (ADR-20260930-E). */
   source_artifact_id?: string
 }
@@ -60,11 +59,10 @@ export interface Generation extends Task {
   request?: Record<string, unknown> & { text?: TextSpec }
   source?: { task_id: string; ordinal: number }
   bases?: { id: string; width: number; height: number }[]
-  review_status?: string
   /** Agent used and, after a magic-wand rewrite, the brief the image model got. */
   agent?: { id?: string; name?: string; rewrite: boolean; rewritten?: string }
-  /** Chat: what the text model saw in the images before drawing (ADR-20261009-P). */
-  /** What the text model saw, or why it did not look (ADR-20261012-AB: NO_VISION). */
+  /** Chat: what the text model saw in the images before drawing (ADR-20261009-P), or why
+   *  it did not look (ADR-20261012-AB: NO_VISION). */
   analysis?: { text?: string; skipped?: 'NO_VISION' }
 }
 /** Agents of the conversation page (ADR-20261008-L). */
@@ -78,11 +76,9 @@ export interface Agent {
   avatar: boolean
   updated_at: string
 }
+/** One row of the task history; every task is a v4 task (ADR-20261019-AD). */
 export interface HistoryItem {
   task: Task
-  test_fixture: boolean
-  real_scene?: boolean
-  generation_v4?: boolean
 }
 export interface Page<T> {
   items: T[]
@@ -120,7 +116,6 @@ export interface ModelChoice {
 }
 export interface Options {
   mode: 'development-only' | 'production-local'
-  generation_available: false
   generation?: GenerationOptions
   models?: ModelChoice[]
 }

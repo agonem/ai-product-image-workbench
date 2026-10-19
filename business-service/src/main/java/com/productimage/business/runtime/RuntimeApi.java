@@ -54,20 +54,7 @@ public class RuntimeApi {
     }
   }
 
-  @PostMapping("/api/v1/tasks")
-  public ResponseEntity<JsonNode> create(HttpServletRequest request) {
-    String actor = users.authenticate(request.getHeader("Authorization"));
-    return ResponseEntity.accepted()
-        .body(tasks.create(actor, request.getHeader("Idempotency-Key"), json(request)));
-  }
-
-  @GetMapping("/api/v1/tasks/{id}")
-  public JsonNode get(@PathVariable String id, HttpServletRequest request) {
-    String actor = users.authenticate(request.getHeader("Authorization"));
-    return tasks.get(actor, id);
-  }
-
-  /** v4 whole-image generation for the gift, scene and selling-point entries. */
+  /** v4 whole-image generation for every entry (the only task format, ADR-20261019-AD). */
   @PostMapping("/api/v4/generation-tasks")
   public ResponseEntity<JsonNode> createGeneration(HttpServletRequest request) {
     String actor = users.authenticate(request.getHeader("Authorization"));

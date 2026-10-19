@@ -301,7 +301,7 @@ def test_keep_original_skips_the_provider_entirely(font, monkeypatch):
 
     monkeypatch.setattr(providers, "model_adapter", forbidden)
     local = api()
-    receipt = process(local, keep_original_request(local), "lease", False, provider_config=None)
+    receipt = process(local, keep_original_request(local), "lease", provider_config=None)
     assert receipt["event_type"] == "image.task.completed.v4", receipt
 
 
@@ -403,7 +403,6 @@ def test_worker_maps_v4_errors(monkeypatch, font):
         local,
         request(local, "SELLING_POINT", text=long_text),
         "lease",
-        False,
         provider_config={"api_key": "k" * 20, "model": "vendor/model", "provider_tag": "openai"},
     )
     assert receipt["error"]["code"] == "TEXT_OVERFLOW" and receipt["error"]["retryable"] is False
@@ -413,7 +412,6 @@ def test_worker_maps_v4_errors(monkeypatch, font):
         local,
         request(local, "SELLING_POINT"),
         "lease",
-        False,
         provider_config={"api_key": "k" * 20, "model": "vendor/model", "provider_tag": "openai"},
     )
     assert receipt["error"] == {
@@ -421,8 +419,6 @@ def test_worker_maps_v4_errors(monkeypatch, font):
         "safe_message": "TEXT_FONT_UNAVAILABLE",
         "retryable": True,
     }
-    fixture = process(local, request(local), "lease", True)
-    assert fixture["error"]["code"] == "INVALID_CONTRACT"
 
 
 def test_reference_image_bytes_must_be_images():
@@ -926,9 +922,7 @@ def test_worker_contacts_the_model_for_a_white_card_on_the_original(font, monkey
 
     monkeypatch.setattr(providers, "model_adapter", lambda config: Context())
     config = {"provider": "openrouter", "model": "a/b", "provider_tag": "t", "api_key": "k" * 20}
-    receipt = process(
-        local, card_on_original(local, "WHITE"), "lease", False, provider_config=config
-    )
+    receipt = process(local, card_on_original(local, "WHITE"), "lease", provider_config=config)
     assert "error" not in receipt and len(adapter.requests) == 1
 
 
@@ -1295,7 +1289,12 @@ def test_chat_looks_at_every_image_before_drawing(font, monkeypatch):
     assert "不要添加用户和参考图都没有的元素或装饰" in system
     # ADR-20261012-AA: the plan lists the user's words for the picture, or says there are none.
     assert "在出图方案里逐字列出" in system and "写明“不加文字”" in system
-    assert "加入的赠品可以横放、倾斜或转向" in system
+    # ADR-20261019-AE: the plan may not carry over any other wording, and only the gift itself
+    # may be tilted - never the card.
+    assert "出图方案里禁止出现任何不是用户用引号给出的文字" in system
+    assert "不得写成“原样保留某文字”" in system
+    assert "加入的赠品实物可以横放、倾斜或转向" in system
+    assert "卡片、方框和标签本身必须竖直摆放，不旋转、不倾斜、不加透视或立体变形" in system
     assert user.startswith("需求：在参考图1的基础上") and "下面依次是图片" in user
     # The output budget is the model's own parameter now (ADR-20261012-AB), not set here.
     assert options == {} and local.posts[0] == "heartbeat"

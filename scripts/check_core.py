@@ -240,7 +240,7 @@ def api_checks(core, admin, alice, bob, project):
             data=data,
             mime="image/png",
         )
-        assert status == 201 and asset["review_status"] == "PENDING"
+        assert status == 201 and "review_status" not in asset, asset
         uploads[kind] = (asset["id"], data)
     product, gift = uploads["PRODUCT"][0], uploads["GIFT"][0]
     options = run.http("GET", "/api/v1/workbench/options", alice)[1]["generation"]
@@ -269,7 +269,6 @@ def api_checks(core, admin, alice, bob, project):
     assert state["status"] == "SUCCEEDED", state
     assert state["review_status"] == "PENDING" and state["output"] == output
     assert state["request"]["scene_preset"] == "nursery" and len(state["artifacts"]) == 1
-    assert run.sql("SELECT count(*) FROM assets WHERE kind='ALPHA'") == "0"
     attempt, gens = core.generations(state["id"])
     provenance = gens[0]["provenance"]
     assert provenance["model"] == "test/mock-model" and provenance["provider_tag"] == "mock"
@@ -283,7 +282,9 @@ def api_checks(core, admin, alice, bob, project):
     assert checked["format"] == "PNG" and checked["size"] == [800, 800], checked
     assert checked["regions"] == [True], checked
     history = run.http("GET", f"/api/v1/projects/{project}/tasks", alice)[1]["items"]
-    assert next(i for i in history if i["task"]["id"] == state["id"])["generation_v4"] is True
+    # ADR-20261019-AD: every task is a v4 task; the history carries no format flags.
+    listed = next(i for i in history if i["task"]["id"] == state["id"])
+    assert set(listed) == {"task"}, listed
     evidence["scene"] = {"task": state["id"], "provenance_model": provenance["model"]}
 
     # A2: custom scene, two JPEG images at an exact 3:4 size, each a separate paid permit.
@@ -432,34 +433,24 @@ def api_checks(core, admin, alice, bob, project):
     attempt = run.sql(f"SELECT current_attempt_id FROM generation_tasks WHERE id='{state['id']}'")
     assert core.fences(attempt) == "0"
 
-    # A11: withdrawn routes are gone; a legacy scene v3 task stays readable but never re-runs.
+    # A11: withdrawn routes are gone (ADR-20260929 cutout, ADR-20261019-AD v1-v3 task formats),
+    # and the generation options carry no v1 templates or output presets.
     for method, path, body in (
         ("POST", "/api/v3/scene-tasks", {}),
         ("GET", f"/api/v3/scene-tasks/{selling_task}", None),
         ("POST", f"/api/v1/assets/{product}/cutouts", {"tolerance": 8}),
         ("GET", f"/api/v1/assets/{product}/cutouts", None),
         ("POST", f"/api/v1/assets/{product}/review", {"decision": "APPROVED"}),
+        ("GET", f"/api/v1/assets/{product}/approved-alpha", None),
+        ("POST", "/api/v1/tasks", {"feature_type": "SCENE"}),
+        ("GET", f"/api/v1/tasks/{selling_task}", None),
     ):
-        assert run.http(method, path, alice, body)[0] == 404, (method, path)
-    # Snapshots are immutable, so the legacy row is a copy of the A10 task marked as v3.
-    legacy, legacy_attempt = "legacyv3task", "legacyv3attempt"
-    run.sql(
-        "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,"
-        "status,created_by,idempotency_key,request_sha256,request_snapshot_json,"
-        "template_snapshot_json,worker_snapshot_json,provider_config_version) "
-        f"SELECT '{legacy}',project_id,product_asset_id,gift_asset_id,feature_type,'FAILED',"
-        "created_by,'legacy-v3',request_sha256,request_snapshot_json,template_snapshot_json,"
-        "jsonb_set(worker_snapshot_json,'{schema_version}','3'),provider_config_version "
-        f"FROM generation_tasks WHERE id='{state['id']}'; "
-        "INSERT INTO task_attempts(id,task_id,attempt_no,status,started_at,ended_at,error_code,"
-        f"retryable) VALUES ('{legacy_attempt}','{legacy}',1,'FAILED',now(),now(),"
-        "'PROVIDER_UNAVAILABLE',true); "
-        f"UPDATE generation_tasks SET current_attempt_id='{legacy_attempt}' WHERE id='{legacy}'"
-    )
-    assert run.http("GET", f"/api/v1/tasks/{legacy}", alice)[1]["status"] == "FAILED"
-    before = run.sql("SELECT count(*) FROM outbox_events")
-    assert run.http("POST", f"/api/v1/tasks/{legacy}/retry", alice, {"attempt": 1})[0] == 409
-    assert run.sql("SELECT count(*) FROM outbox_events") == before
+        assert run.http(method, path, alice, body)[0] in (404, 405), (method, path)
+    options = run.http("GET", "/api/v1/workbench/options", alice)[1]
+    for gone in ("templates", "output_presets", "generation_available"):
+        assert gone not in options, gone
+    listed = run.http("GET", f"/api/v1/projects/{project}/assets", alice)[1]["items"]
+    assert all("cutout_ready" not in item and "review_status" not in item for item in listed)
 
     # A12: model catalog in two levels (ADR-20261012-AB; ADR-20260929-C, -Q before): interfaces
     # hold the key, address and proxy setting, models the id, purpose and official parameters;
@@ -566,9 +557,7 @@ def api_checks(core, admin, alice, bob, project):
     assert run.http("POST", f"{configs}/{default['id']}/key", admin, common)[0] >= 400
     retyped = f"{interfaces}/{default['interface_id']}/settings"
     assert run.http("POST", retyped, admin, {"kind": "x"})[0] == 400
-    frozen = run.sql(
-        f"SELECT provider_config_version FROM generation_tasks WHERE id='{fallback['id']}'"
-    )
+    frozen = run.sql(f"SELECT image_model_id FROM generation_tasks WHERE id='{fallback['id']}'")
     assert frozen == default["id"]
     # An interface with models cannot be deleted; DeepSeek serves text models only.
     status, body, _ = run.http("DELETE", f"{interfaces}/{gemini_face['id']}", admin)
@@ -894,10 +883,7 @@ def api_checks(core, admin, alice, bob, project):
     }
     state = core.generate(alice, keep, "v4-keep-original")
     task = state["id"]
-    assert (
-        run.sql(f"SELECT provider_config_version IS NULL FROM generation_tasks WHERE id='{task}'")
-        == "t"
-    )
+    assert run.sql(f"SELECT image_model_id IS NULL FROM generation_tasks WHERE id='{task}'") == "t"
     if core.font:
         assert state["status"] == "SUCCEEDED" and len(state["artifacts"]) == 2, state
         attempt, gens = core.generations(task)
@@ -957,10 +943,7 @@ def api_checks(core, admin, alice, bob, project):
     }
     state = core.generate(alice, card, "v4-gift-card-original")
     task = state["id"]
-    assert (
-        run.sql(f"SELECT provider_config_version IS NULL FROM generation_tasks WHERE id='{task}'")
-        == "t"
-    )
+    assert run.sql(f"SELECT image_model_id IS NULL FROM generation_tasks WHERE id='{task}'") == "t"
     regions = [
         [[220, 200, 500, 500], list(PRODUCT_RGB), 6],  # the original, untouched
         [[560, 752, 750, 764], [255] * 3, 6],  # white card below the label (x 544..768)
@@ -1003,8 +986,7 @@ def api_checks(core, admin, alice, bob, project):
         white_task = state["id"]
         assert (
             run.sql(
-                "SELECT provider_config_version IS NOT NULL FROM generation_tasks "
-                f"WHERE id='{white_task}'"
+                f"SELECT image_model_id IS NOT NULL FROM generation_tasks WHERE id='{white_task}'"
             )
             == "t"
         )
@@ -1308,7 +1290,7 @@ def api_checks(core, admin, alice, bob, project):
     assert "analysis" not in gens[0]["provenance"], gens[0]["provenance"]
     assert "Image analysis and plan" not in gens[0]["provenance"]["prompt"]
     assert core.get(alice, state["id"])[1]["analysis"] == {"skipped": "NO_VISION"}
-    unbound = f"SELECT text_config_version IS NULL FROM generation_tasks WHERE id='{state['id']}'"
+    unbound = f"SELECT text_model_id IS NULL FROM generation_tasks WHERE id='{state['id']}'"
     assert run.sql(unbound) == "t"
     assert core.fences(attempt) == "1"
     state = core.generate(alice, dict(wand, prompt="不能看图时只改写文字"), "v4-no-vision-wand")
@@ -1376,12 +1358,10 @@ def api_checks(core, admin, alice, bob, project):
     assert status == 202, (status, waiting)
     assert run.http("DELETE", f"{configs}/{seed['id']}", admin)[0] == 204
     assert seed["id"] not in {m["id"] for m in run.http("GET", configs, admin)[1]["items"]}
-    moved = run.sql(
-        f"SELECT provider_config_version FROM generation_tasks WHERE id='{waiting['id']}'"
-    )
+    moved = run.sql(f"SELECT image_model_id FROM generation_tasks WHERE id='{waiting['id']}'")
     assert moved == default_id, moved
     unlinked = run.sql(
-        f"SELECT provider_config_version IS NULL FROM generation_tasks WHERE id='{queued['id']}'"
+        f"SELECT image_model_id IS NULL FROM generation_tasks WHERE id='{queued['id']}'"
     )
     assert unlinked == "t"
     core.worker()

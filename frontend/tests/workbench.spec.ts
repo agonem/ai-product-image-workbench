@@ -22,6 +22,17 @@ function card(page: Page, task: string) {
   return page.locator(`[data-testid="result-card"][data-task="${task}"]`)
 }
 const toast = (page: Page) => page.locator('.toasts [role="status"]')
+// Materials are not preselected since ADR-20261010-T: pick the product image first.
+async function chooseProduct(page: Page) {
+  await page.getByRole('button', { name: /^商品图/ }).click()
+  await page.getByRole('menuitem', { name: '从素材库选择' }).click()
+  const picker = page.getByRole('dialog', { name: '选择商品图' })
+  await picker
+    .getByRole('button', { name: /^选择商品图/ })
+    .first()
+    .click()
+  await expect(picker).toHaveCount(0)
+}
 
 test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failure and responsive pages', async ({
   page,
@@ -40,13 +51,15 @@ test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failur
   await page.reload()
   await expect(page.getByRole('button', { name: '退出登录' })).toBeVisible()
 
-  // Old fixture tasks stay labelled as test data and cannot be opened as results.
+  // The API-created gift tasks are ordinary v4 tasks (ADR-20261019-AD): no test labels, and
+  // each one opens.
   await page.getByRole('link', { name: '任务记录' }).click()
   const rows = page.locator('.history-item')
   await expect(rows).toHaveCount(20)
-  await expect(rows.filter({ hasText: '开发/测试任务' })).toHaveCount(20)
-  await expect(rows.filter({ hasText: '（旧版任务）' })).toHaveCount(20)
-  await expect(page.getByRole('button', { name: '查看' })).toHaveCount(0)
+  await expect(rows.filter({ hasText: '赠品主图' })).toHaveCount(20)
+  await expect(page.getByText('开发/测试任务')).toHaveCount(0)
+  await expect(page.getByText('（旧版任务）')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '查看' })).toHaveCount(20)
   await page.getByRole('button', { name: '加载更早任务' }).click()
   await expect(rows).toHaveCount(22)
 
@@ -70,6 +83,7 @@ test('ACC-T06 A1/A3/A6–A8: dev-local entries, history, uploads, visible failur
 
   // Without a configured provider the task fails with a diagnosable code, never silently.
   await page.getByRole('link', { name: '场景主图' }).click()
+  await chooseProduct(page)
   await page.getByLabel('补充描述（可选）').fill('仅用于页面测试的场景描述')
   const sent = page.waitForRequest(generationPost)
   const answered = page.waitForResponse(
@@ -124,6 +138,7 @@ test('ACC-T06 A2/A4: lost response reuses the key; network error and expired ses
 }) => {
   await login(page)
   await page.getByRole('link', { name: '场景主图' }).click()
+  await chooseProduct(page)
   let firstKey = '',
     firstBody = ''
   await page.route(
@@ -202,7 +217,6 @@ test('ACC-T06 A2/A5: task polling shows RUNNING, survives a network error and re
   await page
     .locator('.history-item')
     .filter({ hasText: '场景主图' })
-    .filter({ hasNotText: '旧版任务' })
     .first()
     .getByRole('button', { name: '查看' })
     .click()
@@ -215,7 +229,12 @@ test('ACC-T06 A2/A5: task polling shows RUNNING, survives a network error and re
   await expect(current).toContainText('生成失败', { timeout: 10000 })
   await page.unroute('**/api/v4/generation-tasks/*')
 
+  // An expired session while refreshing the history: sign in again; the unsaved draft is
+  // discarded. (The results list lost its own refresh button with ADR-20261009-R.)
   await page.getByLabel('补充描述（可选）').fill('private unsaved draft')
+  await page.getByRole('link', { name: '任务记录' }).click()
+  const refresh = page.getByRole('button', { name: '刷新', exact: true })
+  await expect(refresh).toBeEnabled()
   await page.route(
     '**/api/v1/projects/p/tasks?offset=0',
     (route) =>
@@ -226,10 +245,11 @@ test('ACC-T06 A2/A5: task polling shows RUNNING, survives a network error and re
       }),
     { times: 1 },
   )
-  await page.getByRole('button', { name: '刷新结果' }).click()
+  await refresh.click()
   await expect(page.getByRole('button', { name: '登录开发环境' })).toBeVisible()
   await page.getByLabel('账号', { exact: true }).fill('alice')
   await page.getByLabel('密码', { exact: true }).fill(process.env.T06_PASSWORD!)
   await page.getByLabel('密码', { exact: true }).press('Enter')
+  await page.getByRole('link', { name: '场景主图' }).click()
   await expect(page.getByLabel('补充描述（可选）')).toHaveValue('')
 })

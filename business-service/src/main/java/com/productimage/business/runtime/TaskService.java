@@ -40,13 +40,16 @@ public final class TaskService {
         != 1) throw new Problem(404, "NOT_FOUND");
   }
 
-  public JsonNode create(String actor, String key, String raw) {
-    return create(actor, key, raw, "task-create");
-  }
-
-  /** v4 whole-image generation for all three entries (ADR-20260929). */
+  /** v4 whole-image generation for every entry (ADR-20260929). */
   public JsonNode createGeneration(String actor, String key, String raw) {
-    return create(actor, key, raw, "generation-v4-create");
+    JsonNode request = Json.parse(raw);
+    Json.validate("generation-v4-create", request);
+    return insert(
+        actor,
+        key,
+        request,
+        RequestFingerprint.sha256(raw),
+        () -> snapshots.buildGeneration(request));
   }
 
   /**
@@ -61,10 +64,8 @@ public final class TaskService {
     int ordinal = body.path("ordinal").asInt();
     int count = source.path("output").path("count").asInt();
     // Gift-card images carry no text since ADR-20261008-G, so there is nothing to re-render.
-    if (source.path("schema_version").asInt() != 4
-        || !"SUCCEEDED".equals(row.get("status"))
-        || source.has("gift_card")
-        || ordinal >= count) throw new Problem(409, "TASK_CONFLICT");
+    if (!"SUCCEEDED".equals(row.get("status")) || source.has("gift_card") || ordinal >= count)
+      throw new Problem(409, "TASK_CONFLICT");
     var bases =
         jdbc.queryForList(
             "SELECT id,object_key,sha256 FROM artifacts WHERE task_id=? AND attempt_id=? AND ordinal=? AND kind='BACKGROUND' AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=artifacts.id)",
@@ -93,20 +94,6 @@ public final class TaskService {
         request,
         RequestFingerprint.sha256(request.toString()),
         () -> snapshots.buildRetypeset(source, sourceId, ordinal, base, body.get("text")));
-  }
-
-  private JsonNode create(String actor, String key, String raw, String contract) {
-    JsonNode request = Json.parse(raw);
-    Json.validate(contract, request);
-    return insert(
-        actor,
-        key,
-        request,
-        RequestFingerprint.sha256(raw),
-        () ->
-            contract.startsWith("generation")
-                ? snapshots.buildGeneration(request)
-                : snapshots.build(request));
   }
 
   private JsonNode insert(
@@ -165,7 +152,7 @@ public final class TaskService {
           String id = Json.id();
           int inserted =
               jdbc.update(
-                  "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,template_snapshot_json,worker_snapshot_json,provider_config_version,conversation_id,text_config_version,analysis_skipped) VALUES (?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?,?,?) ON CONFLICT(created_by,feature_type,idempotency_key) DO NOTHING",
+                  "INSERT INTO generation_tasks(id,project_id,product_asset_id,gift_asset_id,feature_type,created_by,idempotency_key,request_sha256,request_snapshot_json,template_snapshot_json,worker_snapshot_json,image_model_id,conversation_id,text_model_id,analysis_skipped) VALUES (?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?,?,?,?) ON CONFLICT(created_by,feature_type,idempotency_key) DO NOTHING",
                   id,
                   request.path("project_id").asText(),
                   request.path("product_asset_id").asText(),
@@ -209,21 +196,17 @@ public final class TaskService {
     jdbc.update(
         "INSERT INTO task_attempts(id,task_id,attempt_no) VALUES (?,?,?)", attempt, task, number);
     ObjectNode payload = snapshot.deepCopy();
-    int version = snapshot.path("schema_version").asInt(1);
-    String type = "image.task.requested.v" + version;
+    // Every task is a v4 task since ADR-20261019-AD.
+    String type = "image.task.requested.v4";
     payload
-        .put("schema_version", version)
+        .put("schema_version", 4)
         .put("event_type", type)
         .put("event_id", event)
         .put("task_id", task)
         .put("attempt_id", attempt)
         .put("correlation_id", task)
         .put("output_object_prefix", "outputs/" + task + "/" + attempt + "/");
-    Json.validate(
-        version == 4
-            ? "generation-v4-request"
-            : version == 3 ? "scene-v3-request" : version == 2 ? "scene-request" : "task-request",
-        payload);
+    Json.validate("generation-v4-request", payload);
     jdbc.update(
         "INSERT INTO outbox_events(id,task_id,attempt_id,event_type,payload) VALUES (?,?,?,?,?::jsonb)",
         event,
@@ -300,7 +283,6 @@ public final class TaskService {
   public JsonNode getGeneration(String actor, String id) {
     var row = owned(actor, id, false);
     var snapshot = Json.parse(row.get("worker_snapshot_json").toString());
-    if (snapshot.path("schema_version").asInt() != 4) throw new Problem(404, "NOT_FOUND");
     ObjectNode result = (ObjectNode) get(actor, id);
     result.set("output", snapshot.get("output"));
     result.set("request", Json.parse(row.get("request_snapshot_json").toString()));
@@ -382,11 +364,7 @@ public final class TaskService {
               || current >= settings.maxAttempts()) {
             throw new Problem(409, "TASK_CONFLICT");
           }
-          if (row.get("worker_snapshot_json") == null) throw new Problem(409, "INVALID_CONTRACT");
           var snapshot = Json.parse(row.get("worker_snapshot_json").toString());
-          // Scene v2/v3 were replaced by v4; a legacy task stays readable but is not re-run.
-          int version = snapshot.path("schema_version").asInt(1);
-          if (version == 2 || version == 3) throw new Problem(409, "TASK_CONFLICT");
           // A deleted original (or stored model output) cannot be sent again.
           for (String input :
               new String[] {

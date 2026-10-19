@@ -13,7 +13,6 @@ async function setup(page: Page) {
       kind,
       width: 100 + index,
       height: 100 + index,
-      review_status: 'PENDING',
     }),
   )
   const state = {
@@ -57,7 +56,6 @@ async function setup(page: Page) {
     if (path.endsWith('/workbench/options'))
       return respond({
         mode: 'production-local',
-        generation_available: false,
         generation: {
           enabled: true,
           max_count: 4,
@@ -93,7 +91,6 @@ async function setup(page: Page) {
         kind: url.searchParams.get('kind') as AssetKind,
         width: 64,
         height: 64,
-        review_status: 'PENDING',
       }
       assets.unshift(asset)
       return respond(asset, 201)

@@ -1,6 +1,8 @@
 """T05 integration checks against an explicitly configured disposable PostgreSQL database.
 
-Uses real Java and Python processes, synthetic PNGs and per-run database schemas.
+Uses real Java and Python processes, synthetic PNGs and per-run database schemas. Since
+ADR-20261019-AD every task is a v4 task; the carrier is a gift picture on the original background
+with a program-drawn card, which calls no model and gives the same result every time.
 Called by check_db.py locally; CI can call directly with DB_TEST_* for its disposable service.
 """
 
@@ -26,7 +28,7 @@ from common import ROOT, business_jar, environment, process_options, stop, tool
 HTTP = build_opener(ProxyHandler({}))
 
 
-def png():
+def png(width=4, height=3, rgb=(130, 190, 160)):
     def chunk(kind, data):
         return (
             struct.pack(">I", len(data))
@@ -37,10 +39,15 @@ def png():
 
     return (
         b"\x89PNG\r\n\x1a\n"
-        + chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 3, 8, 2, 0, 0, 0))
-        + chunk(b"IDAT", zlib.compress((b"\x00" + bytes([130, 190, 160]) * 4) * 3))
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress((b"\x00" + bytes(rgb) * width) * height))
         + chunk(b"IEND", b"")
     )
+
+
+# The synthetic originals of the v4 carrier task (a product and a gift photo).
+PRODUCT = png(64, 64, (200, 120, 90))
+GIFT = png(48, 48, (90, 140, 210))
 
 
 class RuntimeCheck:
@@ -172,67 +179,66 @@ class RuntimeCheck:
             return response.status, value
 
     def seed(self):
-        image = png()
         (self.store / "fixtures").mkdir()
-        for name in ("product", "alpha", "gift", "foreign"):
+        rows = []
+        for name, project, kind, image, side in (
+            ("product", "p", "PRODUCT", PRODUCT, 64),
+            ("gift", "p", "GIFT", GIFT, 48),
+            ("foreign", "q", "PRODUCT", PRODUCT, 64),
+        ):
             (self.store / "fixtures" / f"{name}.png").write_bytes(image)
-        sha = hashlib.sha256(image).hexdigest()
-        self.sql("""
+            sha = hashlib.sha256(image).hexdigest()
+            rows.append(
+                f"('{name}','{project}','{kind}','fixtures/{name}.png','{sha}',{side},{side})"
+            )
+        self.sql(
+            """
             INSERT INTO users(id,status) VALUES ('u','ACTIVE'),('v','ACTIVE');
             INSERT INTO projects(id,owner_id,name)
               VALUES ('p','u','synthetic T05'),('q','v','foreign');
-            INSERT INTO templates(id,type,name) VALUES ('layout','layout','fixture only');
-            INSERT INTO template_versions(id,template_id,version,config_json,created_by,
-              published_by,published_at)
-              VALUES ('layout_v1','layout',1,'{}','u','u',now());
-            UPDATE templates SET published_version_id='layout_v1',state='PUBLISHED';
-            INSERT INTO output_presets(id,config_json)
-              VALUES ('t05_transport_fixture','{"purpose":"synthetic transport test"}');
-        """)
-        for name, project, kind in (
-            ("product", "p", "PRODUCT"),
-            ("gift", "p", "GIFT"),
-            ("foreign", "q", "PRODUCT"),
-        ):
-            self.sql(f"""
-                INSERT INTO assets(id,project_id,kind,object_key,sha256,
-              width,height)
-                VALUES ('{name}','{project}','{kind}','fixtures/{name}.png','{sha}',4,3);
-            """)
-        self.sql(f"""
-            INSERT INTO assets(id,project_id,kind,source_asset_id,object_key,sha256,
-              width,height,review_status)
-            VALUES ('alpha','p','ALPHA','product','fixtures/alpha.png','{sha}',4,3,'APPROVED');
-        """)
+            INSERT INTO assets(id,project_id,kind,object_key,sha256,width,height) VALUES """
+            + ",".join(rows)
+        )
 
-    def request(self, feature="SCENE"):
-        value = {
+    def request(self, position="BOTTOM_RIGHT", count=1):
+        """A gift picture on the original background with the gift in a card: no model call."""
+        return {
             "project_id": "p",
+            "feature_type": "GIFT",
             "product_asset_id": "product",
-            "feature_type": feature,
-            "output_preset_id": "t05_transport_fixture",
-            "layout": {"product": {"x": 0.1, "y": 0.1, "width": 0.8, "height": 0.8}},
+            "gift_asset_id": "gift",
+            "gift_position": position,
+            "background": {"mode": "ORIGINAL"},
+            "gift_card": {"size": "M"},
+            "output": {
+                "aspect_ratio": "1:1",
+                "width": 800,
+                "height": 800,
+                "format": "png",
+                "count": count,
+            },
         }
-        if feature == "SCENE":
-            value["scene_custom_prompt"] = "synthetic transport fixture"
-        elif feature == "GIFT":
-            value.update(gift_asset_id="gift", template_version_id="layout_v1")
-            value["layout"]["gift"] = {"x": 0.7, "y": 0.7, "width": 0.2, "height": 0.2}
-        else:
-            value.update(selling_points=["人工测试"], layout_template_version_id="layout_v1")
-        return value
 
-    def create(self, key=None, feature="SCENE"):
+    def create(self, key=None, **request):
         status, value = self.call(
-            "POST", "/api/v1/tasks", self.request(feature), key=key or uuid.uuid4().hex
+            "POST",
+            "/api/v4/generation-tasks",
+            self.request(**request),
+            key=key or uuid.uuid4().hex,
         )
         assert status == 202, (status, value)
         return value
 
     def state(self, task):
-        status, value = self.call("GET", f"/api/v1/tasks/{task['id']}")
+        status, value = self.call("GET", f"/api/v4/generation-tasks/{task['id']}")
         assert status == 200, value
         return value
+
+    def results(self, task):
+        """Finished pictures of a task (model outputs kept for re-typesetting are not counted)."""
+        return self.sql(
+            f"SELECT count(*) FROM artifacts WHERE task_id='{task['id']}' AND kind='COMPOSITE'"
+        )
 
     def claim(self):
         status, value = self.call("POST", "/internal/v1/work/claim", auth="worker")
@@ -249,31 +255,38 @@ class RuntimeCheck:
         )
 
     def receipt(self, claim, artifact=None):
+        """A hand-made v4 receipt: the right shape, for checking how Java treats its timing."""
         request = claim["request"]
+        stored = artifact or {
+            "object_key": "outputs/missing",
+            "sha256": "0" * 64,
+            "width": 800,
+            "height": 800,
+        }
         return {
-            "schema_version": 1,
-            "event_type": "image.task.completed.v1",
+            "schema_version": 4,
+            "event_type": "image.task.completed.v4",
             "event_id": uuid.uuid4().hex,
             "task_id": request["task_id"],
             "attempt_id": request["attempt_id"],
             "correlation_id": request["correlation_id"],
-            "artifacts": [
+            "duration_ms": 0,
+            "artifacts": [{"ordinal": 0, "kind": "COMPOSITE", **stored}],
+            "generations": [
                 {
                     "ordinal": 0,
-                    "kind": "COMPOSITE",
-                    **(
-                        artifact
-                        or {
-                            "object_key": "outputs/missing",
-                            "sha256": "0" * 64,
-                            "width": 4,
-                            "height": 3,
-                        }
-                    ),
+                    "base": {"ordinal": 1, "kind": "BACKGROUND", **stored},
+                    "provenance": {
+                        "schema_version": 1,
+                        "output_source": "original",
+                        "sha256": stored["sha256"],
+                        "inputs": {"product_sha256": request["product_asset"]["sha256"]},
+                        "transform": {},
+                        "text_rendered": False,
+                        "review_status": "PENDING",
+                    },
                 }
             ],
-            "duration_ms": 0,
-            "background_generation": None,
         }
 
     def send_receipt(self, claim, body):
@@ -285,7 +298,7 @@ class RuntimeCheck:
             lease=claim["lease_token"],
         )
 
-    def worker(self, *, fixture=True, crash=None, journal="worker", expected=0):
+    def worker(self, *, crash=None, journal="worker", expected=0):
         env = {**self.env, "WORKER_JOURNAL_ROOT": str(self.work / journal)}
         env.pop("T05_TEST_CRASH_AT", None)
         if crash:
@@ -301,8 +314,8 @@ class RuntimeCheck:
             "image_service.worker",
             "--once",
         ]
-        if fixture:
-            command.append("--fixture")
+        if crash:
+            command.append("--test-hooks")
         with (self.work / "worker.log").open("a", encoding="utf-8") as log:
             result = subprocess.run(
                 command,
@@ -317,29 +330,29 @@ class RuntimeCheck:
 
 
 def verify(run):
-    assert run.call("POST", "/api/v1/tasks", run.request(), auth=None)[0] == 401
+    tasks_path = "/api/v4/generation-tasks"
+    assert run.call("POST", tasks_path, run.request(), auth=None)[0] == 401
     assert run.call("POST", "/internal/v1/work/claim")[0] == 401
-    assert run.call("GET", "/api/v1/tasks/unknown", auth="worker")[0] == 401
+    assert run.call("GET", f"{tasks_path}/unknown", auth="worker")[0] == 401
     denied = run.request()
     denied["project_id"] = "q"
     denied["product_asset_id"] = "foreign"
-    assert run.call("POST", "/api/v1/tasks", denied, key="denied")[0] == 404
+    assert run.call("POST", tasks_path, denied, key="denied")[0] == 404
     with ThreadPoolExecutor(max_workers=4) as executor:
         tasks = list(executor.map(lambda _: run.create("idempotent"), range(4)))
     task = tasks[0]
     assert len({value["id"] for value in tasks}) == 1
     assert run.sql("SELECT count(*) FROM generation_tasks") == "1"
     assert run.sql("SELECT count(*) FROM outbox_events") == "1"
-    changed = run.request()
-    changed["scene_custom_prompt"] += " changed"
-    assert run.call("POST", "/api/v1/tasks", changed, key="idempotent")[0] == 409
+    changed = run.request(position="BOTTOM_LEFT")
+    assert run.call("POST", tasks_path, changed, key="idempotent")[0] == 409
     run.sql("""
         CREATE FUNCTION injected_failure() RETURNS trigger LANGUAGE plpgsql AS
         $$ BEGIN RAISE EXCEPTION 'injected transaction failure'; END; $$;
         CREATE TRIGGER test_outbox_failure BEFORE INSERT ON outbox_events
         FOR EACH ROW EXECUTE FUNCTION injected_failure();
     """)
-    assert run.call("POST", "/api/v1/tasks", run.request(), key="rollback")[0] == 500
+    assert run.call("POST", tasks_path, run.request(), key="rollback")[0] == 500
     run.sql("DROP TRIGGER test_outbox_failure ON outbox_events; DROP FUNCTION injected_failure()")
     assert run.sql("SELECT count(*) FROM generation_tasks") == "1"
     print("PASS auth, concurrent idempotency, conflicting payload and atomic rollback", flush=True)
@@ -418,18 +431,26 @@ def verify(run):
         )
     assert all(status == 202 and value["attempt"] == 2 for status, value in retries)
     assert run.sql("SELECT count(*) FROM task_attempts") == "2"
-    run.worker(fixture=False)
+    # A stored original that no longer matches its hash: the Worker cannot read it, so the
+    # attempt fails visibly and may be retried once the file is back.
+    original = run.store / "fixtures" / "product.png"
+    original.write_bytes(png(64, 64, (0, 0, 0)))
+    run.worker()
     failed = run.state(task)
-    assert failed["status"] == "FAILED" and failed["error"]["code"] == "PROVIDER_UNAVAILABLE"
+    assert failed["status"] == "FAILED" and failed["error"]["code"] == "GENERATION_FAILED"
+    original.write_bytes(PRODUCT)
     assert run.call("POST", f"/api/v1/tasks/{task['id']}/retry", {"attempt": 2})[0] == 202
     run.worker()
     success = run.state(task)
     assert success["status"] == "SUCCEEDED" and success["attempt"] == 3
     artifact_id = success["artifacts"][0]["id"]
-    assert run.call("GET", f"/api/v1/artifacts/{artifact_id}/content")[1] == png()
+    content = run.call("GET", f"/api/v1/artifacts/{artifact_id}/content")[1]
+    assert content[:8] == b"\x89PNG\r\n\x1a\n"
+    stored = run.sql(f"SELECT sha256 FROM artifacts WHERE id='{artifact_id}'")
+    assert hashlib.sha256(content).hexdigest() == stored
     assert run.call("GET", f"/api/v1/artifacts/{artifact_id}/content", auth=None)[0] == 401
     assert "object_key" not in json.dumps(success)
-    assert run.sql("SELECT count(*) FROM artifacts") == "1"
+    assert run.results(task) == "1"
     print(
         "PASS leases, backoff, stale receipt, content verification, "
         "retry and real Worker success/failure",
@@ -449,19 +470,20 @@ def verify(run):
     )
     assert run.send_receipt(missing_claim, missing_receipt)[1]["disposition"] == "REJECTED"
     assert run.state(missing)["status"] == "FAILED"
-    assert run.sql(f"SELECT count(*) FROM artifacts WHERE task_id='{missing['id']}'") == "0"
+    assert run.results(missing) == "0"
     print("PASS old-attempt receipt isolation and missing-file rejection", flush=True)
 
-    for feature in ("GIFT", "SELLING_POINT"):
-        independent = run.create(feature=feature)
+    for position, count in (("LEFT", 1), ("BOTTOM_LEFT", 2)):
+        independent = run.create(position=position, count=count)
         run.worker()
         assert run.state(independent)["status"] == "SUCCEEDED"
+        assert run.results(independent) == str(count)
     durable = run.create()
     run.close()
     run.start()
     run.worker()
     assert run.state(durable)["status"] == "SUCCEEDED"
-    print("PASS independent feature requests and Java restart outbox recovery", flush=True)
+    print("PASS independent requests and Java restart outbox recovery", flush=True)
 
     for point in ("after-claim", "after-output", "after-journal", "after-ack"):
         item = run.create()
@@ -475,7 +497,7 @@ def verify(run):
             )
         run.worker(journal=journal)
         assert run.state(item)["status"] == "SUCCEEDED", point
-        assert run.sql(f"SELECT count(*) FROM artifacts WHERE task_id='{item['id']}'") == "1"
+        assert run.results(item) == "1"
         assert not list((run.work / journal).glob("*.json"))
         print(f"PASS Worker crash recovery {point}", flush=True)
 

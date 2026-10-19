@@ -64,28 +64,10 @@ public class WorkbenchApi {
         Json.object()
             .put(
                 "mode",
-                users instanceof ProductionAccounts ? "production-local" : "development-only")
-            .put("generation_available", false);
+                users instanceof ProductionAccounts ? "production-local" : "development-only");
     result.set("generation", generation.options());
     // Models the operator can pick on the generation pages (names only, no keys).
     result.set("models", configs.choices());
-    var templates = result.putArray("templates");
-    for (var row :
-        jdbc.queryForList(
-            "SELECT v.id,t.name,t.type,v.version FROM template_versions v JOIN templates t ON t.id=v.template_id WHERE v.published_at IS NOT NULL AND t.state<>'DISABLED' AND (t.type<>'scene' OR (jsonb_typeof(v.config_json->'prompt')='string' AND length(trim(v.config_json->>'prompt'))>0)) ORDER BY t.name,v.version DESC,v.id LIMIT 200")) {
-      templates.add(
-          Json.object()
-              .put("id", row.get("id").toString())
-              .put("name", row.get("name").toString())
-              .put("type", row.get("type").toString())
-              .put("version", ((Number) row.get("version")).intValue()));
-    }
-    var presets = result.putArray("output_presets");
-    for (var row : jdbc.queryForList("SELECT id FROM output_presets ORDER BY id LIMIT 200")) {
-      String id = row.get("id").toString();
-      presets.add(
-          Json.object().put("id", id).put("test_fixture", id.equals("t05_transport_fixture")));
-    }
     return response(result);
   }
 
@@ -96,18 +78,13 @@ public class WorkbenchApi {
     int offset = offset(request);
     var rows =
         jdbc.queryForList(
-            "SELECT a.id,EXISTS(SELECT 1 FROM assets b WHERE b.project_id=a.project_id AND b.source_asset_id=a.id AND b.kind='ALPHA' AND b.review_status='APPROVED') AS cutout_ready FROM assets a WHERE a.project_id=? AND a.kind IN ('PRODUCT','GIFT','REFERENCE') AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) ORDER BY a.created_at DESC,a.id DESC LIMIT 21 OFFSET ?",
+            "SELECT a.id FROM assets a WHERE a.project_id=? AND a.kind IN ('PRODUCT','GIFT','REFERENCE') AND NOT EXISTS (SELECT 1 FROM deletions d WHERE d.target_id=a.id) ORDER BY a.created_at DESC,a.id DESC LIMIT 21 OFFSET ?",
             id,
             offset);
     var result = Json.object();
     var items = result.putArray("items");
-    for (var row : rows.stream().limit(20).toList()) {
-      var item =
-          (com.fasterxml.jackson.databind.node.ObjectNode)
-              assets.asset(actor, row.get("id").toString());
-      item.put("cutout_ready", Boolean.TRUE.equals(row.get("cutout_ready")));
-      items.add(item);
-    }
+    for (var row : rows.stream().limit(20).toList())
+      items.add(assets.asset(actor, row.get("id").toString()));
     if (rows.size() > 20 && offset <= 9980) result.put("next_offset", offset + 20);
     else result.putNull("next_offset");
     return response(result);
@@ -120,19 +97,13 @@ public class WorkbenchApi {
     int offset = offset(request);
     var rows =
         jdbc.queryForList(
-            "SELECT id,template_snapshot_json->'output_preset'->>'id' AS preset FROM generation_tasks WHERE project_id=? ORDER BY created_at DESC,id DESC LIMIT 21 OFFSET ?",
+            "SELECT id FROM generation_tasks WHERE project_id=? ORDER BY created_at DESC,id DESC LIMIT 21 OFFSET ?",
             id,
             offset);
     var result = Json.object();
     var items = result.putArray("items");
     for (var row : rows.stream().limit(20).toList()) {
-      var item =
-          Json.object()
-              .put("test_fixture", "t05_transport_fixture".equals(row.get("preset")))
-              .put(
-                  "real_scene",
-                  "scene_v2".equals(row.get("preset")) || "scene_v3".equals(row.get("preset")))
-              .put("generation_v4", GenerationPolicy.PRESET.equals(row.get("preset")));
+      var item = Json.object();
       item.set("task", tasks.get(actor, row.get("id").toString()));
       items.add(item);
     }
